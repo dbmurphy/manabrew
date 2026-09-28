@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.50.3](https://github.com/witchesofthehill/manabrew/compare/v3.50.2...v3.50.3) (2026-09-28)
+
+### Fixes
+
+* protect hub deploys and correct engine health reporting ([#988](https://github.com/witchesofthehill/manabrew/issues/988)) ([d48d4eb](https://github.com/witchesofthehill/manabrew/commit/d48d4eba55635b5e4b3c65eb3bd03ae7b9ae7c25))
+
 ## [3.50.2](https://github.com/witchesofthehill/manabrew/compare/v3.50.1...v3.50.2) (2026-09-27)
 
 ### Fixes
