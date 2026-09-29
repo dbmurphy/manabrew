@@ -1450,7 +1450,9 @@ fn run_hosted_engine_game_inner(
                             match prompt.input.validate_response(&action) {
                                 Ok(()) => {}
                                 Err(
-                                    error @ (ResponseViolation::PaymentNotAvailable
+                                    error @ (ResponseViolation::NumberOutOfRange
+                                    | ResponseViolation::InvalidSelection
+                                    | ResponseViolation::PaymentNotAvailable
                                     | ResponseViolation::FinishNotAllowed
                                     | ResponseViolation::UnknownObjectId(_)),
                                 ) => {

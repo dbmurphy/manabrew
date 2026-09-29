@@ -8,8 +8,12 @@ use crate::prompts::common::{PaymentAction, PromptPresentation};
 #[ts(export, export_to = "prompts/payManaCost.ts")]
 pub struct PayManaCostInput {
     pub presentation: PromptPresentation,
-    pub card_id: String,
-    pub card_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub card_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub card_name: Option<String>,
     pub mana_cost: String,
     pub can_confirm_from_pool: bool,
     #[serde(default = "auto_pay_default")]

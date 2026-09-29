@@ -1951,7 +1951,7 @@ export default function Game({ exitTo }: GameProps = {}) {
                 payManaCostInfo={
                   payManaCostInput
                     ? {
-                        cardName: payManaCostInput.cardName,
+                        cardName: payManaCostInput.cardName ?? payManaCostInput.presentation.title,
                         sourceCard: promptSourceDeckCard,
                         manaCost: payManaCostInput.manaCost,
                         description: payManaCostInput.presentation.text,

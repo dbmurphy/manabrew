@@ -10,9 +10,15 @@ use manabrew_protocol::transport::{AgentPrompt, ClientToServerMessage};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut hold_attackers = false;
     let mut number_choice = None;
+    let mut confirm_label = None;
+    let mut target_count = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "--target-count" => {
+                target_count = Some(args.next().ok_or("missing target count")?.parse::<u32>()?)
+            }
+            "--confirm-label" => confirm_label = Some(args.next().ok_or("missing confirm label")?),
             "--hold-attackers" => hold_attackers = true,
             "--number-choice" => {
                 number_choice = Some(args.next().ok_or("missing number choice")?.parse::<i32>()?)
@@ -30,6 +36,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             && matches!(&input, PromptInput::ChooseObject(choice) if choice.intent == TargetingIntent::Attack && choice.can_finish)
         {
             PromptOutput::ChooseObject(ChooseObjectOutput::Finish)
+        } else if matches!(&input, PromptInput::ChooseBoolean(choice) if confirm_label.as_ref() == Some(&choice.confirm_label))
+        {
+            PromptOutput::ChooseBoolean(manabrew_protocol::prompts::ChooseBooleanOutput::Decision {
+                value: true,
+            })
+        } else if let (Some(count), PromptInput::ChooseBoardTargets(choice)) =
+            (target_count, &input)
+        {
+            let count = i32::try_from(count)?.clamp(choice.min_targets, choice.max_targets);
+            let take = count.saturating_sub(choice.chosen_targets).max(0) as usize;
+            let mut candidates = choice.candidates.clone();
+            candidates.sort_by_key(|target| target.id == prompt.deciding_player_id);
+            PromptOutput::ChooseBoardTargets(
+                manabrew_protocol::prompts::ChooseBoardTargetsOutput::BoardTargets {
+                    chosen: candidates.into_iter().take(take).collect(),
+                },
+            )
         } else if let (Some(value), PromptInput::ChooseNumber(choice)) = (number_choice, &input) {
             PromptOutput::ChooseNumber(ChooseNumberOutput::NumberDecision {
                 chosen_number: Some(value.clamp(choice.min, choice.max)),

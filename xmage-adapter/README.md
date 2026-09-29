@@ -4,6 +4,45 @@ Research branch: `research/xmage-protocol`. The Java subprocess connects through
 
 **Verified:** two headless ManaBot clients can play complete local games on an unmodified XMage release server. Spells, targeting, manual mana payment, attackers, blockers, and damage allocation have live coverage. A separate research browser page now uses ManaBrew’s actual prompt components against a local HTTP bridge, with ManaBot as the opponent. The normal game board, lobby and relay launch flow are not connected. Public-server compatibility and reconnect are unverified.
 
+## Shared-engine checkpoint
+
+**One schema and one Rust protocol-agent binary now drive completed games on both Java Forge and stock XMage.** The engine-specific adapters retain transport and rules decisions; the bot consumes canonical `AgentPrompt` and returns canonical responses. This proves interoperability for the recorded mechanics, not all MTG cards or production readiness.
+
+[Shared-engine results](fixtures/shared-engine-results.json) archive six new completed runs:
+
+| Engine | Scenario | Accepted decisions | Canonical states | Evidence |
+| --- | --- | ---: | ---: | --- |
+| Forge | Lightning Bolt | 115 | 115 | Casting, targeting, payment and damage |
+| Forge | Fireball | 584 | 584 | 19 numeric prompts, nonzero X and damage |
+| XMage | City of Brass / Lightning Bolt | 117 | 409 | Unclassified mana actions and color selection |
+| XMage | Goblin War Buggy | 114 | 393 | Four payment prompts without an identified source card |
+| XMage | Blocking | 136 | 439 | Incremental combat and constrained numeric allocation |
+| XMage | Fireball | 406 | 1,285 | Nonzero X, required numeric answers and damage |
+
+The same Rust capture checker deserializes both engines' prompts, states and accepted responses. It also verifies that the shared contract rejects 3,106 malformed or out-of-contract XMage responses; stale-prompt checks remain adapter/session concerns and are counted separately by the smoke. Forge's direct probe sends valid responses only: it bypasses the normal node validation boundary and does not establish Java-side rejection parity.
+
+Numeric choices now advertise `cancellable`; Forge forwards its existing `canCancel`, while XMage numeric dialogs require a number and staged allocations inherit the native cancel option. Missing fields retain the legacy protocol behavior. Numeric bounds and weighted selection constraints are checked by the shared Rust validator, including unknown indices, disallowed repetitions and total overflow. The frontend exposes cancellation only when advertised and no longer truncates fractional numeric input.
+
+Payment source ID/name are optional, and payment actions can be unclassified. A resolving echo cost has no unpaid stack card to identify; it must still be payable. City of Brass demonstrates why a native mana choice must not be dropped just because XMage omits a semantic ability classification. Special payment actions are mapped but have not yet been exercised live. Cancellable multi-amount handling is implemented from the native API; only non-cancellable combat allocation has live coverage here.
+
+The probes remain deliberately simple policies. Fireball uses X=2 within the engine's bounds; the Forge probe also requests one target because zero targets is a legal but uninformative choice. The echo probe confirms the advertised `Yes` choice. No adapter infers rules from these card names. The main app, public servers, reconnect, full Forge AI, capability/version negotiation and complete state fidelity remain outside this checkpoint.
+
+### Reproduce the Forge side
+
+Build the existing harness (`node scripts/harness.mjs build`) and `protocol-agent`, then from the repository root:
+
+```sh
+mkdir -p tmp
+javac -cp forge-harness/target/forge-harness-jar-with-dependencies.jar \
+  -d tmp xmage-adapter/ForgeProbe.java
+java -Xmx2048m -Djava.awt.headless=true \
+  -cp tmp:forge-harness/target/forge-harness-jar-with-dependencies.jar \
+  ForgeProbe forge/forge-gui/ target/debug/protocol-agent tmp/forge.jsonl x-cost
+cargo run --locked -q -p manabrew-protocol --example validate_xmage_capture -- tmp/forge.jsonl
+```
+
+Omit `x-cost` for Lightning Bolt. Use `;` as the Java classpath separator on Windows. The assets argument is `forge/forge-gui/`, not its `res/` subdirectory. The probe bounds the game at 120 seconds and each bot answer at ten seconds, cleans up sessions/bots, and requires targeting, payment and actual damage. It uses two separate agent processes and captures each deciding seat's view while the engine waits on that prompt.
+
 ## Initial recorded results
 
 Official XMage `1.4.61-V1 (build: 2026-08-12 12:28)`, JDK 18, local server, two Human seats controlled by the Rust `protocol-agent` binary using ManaBot's `SimpleAi`. These are protocol probes, not measurements of playing strength.
@@ -66,7 +105,7 @@ cargo run --locked -q -p manabrew-protocol --example validate_xmage_capture \
   -- tmp/xmage/blocking.jsonl
 ```
 
-Scenarios: `bolt`, `combat`, `blocking`, `lethal`, `activated`, `manual-pool`, `modal`, `color`, `x-cost`. All now expect completed games. `--expect-gap CODE` remains available for deliberate boundary probes; the archived activated-ability gap is no longer expected from current code.
+Scenarios: `bolt`, `combat`, `blocking`, `lethal`, `activated`, `manual-pool`, `modal`, `color`, `x-cost`, `any-mana`, `echo`. All now expect completed games. `--expect-gap CODE` remains available for deliberate boundary probes; the archived activated-ability gap is no longer expected from current code.
 
 Omitting `--agent` uses the Python smoke policy. The defensive seat for `blocking` requires `--agent`; it runs `protocol-agent --hold-attackers`. The `x-cost` policy passes `--number-choice 2`. Most decks have ten cards under `Constructed - Freeform Unlimited`; `lethal` and `x-cost` use larger decks. XMage shuffles are not seeded by this harness, so counts and winners vary. Automated runs time out after 90 seconds; bot decisions after ten seconds. The smoke only connects to loopback and cleans up its table and processes.
 
@@ -139,11 +178,11 @@ The adapter intentionally uses a local subprocess boundary, not an exposed netwo
 
 1. **Target intent cannot be required engine knowledge.** Stock XMage sends target UUIDs, presentation text and query metadata, but not a semantic label such as Damage or Heal. `TargetingIntent::Unknown` avoids guessing from card names or text. The UI gives it no semantic glyph.
 2. **Incremental object selection differs from aggregate assignment.** `ChooseObject` carries candidate `TargetRef`s, the selected subset, intent, and advertised Finish/Cancel operations. A Select sends one native object choice; selecting an already-selected object may toggle it according to that engine interaction. This represents targeting and attacker/blocker declaration without fabricating aggregate constraints. Candidates are offered interactions, not a guarantee of a complete legal final assignment; XMage validates completion. Native target `min=0,max=0` are not copied as aggregate bounds.
-3. **Auto-pay is a capability.** `PayManaCost.autoPayAvailable` defaults to true for existing producers; XMage advertises false. `SpendMana` represents explicit pool-color choices alongside mana abilities. The protocol rejects unavailable payment operations. Manual payment gets its own UI controls. The current Java mapping only handles payment with an identifiable unpaid stack object.
+3. **Auto-pay is a capability.** `PayManaCost.autoPayAvailable` defaults to true for existing producers; XMage advertises false. `SpendMana` represents explicit pool-color choices alongside mana abilities. The protocol rejects unavailable payment operations. Manual payment gets its own UI controls. The source card is optional when the native callback cannot identify it.
 4. **Pregame is a real state.** `StepKind::Pregame` represents native snapshots without a turn step. Converting it to a Forge phase returns no phase instead of inventing Untap.
 5. **Incomplete state must be visible.** Optional `StateUpdate.unavailableFields` reports unsupported projection paths. Existing producers omit it. This is research metadata, not negotiated capability/version support, and existing stores do not yet enforce it.
 6. **Unclassified actions must remain actionable without fabricated semantics.** `AvailableActionKind::Unclassified` carries an opaque ID, card ID and native label. It covers XMage’s mixed `other` bucket without calling every entry an ordinary activated ability. ManaBot can mechanically choose it, and the UI exposes a generic action picker. This preserves interaction, not strategic understanding of the action.
-7. **Some native compound decisions need no schema change.** Non-cancellable `GAME_GET_MULTI_AMOUNT` is staged through existing `ChooseNumber` prompts. At each step, bounds preserve a feasible total for the remaining entries. Only the completed vector is submitted. This loses the native dialog's ability to revise earlier entries before submission; cancellable allocations remain an explicit adapter gap.
+7. **Some native compound decisions need no schema change.** `GAME_GET_MULTI_AMOUNT` is staged through existing `ChooseNumber` prompts. At each step, bounds preserve a feasible total for the remaining entries. Only the completed vector is submitted. This loses the native dialog's ability to revise earlier entries before submission; cancellable allocations advertise cancellation on each stage and submit the native cancel response without sending a partial vector.
 
 These additions are experimental and are **not safe to deploy to older consumers without version/capability negotiation**. No public protocol version or release has been changed.
 
@@ -156,8 +195,8 @@ Snapshots project turn/step, players/life/mana, own hand, public battlefield/gra
 Other known limits:
 
 - The `other` bucket is now exposed as Unclassified. Exact casting/activation semantics and non-basic mana-ability classification remain unavailable; a playable option is not a semantic model for stronger bots.
-- Special actions, alternative costs, cancellable multi-amount dialogs, pile/card ordering and other unimplemented callbacks stop with an `adapterGap`. Finite required/optional `GAME_CHOOSE_CHOICE` maps to selection; custom text choices still stop. Modal/number/ability mappings beyond the recorded paths need broader live coverage.
-- Mana payment outside an unpaid stack object, arbitrary combat restrictions, deathtouch/trample ordering, multiplayer, Commander, sideboarding, drafts and tournaments are not established by these games.
+- Special priority actions, alternative costs, pile/card ordering and other unimplemented callbacks stop with an `adapterGap`. Finite required/optional `GAME_CHOOSE_CHOICE` maps to selection; custom text choices still stop. Modal/number/ability mappings beyond the recorded paths need broader live coverage.
+- Arbitrary combat restrictions, deathtouch/trample ordering, multiplayer, Commander, sideboarding, drafts and tournaments are not established by these games.
 - Pass-until/exhaust-stack and snapshot restore are unsupported; the subprocess ManaBot uses single priority passes.
 - No app/relay/node launch path, authentication UX, replay-resume, or public-server session has been integrated. The standalone browser exercises prompt controls end to end, but the normal game board has not been exercised against XMage.
 
@@ -185,6 +224,6 @@ Running Forge's full AI is a separate project: its [AiController](https://github
 - Forge harness rebuild and its three regression entrypoints; existing protocol tests, generated TypeScript types, frontend typecheck, and ESLint on changed frontend files.
 - Java compiled against the released client jars on every smoke run.
 
-The research worktree uses existing ignored WASM build artifacts for the frontend typecheck. No public server, deployment, commit or push is involved.
+The research worktree uses existing ignored WASM build artifacts for the frontend typecheck. No public server or deployment is involved. Research is tracked in [draft PR #1017](https://github.com/witchesofthehill/manabrew/pull/1017).
 
 References: [XMage session](https://github.com/magefree/mage/blob/xmage_1.4.61V1/Mage.Common/src/main/java/mage/remote/SessionImpl.java), [human interaction](https://github.com/magefree/mage/blob/xmage_1.4.61V1/Mage.Server.Plugins/Mage.Player.Human/src/mage/player/human/HumanPlayer.java), [ManaBrew prompt definitions](../manabrew-rs/crates/manabrew-protocol/src/prompts/).

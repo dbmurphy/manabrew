@@ -143,6 +143,9 @@ pub enum PaymentResourceKind {
 )]
 #[ts(export, export_to = "prompts/common.ts")]
 pub enum PaymentActionKind {
+    Unclassified {
+        label: String,
+    },
     SpendMana {
         player_id: String,
         color: ManaColor,

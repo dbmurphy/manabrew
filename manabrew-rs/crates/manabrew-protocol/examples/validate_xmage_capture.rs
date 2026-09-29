@@ -14,6 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut prompts = HashMap::<(u64, u32), AgentPrompt>::new();
     let mut requests = HashMap::<(u64, u64), Value>::new();
     let mut accepted = 0;
+    let mut rejected = 0;
     let mut accepted_ids = HashSet::new();
     let mut views = Vec::new();
     let mut states = 0;
@@ -46,6 +47,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let prompt: AgentPrompt = serde_json::from_value(message["params"].clone())?;
             if prompts.insert((seat, prompt.prompt_id), prompt).is_some() {
                 return Err("reused prompt id".into());
+            }
+        } else if row["direction"] == "event" && message.get("error").is_some() {
+            let id = message["id"].as_u64().ok_or("missing error id")?;
+            if let Some(params) = requests.remove(&(seat, id)) {
+                if message["error"]["message"] == "StalePrompt" {
+                    continue;
+                }
+                let decoded = serde_json::from_value::<ClientToServerMessage>(params);
+                if let Ok(ClientToServerMessage::Response { prompt_id, action }) = decoded {
+                    let prompt = prompts
+                        .get(&(seat, prompt_id))
+                        .ok_or("unknown rejected prompt")?;
+                    if prompt.input.validate_response(&action).is_ok() {
+                        return Err(format!(
+                            "engine rejected a response accepted by the shared contract: {}",
+                            message["error"]
+                        )
+                        .into());
+                    }
+                }
+                rejected += 1;
             }
         } else if row["direction"] == "event" && message.get("result").is_some() {
             let id = message["id"].as_u64().ok_or("missing result id")?;
@@ -86,7 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("capture contains no completed prompt roundtrip".into());
     }
     println!(
-        "Validated {} prompts, {accepted} accepted responses, {states} states and {ended} game results",
+        "Validated {} prompts, {accepted} accepted responses, {rejected} contract rejections, {states} states and {ended} game results",
         prompts.len()
     );
     Ok(())

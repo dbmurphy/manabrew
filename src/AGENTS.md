@@ -119,3 +119,5 @@ Lobby-spawned AI bots (`WasmBot`s driven by `spawnAiBot` in `platform/web.ts`) s
 ## XMage research branch
 
 The experimental `ChooseObject` prompt uses `ChooseObjectModal` for incremental selections; the engine validates completion. `PayManaCost.autoPayAvailable === false` uses `ManualManaModal` and suppresses automatic payment, including the keyboard shortcut. `TargetingIntent.Unknown` has no semantic glyph. The separate `xmage-research.html` / `src/research/xmage.tsx` entry exercises these controls through the loopback research bridge; the normal app/relay runtime is not connected. Unclassified priority actions use `AvailableActionsModal`. Research `StateUpdate.unavailableFields` describes incomplete projections but is not enforced by the store; see `xmage-adapter/README.md` before using these views in the app.
+
+Research number prompts expose Cancel only when `cancellable` is true. Payment source identity may be absent; use presentation text when rendering the payment heading. Manual payment actions may carry an unclassified label.

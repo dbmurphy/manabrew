@@ -18,7 +18,7 @@ parser.add_argument("--expect-gap")
 parser.add_argument("--human-port", type=int)
 parser.add_argument("--ui-origin", default="http://localhost:1420")
 parser.add_argument("--agent", type=Path)
-parser.add_argument("--scenario", choices=["bolt", "combat", "blocking", "lethal", "activated", "manual-pool", "modal", "color", "x-cost"], default="bolt")
+parser.add_argument("--scenario", choices=["bolt", "combat", "blocking", "lethal", "activated", "manual-pool", "modal", "color", "x-cost", "any-mana", "echo"], default="bolt")
 args = parser.parse_args()
 human = HumanSeat(args.human_port, args.ui_origin) if args.human_port else None
 args.capture.parent.mkdir(parents=True, exist_ok=True)
@@ -79,7 +79,7 @@ with args.capture.open("w") as capture:
                                        stderr=log, text=True)
             clients.append(process)
             if args.agent:
-                agents.append(subprocess.Popen([str(args.agent.resolve()), *(["--hold-attackers"] if args.scenario == "blocking" and seat == 1 else []), *(["--number-choice", "2"] if args.scenario == "x-cost" else [])], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True))
+                agents.append(subprocess.Popen([str(args.agent.resolve()), *(["--hold-attackers"] if args.scenario == "blocking" and seat == 1 else []), *(["--number-choice", "2"] if args.scenario == "x-cost" else []), *(["--confirm-label", "Yes"] if args.scenario == "echo" else [])], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True))
             threading.Thread(target=read, args=(seat, process), daemon=True).start()
             send(seat, "connect", {"host": "127.0.0.1", "port": args.port,
                                    "username": f"mba{os.getpid()}_{seat}", "autoSpendMana": args.scenario != "manual-pool"})
@@ -102,6 +102,10 @@ with args.capture.open("w") as capture:
                 {"cardName": "Plains", "setCode": "M14", "cardNumber": "230", "amount": 5},
                 {"cardName": "Brave the Elements", "setCode": "M14", "cardNumber": "10", "amount": 5}
             ]
+        if args.scenario == "any-mana":
+            deck["cards"][0] = {"cardName": "City of Brass", "setCode": "8ED", "cardNumber": "322", "amount": 5}
+        if args.scenario == "echo":
+            deck["cards"][1] = {"cardName": "Goblin War Buggy", "setCode": "USG", "cardNumber": "196", "amount": 5}
         if args.scenario == "x-cost":
             deck["cards"][1] = {"cardName": "Fireball", "setCode": "M10", "cardNumber": "136", "amount": 10}
             deck["cards"][0]["amount"] = 10
@@ -175,6 +179,8 @@ with args.capture.open("w") as capture:
                     raise RuntimeError(f"Smoke policy does not cover {family}")
                 if family == "payManaCost":
                     mechanics.update("payment:" + action["type"] for action in data["input"]["actions"])
+                    if "cardId" not in data["input"]:
+                        mechanics["payment:without-source"] += 1
                 response = {"kind": "response", "promptId": data["promptId"],
                             "action": {"type": family, "output": output}}
                 if human and seat == 0:
@@ -207,6 +213,10 @@ with args.capture.open("w") as capture:
                         "type": "pay", "auto": True
                     }}}, "PaymentNotAvailable")
                 if family == "chooseNumber":
+                    if not data["input"].get("cancellable", True):
+                        send(seat, "respond", {**response, "action": {"type": family, "output": {
+                            "type": "numberDecision", "chosenNumber": None
+                        }}}, "CancelNotAllowed")
                     send(seat, "respond", {**response, "action": {"type": family, "output": {
                         "type": "numberDecision", "chosenNumber": data["input"]["min"] - 1 if data["input"]["max"] == 2147483647 else data["input"]["max"] + 1
                     }}}, "Amount out of range")
@@ -260,6 +270,10 @@ with args.capture.open("w") as capture:
                 raise RuntimeError("Scenario never declared attackers")
             if args.scenario == "blocking" and (not mechanics["chooseObject:block"] or not combat_assignments):
                 raise RuntimeError("Scenario never assigned blockers")
+            if args.scenario == "any-mana" and (not mechanics["payment:unclassified"] or "Lightning Bolt" not in graveyard_names):
+                raise RuntimeError("Scenario never exercised non-basic mana payment and resolved a spell")
+            if args.scenario == "echo" and not mechanics["payment:without-source"]:
+                raise RuntimeError("Scenario never paid a resolution cost without an unpaid stack source")
             if args.scenario == "x-cost" and (not native_callbacks["GAME_GET_AMOUNT"] or "Fireball" not in graveyard_names):
                 raise RuntimeError("Scenario never resolved an X-cost spell")
             if args.scenario == "color" and (not native_callbacks["GAME_CHOOSE_CHOICE"] or "Brave the Elements" not in graveyard_names):

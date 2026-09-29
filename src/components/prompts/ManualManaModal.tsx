@@ -27,11 +27,13 @@ export function ManualManaModal({
                 text={
                   action.type === "spendMana"
                     ? `Spend {${action.color}}`
-                    : "description" in action
-                      ? action.description
-                      : action.type === "payLife"
-                        ? `Pay ${action.amount} life`
-                        : "Pay cost"
+                    : action.type === "unclassified"
+                      ? action.label
+                      : "description" in action
+                        ? action.description
+                        : action.type === "payLife"
+                          ? `Pay ${action.amount} life`
+                          : "Pay cost"
                 }
               />
             </Button>

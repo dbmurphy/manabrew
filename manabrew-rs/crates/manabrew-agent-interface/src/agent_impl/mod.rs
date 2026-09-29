@@ -159,7 +159,9 @@ impl<R: Responder> PromptAgent<R> {
                     match prompt.input.validate_response(&action) {
                         Ok(()) => return action,
                         Err(
-                            error @ (ResponseViolation::PaymentNotAvailable
+                            error @ (ResponseViolation::NumberOutOfRange
+                            | ResponseViolation::InvalidSelection
+                            | ResponseViolation::PaymentNotAvailable
                             | ResponseViolation::FinishNotAllowed
                             | ResponseViolation::UnknownObjectId(_)),
                         ) => {

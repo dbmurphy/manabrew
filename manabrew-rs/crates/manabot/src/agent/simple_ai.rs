@@ -283,7 +283,7 @@ impl BotAgent for SimpleAi {
                 } else {
                     let signature = format!(
                         "pay:{}|{}|{}",
-                        input.card_id,
+                        input.card_id.as_deref().unwrap_or_default(),
                         input.mana_cost,
                         input
                             .actions

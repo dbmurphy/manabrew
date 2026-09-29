@@ -152,10 +152,6 @@ final class PromptBridge {
                 break;
             }
             case "GAME_GET_MULTI_AMOUNT": {
-                if (message.getOptions() != null && Boolean.TRUE.equals(message.getOptions().get("canCancel"))) {
-                    finding("adapterGap", "cancellable-multi-amount", evidence);
-                    break;
-                }
                 amounts(view, message, gameId, new ArrayList<>());
                 break;
             }
@@ -163,8 +159,10 @@ final class PromptBridge {
                 JsonObject input = presented("chooseNumber", message.getMessage());
                 input.addProperty("min", message.getMin());
                 input.addProperty("max", message.getMax());
+                input.addProperty("cancellable", false);
                 prompt(view, input, output -> {
                     expect(output, "numberDecision");
+                    if (!output.has("chosenNumber") || output.get("chosenNumber").isJsonNull()) throw new IllegalArgumentException("CancelNotAllowed");
                     int amount = integer(output.get("chosenNumber"));
                     if (amount < message.getMin() || amount > message.getMax()) throw new IllegalArgumentException("Amount out of range");
                     return session.sendPlayerInteger(gameId, amount);
@@ -173,13 +171,11 @@ final class PromptBridge {
             }
             case "GAME_PLAY_MANA": {
                 CardView source = view.getStack().values().stream().filter(card -> !card.isPaid()).findFirst().orElse(null);
-                if (source == null) {
-                    finding("adapterGap", "payment-source-unavailable", evidence);
-                    break;
-                }
                 JsonObject input = presented("payManaCost", message.getMessage());
-                input.addProperty("cardId", source.getId().toString());
-                input.addProperty("cardName", source.getName());
+                if (source != null) {
+                    input.addProperty("cardId", source.getId().toString());
+                    input.addProperty("cardName", source.getName());
+                }
                 input.addProperty("manaCost", message.getMessage().replaceFirst("^Pay ", "").split("<div", 2)[0]);
                 input.addProperty("canConfirmFromPool", false);
                 input.addProperty("autoPayAvailable", false);
@@ -222,6 +218,28 @@ final class PromptBridge {
                             return session.sendPlayerUUID(gameId, UUID.fromString(cardId));
                         });
                     }
+                }
+                for (String cardId : new TreeSet<>(offered.keySet())) {
+                    for (JsonElement entry : offered.getAsJsonObject(cardId).getAsJsonArray("other")) {
+                        JsonObject ability = entry.getAsJsonObject();
+                        UUID abilityId = uuid(ability, "id");
+                        String id = "payment:" + cardId + ":" + abilityId;
+                        JsonObject action = object("id", id);
+                        action.addProperty("type", "unclassified");
+                        action.addProperty("label", NativeText.plain(ability.get("value").getAsString()));
+                        actions.add(action);
+                        answers.put(id, () -> {
+                            selectedAbility = abilityId;
+                            return session.sendPlayerUUID(gameId, UUID.fromString(cardId));
+                        });
+                    }
+                }
+                if (view.getSpecial()) {
+                    JsonObject action = object("id", "special");
+                    action.addProperty("type", "unclassified");
+                    action.addProperty("label", "Special payment action");
+                    actions.add(action);
+                    answers.put("special", () -> session.sendPlayerString(gameId, "special"));
                 }
                 input.add("actions", actions);
                 prompt(view, input, output -> {
@@ -340,8 +358,14 @@ final class PromptBridge {
         input.getAsJsonObject("presentation").addProperty("description", NativeText.plain(entry.message));
         input.addProperty("min", min);
         input.addProperty("max", max);
+        boolean cancellable = message.getOptions() != null && Boolean.TRUE.equals(message.getOptions().get("canCancel"));
+        input.addProperty("cancellable", cancellable);
         prompt(view, input, output -> {
             expect(output, "numberDecision");
+            if (!output.has("chosenNumber") || output.get("chosenNumber").isJsonNull()) {
+                if (!cancellable) throw new IllegalArgumentException("CancelNotAllowed");
+                return session.sendPlayerBoolean(gameId, false);
+            }
             int value = integer(output.get("chosenNumber"));
             if (value < min || value > max) throw new IllegalArgumentException("Amount out of range");
             chosen.add(value);

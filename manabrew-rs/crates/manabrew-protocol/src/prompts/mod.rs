@@ -118,6 +118,8 @@ pub enum ResponseViolation {
     FinishNotAllowed,
     PaymentNotAvailable,
     UnknownObjectId(String),
+    NumberOutOfRange,
+    InvalidSelection,
 }
 
 impl PromptInput {
@@ -128,6 +130,40 @@ impl PromptInput {
         use PromptInput as I;
         use PromptOutput as O;
         match (self, output) {
+            (
+                I::ChooseNumber(input),
+                O::ChooseNumber(ChooseNumberOutput::NumberDecision { chosen_number }),
+            ) => match chosen_number {
+                None if !input.cancellable => Err(ResponseViolation::CancelNotAllowed),
+                Some(value) if *value < input.min || *value > input.max => {
+                    Err(ResponseViolation::NumberOutOfRange)
+                }
+                _ => Ok(()),
+            },
+            (
+                I::ChooseFromSelection(input),
+                O::ChooseFromSelection(ChooseFromSelectionOutput::SelectionDecision {
+                    chosen_indices,
+                }),
+            ) => {
+                let mut seen = std::collections::HashSet::new();
+                let mut total = 0usize;
+                for index in chosen_indices {
+                    let Some(option) = input.options.get(*index) else {
+                        return Err(ResponseViolation::InvalidSelection);
+                    };
+                    if !seen.insert(index) && !option.can_repeat {
+                        return Err(ResponseViolation::InvalidSelection);
+                    }
+                    total = total
+                        .checked_add(option.weight)
+                        .ok_or(ResponseViolation::InvalidSelection)?;
+                }
+                if total < input.min_total || total > input.max_total {
+                    return Err(ResponseViolation::InvalidSelection);
+                }
+                Ok(())
+            }
             (I::ChooseObject(input), O::ChooseObject(out)) => match out {
                 ChooseObjectOutput::Select { target }
                     if !input.candidates.iter().any(|candidate| {
@@ -177,11 +213,9 @@ impl PromptInput {
             | (I::ChooseAttackers(_), O::ChooseAttackers(_))
             | (I::ChooseBlockers(_), O::ChooseBlockers(_))
             | (I::ChooseBoolean(_), O::ChooseBoolean(_))
-            | (I::ChooseFromSelection(_), O::ChooseFromSelection(_))
             | (I::RevealCards(_), O::RevealCards(_))
             | (I::Scry(_), O::Scry(_))
             | (I::ChooseColor(_), O::ChooseColor(_))
-            | (I::ChooseNumber(_), O::ChooseNumber(_))
             | (I::ChooseDamageAssignmentOrder(_), O::ChooseDamageAssignmentOrder(_))
             | (I::ChooseCombatDamageAssignment(_), O::ChooseCombatDamageAssignment(_))
             | (I::ChooseCards(_), O::ChooseCards(_))
