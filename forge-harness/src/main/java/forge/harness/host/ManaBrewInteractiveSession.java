@@ -104,7 +104,8 @@ public final class ManaBrewInteractiveSession {
             } catch (RuntimeException | Error error) {
                 recordEngineError(error);
             }
-        }, "mana-brew-forge-" + sessionId);
+        // PlayerControllerHuman's inputs run game actions inline only on a thread ThreadUtil calls the game thread
+        }, (ManaBrewEngineAdapter.FORGE_HUMAN ? "Game " : "") + "mana-brew-forge-" + sessionId);
         gameThread.setDaemon(true);
         gameThread.start();
     }

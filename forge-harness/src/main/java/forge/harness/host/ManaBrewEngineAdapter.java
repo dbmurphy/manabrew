@@ -47,6 +47,8 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class ManaBrewEngineAdapter {
     private static final Gson GSON = new Gson();
+    /** Spike: seat humans on Forge's PlayerControllerHuman through ForgeHumanGui. */
+    static final boolean FORGE_HUMAN = Boolean.getBoolean("manabrew.forgeHuman");
     private final Map<String, ManaBrewInteractiveSession> sessions = new ConcurrentHashMap<>();
     private volatile boolean initialized;
 
@@ -60,7 +62,13 @@ public final class ManaBrewEngineAdapter {
         if (assetsDir == null || assetsDir.isBlank()) {
             throw new IllegalArgumentException("assetsDir is required");
         }
-        GuiBase.setInterface(new HeadlessGuiBase(assetsDir));
+        GuiBase.setInterface(FORGE_HUMAN ? new HeadlessGuiBase(assetsDir) {
+            // Forge's input wait asserts it is off the EDT; the inline EDT is still inline.
+            @Override
+            public boolean isGuiThread() {
+                return false;
+            }
+        } : new HeadlessGuiBase(assetsDir));
         FModel.initialize(null, prefs -> {
             prefs.setPref(ForgePreferences.FPref.LOAD_CARD_SCRIPTS_LAZILY, true);
             prefs.setPref(ForgePreferences.FPref.DECKGEN_CARDBASED, false);
@@ -113,14 +121,18 @@ public final class ManaBrewEngineAdapter {
             if (playerConfig.isAi()) {
                 registeredPlayer.setPlayer(new LobbyPlayerAi(playerConfig.getName(), null));
             } else {
-                registeredPlayer.setPlayer(new ManaBrewInteractiveLobbyPlayer(
-                        playerConfig.getName(), session));
+                registeredPlayer.setPlayer(FORGE_HUMAN
+                        ? new ForgeHumanLobbyPlayer(playerConfig.getName(), session)
+                        : new ManaBrewInteractiveLobbyPlayer(playerConfig.getName(), session));
             }
             registeredPlayers.add(registeredPlayer);
         }
 
         final Match match = new Match(rules, registeredPlayers, "ManaBrew");
         final Game game = match.createGame();
+        if (FORGE_HUMAN) {
+            ForgeHumanGui.attach(game, session);
+        }
         session.attach(match, game);
         sessions.put(session.getSessionId(), session);
         session.start(rng);

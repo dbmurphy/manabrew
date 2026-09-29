@@ -2641,9 +2641,14 @@ public final class ManaBrewInteractiveController extends PlayerController implem
     }
 
     private List<ICardFace> filterCardFaces(final Predicate<ICardFace> cpp) {
+        return nameableFaces(getGame(), cpp);
+    }
+
+    /** The faces a name-a-card prompt offers: those of the cards in this game (see AGENTS.md). */
+    static List<ICardFace> nameableFaces(final Game game, final Predicate<ICardFace> cpp) {
         final Predicate<ICardFace> faceFilter = cpp == null ? x -> true : cpp;
-        final CardCollection cards = new CardCollection(getGame().getCardsInGame());
-        for (final Player p : getGame().getPlayers()) {
+        final CardCollection cards = new CardCollection(game.getCardsInGame());
+        for (final Player p : game.getPlayers()) {
             cards.addAll(p.getCardsIn(ZoneType.Sideboard));
         }
         final List<ICardFace> faces = new ArrayList<>();
