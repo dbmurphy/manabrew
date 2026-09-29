@@ -1,0 +1,50 @@
+[
+  {
+    "name": "forge.gui.control.GameEventForwarder",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "forge.gamemodes.match.HostedMatch$MatchUiEventVisitor",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "forge.haptic.HapticEngine",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "forge.sound.SoundSystem",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "forge.gamemodes.match.input.InputSelectTargets",
+    "allDeclaredFields": true
+  },
+  {
+    "name": "forge.gamemodes.match.input.InputPayMana",
+    "allDeclaredFields": true
+  },
+  {
+    "name": "forge.gamemodes.match.input.InputPayManaOfCostPayment",
+    "allDeclaredFields": true
+  },
+  {
+    "name": "forge.gamemodes.match.input.InputSelectManyBase",
+    "allDeclaredFields": true
+  },
+  {
+    "name": "forge.gamemodes.match.input.InputSelectEntitiesFromList",
+    "allDeclaredFields": true
+  },
+  {
+    "name": "forge.gamemodes.match.input.InputSelectCardsFromList",
+    "allDeclaredFields": true
+  },
+  {
+    "name": "forge.gamemodes.match.input.InputLondonMulligan",
+    "allDeclaredFields": true
+  },
+  {
+    "name": "forge.gamemodes.match.input.InputSelectCardsForConvokeOrImprovise",
+    "allDeclaredFields": true
+  }
+]

@@ -181,6 +181,10 @@ public final class WasmMain {
         // Must be set before any forge class initializes: ThreadUtil reads it in
         // a static initializer. native-image's own -D only reaches the builder.
         System.setProperty("forge.synchronous", "true");
+        // A build made with FORGE_HUMAN=1 seats humans on Forge's PlayerControllerHuman
+        if (WasmMain.class.getResource("/forge-human.flag") != null) {
+            System.setProperty("manabrew.forgeHuman", "true");
+        }
         // PresetDecks resolves its default dirs relative to the process CWD,
         // which is meaningless in the VFS.
         System.setProperty("preset.decks.dir", "/forge-gui/parity_decks");

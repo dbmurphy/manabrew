@@ -43,12 +43,13 @@ rm -rf "$GEN"; mkdir -p "$GEN"
   "$JAR_BIN" --list --file "$JAR" \
     | grep -E '^forge/.*\.class$' \
     | grep -vE '^forge/harness/(protocol|host)/' \
+    | grep -vE "${REFLECT_EXCLUDE:-^\$}" \
     | sed 's#\.class$##; s#/#.#g' \
     | sed 's/$/\t"allDeclaredConstructors":true/'
-  "$JAR_BIN" --list --file "$JAR" \
+  [ "${REFLECT_HOST:-1}" = 1 ] && "$JAR_BIN" --list --file "$JAR" \
     | grep -E '^forge/harness/(protocol|host)/[^/]+\.class$' \
     | sed 's#\.class$##; s#/#.#g' \
-    | sed 's/$/\t"allDeclaredFields":true,"allDeclaredConstructors":true,"allDeclaredMethods":true/'
+    | sed 's/$/\t"allDeclaredFields":true,"allDeclaredConstructors":true,"allDeclaredMethods":true/' || true
 } | sort -u \
   | awk -F'\t' 'BEGIN{print "["} {if(NR>1)printf ",\n"; printf "  {\"name\":\"%s\",%s}", $1, $2} END{print "\n]"}' \
   > "$GEN/reflect-config.json"
@@ -63,6 +64,12 @@ CP="$JAR:$WASM_CLASSES:$LANGS"
 [ -f "$FORGE_ASSETS" ] || { echo "FORGE_ASSETS=$FORGE_ASSETS is not a file"; exit 1; }
 mkdir -p resources
 cp "$FORGE_ASSETS" resources/assets-framed.txt
+# FORGE_HUMAN=1: a spike build that seats humans on Forge's own PlayerControllerHuman. WasmMain
+# looks for the flag resource, and the adapter's reflection needs the embedded-config entries.
+if [ "${FORGE_HUMAN:-0}" = 1 ]; then
+  touch resources/forge-human.flag
+  EXTRA_CONFIG_DIRS="$HARNESS_DIR/native/embedded-config${EXTRA_CONFIG_DIRS:+,$EXTRA_CONFIG_DIRS}"
+fi
 CP="$CP:$PWD/resources"
 echo "    embedding assets: $(du -k resources/assets-framed.txt | cut -f1) KiB"
 
@@ -74,14 +81,14 @@ echo "    embedding assets: $(du -k resources/assets-framed.txt | cut -f1) KiB"
   -H:Name=forgeharness \
   -cp "$CP" \
   -H:IncludeResourceBundles=en-US \
-  -H:IncludeResources='assets-framed\.txt' \
+  -H:IncludeResources='assets-framed\.txt|forge-human\.flag' \
   --no-fallback \
   --report-unsupported-elements-at-runtime \
   -H:+ReportExceptionStackTraces \
   --initialize-at-run-time=org.tinylog,org.slf4j,io.netty,forge,org.apache.commons.lang3 \
   --initialize-at-build-time=com.google.common.util.concurrent \
   -Djava.awt.headless=true \
-  -H:ConfigurationFileDirectories="$CFG,$EXTRA,$GEN" \
+  -H:ConfigurationFileDirectories="$CFG,$EXTRA,$GEN${EXTRA_CONFIG_DIRS:+,$EXTRA_CONFIG_DIRS}" \
   "$@" \
   "$ENTRY"
 
