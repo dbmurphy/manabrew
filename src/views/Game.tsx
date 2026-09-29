@@ -879,7 +879,7 @@ export default function Game({ exitTo }: GameProps = {}) {
     if (promptType !== "payManaCost") return;
     if (activePrompt?.input.canConfirmFromPool) {
       respond({ type: "pay", auto: false });
-    } else {
+    } else if (activePrompt?.input.autoPayAvailable !== false) {
       respond({ type: "pay", auto: true });
     }
   };
@@ -1957,6 +1957,7 @@ export default function Game({ exitTo }: GameProps = {}) {
                         description: payManaCostInput.presentation.text,
                         manaPool: gameView.players.find((p) => p.isHuman)?.manaPool ?? {},
                         canConfirmFromPool: payManaCostInput.canConfirmFromPool,
+                        autoPayAvailable: payManaCostInput.autoPayAvailable,
                         delveCount: delvedCardIds.length,
                         delveAvailable: delveSourceIds.length > 0,
                         onOpenDelve: openDelveZone,

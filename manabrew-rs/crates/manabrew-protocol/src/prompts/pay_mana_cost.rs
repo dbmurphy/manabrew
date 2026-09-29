@@ -12,7 +12,13 @@ pub struct PayManaCostInput {
     pub card_name: String,
     pub mana_cost: String,
     pub can_confirm_from_pool: bool,
+    #[serde(default = "auto_pay_default")]
+    pub auto_pay_available: bool,
     pub actions: Vec<PaymentAction>,
+}
+
+fn auto_pay_default() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
