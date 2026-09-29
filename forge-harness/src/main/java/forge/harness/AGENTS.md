@@ -73,6 +73,11 @@ Concede mirrors native Forge's out-of-band contract: `player.concede()` sets the
 
 Behind the flag, human seats use `ForgeHumanLobbyPlayer` → `ForgeHumanController` (Forge's `PlayerControllerHuman` plus 7 overrides) with `ForgeHumanGui` (a `ProtocolGuiGame`, from witchesofthehill/forge#17) as its GUI. When a Forge `Input` waits, `ForgeHumanGui.awaitInput` asks the session for the answer with the same `await*` prompts `ManaBrewInteractiveController` uses and replays it as Forge clicks; blocking dialogs arrive as `ProtocolMethod` events and map to the same prompts. The protocol and client do not change. Browser builds opt in with `FORGE_HUMAN=1 forge-harness/build-wasm.sh`. The traps that shaped it:
 
+JVM and native hosts can opt in at runtime with `MANABREW_FORGE_HUMAN=1`. Native builds register the input fields and event subscriber methods in `native/extra-config/reflect-config.json`; browser builds register them in `native/embedded-config/reflect-config.json`. Keep both registrations in step when adding reflective accesses. The supporting fork PR against `manabrew` is witchesofthehill/forge#18.
+
+- Mulligan prompts must carry `player.getStats().getMulliganCount()`: reporting zero makes SimpleAi mulligan forever, including at an empty hand. Forge bottoms London cards after each redraw, before the next keep question; the old interactive controller instead bottoms them on keep. Its empty `tuckCardsViaMulligan` is intentional, not evidence of free mulligans.
+- JVM adapter traces require both `-Dmanabrew.forgeHumanTrace=true` and `RUST_LOG=info,self_hosted_node::java=debug` on the node; ordinary JVM stderr is forwarded at debug level.
+
 - The session's game thread is named `Game …` under the flag: `ThreadUtil.isGameThread` checks the name, and otherwise `InputPayMana`'s auto-pay runs on another thread and races a cancel.
 - PCH sleeps on every phase it auto-passes (`YIELD_SKIP_*_DELAY`); the per-controller override is replaced when yield state is restored, so the flag sets the global preference.
 - Offer `InputPayMana.getUsefulManaAbilities` as payment sources, never every mana ability: Manabot loops on sources that cannot pay.

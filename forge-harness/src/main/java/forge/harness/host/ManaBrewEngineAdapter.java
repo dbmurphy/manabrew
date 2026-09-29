@@ -48,7 +48,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class ManaBrewEngineAdapter {
     private static final Gson GSON = new Gson();
     /** Spike: seat humans on Forge's PlayerControllerHuman through ForgeHumanGui. */
-    static final boolean FORGE_HUMAN = Boolean.getBoolean("manabrew.forgeHuman");
+    static final boolean FORGE_HUMAN = Boolean.getBoolean("manabrew.forgeHuman")
+            || "1".equals(System.getenv("MANABREW_FORGE_HUMAN"));
     private final Map<String, ManaBrewInteractiveSession> sessions = new ConcurrentHashMap<>();
     private volatile boolean initialized;
 

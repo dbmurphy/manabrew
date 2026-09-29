@@ -179,7 +179,7 @@ public final class ForgeHumanGui extends ProtocolGuiGame {
             priority(priority);
         } else if (input instanceof InputConfirmMulligan) {
             count("input:mulligan");
-            if (session.awaitMulliganDecision(me(), 0)) {
+            if (session.awaitMulliganDecision(me(), player.getStats().getMulliganCount())) {
                 pch.selectButtonOk();
             } else {
                 pch.selectButtonCancel();
