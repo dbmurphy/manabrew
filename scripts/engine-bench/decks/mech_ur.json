@@ -1,0 +1,24 @@
+{
+  "format": "constructed",
+  "commander": null,
+  "cards": [
+    { "name": "Island", "count": 10 },
+    { "name": "Mountain", "count": 10 },
+    { "name": "Shivan Reef", "count": 4 },
+    { "name": "Fiery Islet", "count": 2 },
+    { "name": "Counterspell", "count": 4 },
+    { "name": "Lightning Bolt", "count": 3 },
+    { "name": "Forked Bolt", "count": 3 },
+    { "name": "Arc Lightning", "count": 2 },
+    { "name": "Fireball", "count": 2 },
+    { "name": "Treasure Cruise", "count": 2 },
+    { "name": "Brainstorm", "count": 3 },
+    { "name": "Opt", "count": 3 },
+    { "name": "Izzet Charm", "count": 2 },
+    { "name": "Fact or Fiction", "count": 2 },
+    { "name": "Pithing Needle", "count": 2 },
+    { "name": "Deep Analysis", "count": 2 },
+    { "name": "Electrolyze", "count": 2 },
+    { "name": "Bonecrusher Giant", "count": 2 }
+  ]
+}

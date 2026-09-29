@@ -1,0 +1,21 @@
+{
+  "format": "constructed",
+  "commander": null,
+  "cards": [
+    { "name": "Plains", "count": 12 },
+    { "name": "Swamp", "count": 12 },
+    { "name": "Menacing Ogre", "count": 4 },
+    { "name": "Stalking Leonin", "count": 3 },
+    { "name": "Conclave Tribunal", "count": 3 },
+    { "name": "Cabal Therapy", "count": 3 },
+    { "name": "Thoughtseize", "count": 3 },
+    { "name": "Duress", "count": 3 },
+    { "name": "Collective Brutality", "count": 2 },
+    { "name": "Village Rites", "count": 3 },
+    { "name": "Raise the Alarm", "count": 3 },
+    { "name": "Liliana of the Veil", "count": 2 },
+    { "name": "Swords to Plowshares", "count": 3 },
+    { "name": "Unburial Rites", "count": 2 },
+    { "name": "Doomed Traveler", "count": 2 }
+  ]
+}

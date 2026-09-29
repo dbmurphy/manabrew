@@ -155,6 +155,18 @@ identical game (same decision count, same turn count) rather than on a
 population. That is how the alternative-cost and `canGainKeyword` reorders in
 witchesofthehill/forge#13 were found and checked.
 
+`--policy random` answers every prompt kind with a legal but arbitrary choice,
+seeded by `--rseed`, so it reaches prompts greedy never does (undo, cancels,
+blocks, scry splits) and a failing game replays. `--deck-dir scripts/engine-bench/decks
+--variant Constructed` plays the mechanics decks there instead of the Commander
+presets: stack targets, divided damage, X, delve, piles, naming a card, secret
+choices, convoke, sacrifice and discard costs, kicker, searches.
+
+```sh
+python3 scripts/engine-bench/forge-jvm-game.py --seats 2 --policy random --rseed 3 \
+  --deck-dir scripts/engine-bench/decks --variant Constructed --decks mech_ur,mech_bw --out r.jsonl
+```
+
 `jfr-top.py` ranks the frames in a recording by self and inclusive samples, and
 splits the samples by thread so the AI's search can be told from the rules
 engine.

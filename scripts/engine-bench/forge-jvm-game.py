@@ -42,8 +42,14 @@ ap.add_argument("--ai-timeout", type=int, default=0,
 ap.add_argument("--out", default="jvm-4seat.jsonl")
 ap.add_argument("--timeout", type=int, default=1800)
 ap.add_argument("--seed", type=int, default=42)
-ap.add_argument("--policy", default="pass", choices=["pass", "greedy"],
-                help="greedy plays a land, casts what auto-pay covers and attacks, as the wasm driver does")
+ap.add_argument("--policy", default="pass", choices=["pass", "greedy", "random"],
+                help="greedy plays a land, casts what auto-pay covers and attacks, as the wasm driver does; "
+                     "random gives a legal but arbitrary answer to every prompt kind")
+ap.add_argument("--rseed", type=int, default=0,
+                help="seed for --policy random, so a failing game can be replayed")
+ap.add_argument("--deck-dir", default="",
+                help="load decks from here instead of public/preset_decks (e.g. scripts/engine-bench/decks)")
+ap.add_argument("--variant", default="Commander", help="Commander or Constructed")
 ap.add_argument("--counters", action="store_true",
                 help="count engine work per decision (#817) instead of only timing it")
 args = ap.parse_args()
@@ -56,7 +62,7 @@ def front_face(name):
 
 def load_deck(basename):
     """A preset flattened the way the wasm worker flattens it: one entry per copy."""
-    raw = json.load(open(os.path.join(PRESETS, f"{basename}.json")))
+    raw = json.load(open(os.path.join(args.deck_dir or PRESETS, f"{basename}.json")))
     cards = []
     for c in raw["cards"]:
         entry = {"name": front_face(c["name"])}
@@ -65,7 +71,7 @@ def load_deck(basename):
         if c.get("cardNumber"):
             entry["collectorNumber"] = c["cardNumber"]
         cards.extend([entry] * c.get("count", 1))
-    return cards, front_face(raw["commander"])
+    return cards, (front_face(raw["commander"]) if raw.get("commander") else None)
 
 
 deck_names = args.decks.split(",")
@@ -76,13 +82,13 @@ for i in range(args.seats):
         "name": "You" if i == 0 else ("Forge AI" if i == 1 else f"Forge AI {i}"),
         "ai": i != 0,
         "deck": cards,
-        "commanderNames": [commander],
+        "commanderNames": [commander] if commander else [],
     })
 
 request = {
     "gameId": "bench",
-    "variant": "Commander",
-    "startingLife": 40,
+    "variant": args.variant,
+    "startingLife": 40 if args.variant == "Commander" else 20,
     "seed": args.seed,
     "players": players,
 }
@@ -210,6 +216,98 @@ class Greedy:
             for a in p["input"].get("attackers", []) if a.get("validTargetIds")]}
 
 
+import random as _random
+
+
+class Random:
+    """Valid but arbitrary answers, to reach prompt kinds greedy never does."""
+
+    def __init__(self, seed):
+        self.r = _random.Random(seed)
+
+    def subset(self, items, lo, hi):
+        lo = max(0, min(lo, len(items))); hi = max(lo, min(hi, len(items)))
+        return self.r.sample(items, self.r.randint(lo, hi))
+
+    def mulligan(self, p, turn):
+        return {"type": "mulliganDecision", "keep": self.r.random() < 0.8}
+
+    def chooseAction(self, p, turn):
+        acts = p["input"].get("actions", [])
+        if not acts or self.r.random() < 0.5:
+            out = {"type": "pass"}
+            if self.r.random() < 0.1:
+                out["exhaustStack"] = True
+            return out
+        return {"type": "act", "actionId": self.r.choice(acts)["id"]}
+
+    def payManaCost(self, p, turn):
+        x = self.r.random()
+        acts = p["input"].get("actions", [])
+        if x < 0.6:
+            return {"type": "pay", "auto": not p["input"].get("canConfirmFromPool")}
+        if x < 0.85 and acts:
+            return {"type": "act", "actionId": self.r.choice(acts)["id"]}
+        return {"type": "cancel"}
+
+    def chooseBoardTargets(self, p, turn):
+        inp = p["input"]
+        if inp.get("cancellable") and self.r.random() < 0.1:
+            return {"type": "cancel"}
+        cands = inp.get("candidates", [])
+        if not cands or (inp.get("minTargets", 0) <= inp.get("chosenTargets", 0) and self.r.random() < 0.3):
+            return {"type": "boardTargets", "chosen": []}
+        return {"type": "boardTargets", "chosen": [self.r.choice(cands)]}
+
+    def chooseCards(self, p, turn):
+        inp = p["input"]
+        ids = [c["id"] for c in inp.get("cards", [])]
+        return {"type": "chooseCardsDecision", "chosenCardIds": self.subset(ids, inp.get("min", 0), inp.get("max", len(ids)))}
+
+    def chooseFromSelection(self, p, turn):
+        inp = p["input"]
+        idx = list(range(len(inp.get("options", []))))
+        return {"type": "selectionDecision", "chosenIndices": sorted(self.subset(idx, inp.get("minTotal", 0), inp.get("maxTotal", len(idx))))}
+
+    def chooseBoolean(self, p, turn):
+        return {"type": "decision", "value": self.r.random() < 0.5}
+
+    def chooseNumber(self, p, turn):
+        inp = p["input"]
+        return {"type": "numberDecision", "chosenNumber": self.r.randint(inp.get("min", 0), max(inp.get("min", 0), inp.get("max", 0)))}
+
+    def chooseAttackers(self, p, turn):
+        return {"type": "declareAttackers", "assignments": [
+            {"attackerId": a["attackerId"], "targetId": self.r.choice(a["validTargetIds"])}
+            for a in p["input"].get("attackers", []) if a.get("validTargetIds") and self.r.random() < 0.5]}
+
+    def chooseBlockers(self, p, turn):
+        used, out = set(), []
+        for a in p["input"].get("attackers", []):
+            free = [b for b in a.get("validBlockerIds", []) if b not in used]
+            if free and self.r.random() < 0.3:
+                b = self.r.choice(free); used.add(b)
+                out.append({"blockerId": b, "attackerId": a["attackerId"]})
+        return {"type": "declareBlockers", "assignments": out}
+
+    def chooseDamageAssignmentOrder(self, p, turn):
+        ids = list(p["input"].get("blockerIds", [])); self.r.shuffle(ids)
+        return {"type": "damageAssignmentOrderDecision", "orderedBlockerIds": ids}
+
+    def scry(self, p, turn):
+        inp = p["input"]
+        piles = [[] for _ in inp.get("zones", [])] or [[]]
+        for c in inp.get("cards", []):
+            piles[self.r.randrange(len(piles))].append(c["id"])
+        return {"type": "scryDecision", "zoneCardIds": piles}
+
+    def reorder(self, p, turn):
+        ids = [i["id"] for i in p["input"].get("items", [])]; self.r.shuffle(ids)
+        return {"type": "reorderDecision", "orderedIds": ids}
+
+
+rnd = Random(args.rseed)
+
 greedy = Greedy()
 LOOP_AFTER = 60
 loop = {"turn": -1, "counts": {}, "flipped": False}
@@ -231,6 +329,8 @@ def answer(kind, prompt, turn):
         return None
     if loop["flipped"] and kind in FLIPPED:
         return FLIPPED[kind](prompt)
+    if args.policy == "random" and hasattr(rnd, kind):
+        return getattr(rnd, kind)(prompt, turn)
     if args.policy == "greedy" and hasattr(greedy, kind):
         return getattr(greedy, kind)(prompt, turn)
     reply = REPLIES.get(kind)
@@ -293,7 +393,7 @@ while time.time() - started < args.timeout:
         note(row)
         if ms > 5000:
             print(f"  stall {ms}ms {kind} @turn {turn}", flush=True)
-    if args.policy == "greedy" or decisions % 25 == 0:
+    if args.policy in ("greedy", "random") or decisions % 25 == 0:
         snap = json.loads(call({"command": "getSnapshot", "sessionId": session, "viewer": 0}) or "{}")
         turn = snap.get("gameView", snap).get("turn", turn)
     output = answer(kind, prompt, turn)

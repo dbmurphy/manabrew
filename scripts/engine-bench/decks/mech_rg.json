@@ -1,0 +1,21 @@
+{
+  "format": "constructed",
+  "commander": null,
+  "cards": [
+    { "name": "Forest", "count": 11 },
+    { "name": "Mountain", "count": 11 },
+    { "name": "Karplusan Forest", "count": 2 },
+    { "name": "Llanowar Elves", "count": 4 },
+    { "name": "Kavu Titan", "count": 3 },
+    { "name": "Colossal Dreadmaw", "count": 3 },
+    { "name": "Rancor", "count": 3 },
+    { "name": "Fling", "count": 3 },
+    { "name": "Ball Lightning", "count": 3 },
+    { "name": "Rampant Growth", "count": 3 },
+    { "name": "Harmonize", "count": 3 },
+    { "name": "Stoke the Flames", "count": 3 },
+    { "name": "Pelakka Wurm", "count": 3 },
+    { "name": "Primal Command", "count": 3 },
+    { "name": "Chord of Calling", "count": 2 }
+  ]
+}
