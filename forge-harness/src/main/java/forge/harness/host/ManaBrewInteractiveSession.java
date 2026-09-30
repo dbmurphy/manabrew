@@ -65,6 +65,10 @@ public final class ManaBrewInteractiveSession {
     private volatile int promptedPlayerIndex = -1;
     private long promptSeq;
     private volatile boolean closed;
+    private volatile String latestCheckpointJson;
+    private int lastCheckpointTurn = -1;
+    private int checkpointSeq;
+    private volatile GameCheckpoint.Restore restore;
     private volatile Thread gameThread;
     private static volatile InteractiveBridge bridge;
     private volatile SpellAbility castingAbility;
@@ -165,7 +169,7 @@ public final class ManaBrewInteractiveSession {
         if (bridge != null) {
             forge.util.MyRandom.setRandom(rng);
             try {
-                match.startGame(game);
+                match.startGame(game, startHook());
             } catch (RuntimeException | Error error) {
                 recordEngineError(error);
             }
@@ -174,13 +178,47 @@ public final class ManaBrewInteractiveSession {
         gameThread = new Thread(() -> {
             forge.util.MyRandom.setRandom(rng);
             try {
-                match.startGame(game);
+                match.startGame(game, startHook());
             } catch (RuntimeException | Error error) {
                 recordEngineError(error);
             }
         }, "mana-brew-forge-" + sessionId);
         gameThread.setDaemon(true);
         gameThread.start();
+    }
+
+    private Runnable startHook() {
+        final GameCheckpoint.Restore pending = restore;
+        return pending == null ? null : () -> GameCheckpoint.apply(game, pending);
+    }
+
+    void setRestore(final GameCheckpoint.Restore value) {
+        restore = value;
+    }
+
+    boolean isRestoring() {
+        return restore != null;
+    }
+
+    public String getLatestCheckpointJson() {
+        return latestCheckpointJson;
+    }
+
+    void maybeCheckpoint() {
+        if (!GameCheckpoint.atCleanPoint(game)) {
+            return;
+        }
+        final int turn = game.getPhaseHandler().getTurn();
+        if (turn == lastCheckpointTurn) {
+            return;
+        }
+        lastCheckpointTurn = turn;
+        try {
+            latestCheckpointJson = GameCheckpoint.export(game, ++checkpointSeq);
+        } catch (RuntimeException error) {
+            System.err.println("[mana-brew] checkpoint export failed at turn " + turn + ": " + error);
+            error.printStackTrace(System.err);
+        }
     }
 
     public void close() {
