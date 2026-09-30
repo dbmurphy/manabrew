@@ -1,21 +1,38 @@
 import { decks, scriptedAnswer } from "./replay-fixture.mjs";
 
-function comparable(frame) {
+export function comparable(frame, normalizeCasting = false) {
   const {
     gameId: _gameId,
     checkpoints: _checkpoints,
     snapshotRecording: _snapshotRecording,
     ...view
   } = frame.state.gameView;
+  if (normalizeCasting)
+    view.stack = view.stack.map((entry) =>
+      entry.isCasting && entry.id.startsWith("casting-")
+        ? { ...entry, id: `casting:${entry.sourceId}` }
+        : entry,
+    );
   return JSON.stringify({ slot: frame.slot, prompt: { ...frame.prompt, promptId: 0 }, view });
 }
 
 export async function replayScenario(
   createEngine,
-  { mode, seed = 42, seats = 2, turns = 10, restore = false, measureCpu, fixture = "token" },
+  {
+    mode,
+    seed = 42,
+    seats = 2,
+    turns = 10,
+    restore = false,
+    measureCpu,
+    fixture = "token",
+    gameDecks,
+    decide = scriptedAnswer,
+    trace,
+  },
 ) {
   const deck = decks[fixture];
-  if (!deck) throw new Error(`Unknown fixture ${fixture}`);
+  if (!deck && !gameDecks) throw new Error(`Unknown fixture ${fixture}`);
   const promptTypes = {};
   let attackers = 0,
     blockers = 0,
@@ -69,7 +86,7 @@ export async function replayScenario(
   try {
     const snapshotRecording = mode === "snapshots";
     await engine.startMultiplayerGame({
-      decks: Array(seats).fill(deck),
+      decks: gameDecks ?? Array(seats).fill(deck),
       playerNames: Array.from({ length: seats }, (_, i) => `Seat ${i}`),
       enginePlayerIndex: 0,
       seed,
@@ -102,7 +119,28 @@ export async function replayScenario(
       )
         break;
       if (actions.length >= 10000) throw new Error("Scenario exceeded input limit");
-      const action = scriptedAnswer(current, { combat: fixture === "combat" });
+      const expected =
+        current.prompt.input.type === "diceRolled"
+          ? trace?.history.find((entry) => {
+              const frame = JSON.parse(entry.frame);
+              return frame.slot === current.slot && frame.prompt.input.type === "diceRolled";
+            })
+          : trace?.history[actions.length];
+      const expectedFrame = expected ? JSON.parse(expected.frame) : null;
+      if (
+        trace &&
+        (!expected ||
+          comparable(current, true) !==
+            comparable(
+              {
+                ...expectedFrame,
+                state: { gameView: expectedFrame.view },
+              },
+              true,
+            ))
+      )
+        throw new Error(`Recorded frame diverged at input ${actions.length}`);
+      const action = expected ? expected.action : decide(current, { combat: fixture === "combat" });
       const type = current.prompt.input.type;
       promptTypes[type] = (promptTypes[type] ?? 0) + 1;
       if (type === "chooseAttackers") attackers += action.output.assignments.length;
@@ -125,6 +163,8 @@ export async function replayScenario(
       ? (cpu.user + cpu.system - forwardCpu.user - forwardCpu.system) / 1000
       : null;
     const finalState = comparable(current);
+    if (trace && (actions.length !== trace.history.length || finalState !== trace.finalState))
+      throw new Error("Recorded final state diverged");
     const journalBytes = engine.getReplayStatus?.().journalBytes ?? 0;
     let restoreMs = null;
     if (restore) {

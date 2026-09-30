@@ -151,6 +151,11 @@ public final class SabTransport implements InteractiveBridge {
     /** The prompt a seat holds and has not answered; a directive leaves it open. */
     private String openPrompt;
     private int openSeat = -1;
+    private int replayState = replayMode();
+
+    @JS.Coerce
+    @JS("return globalThis.__forgeReplayControl ? Atomics.load(globalThis.__forgeReplayControl, 0) : 0;")
+    private static native int replayMode();
 
     private static String inputType(final String promptJson) {
         try {
@@ -206,7 +211,13 @@ public final class SabTransport implements InteractiveBridge {
         openSeat = -1;
 
         final JsonObject message = JsonParser.parseString(recv(seat)).getAsJsonObject();
-        if (bot) {
+        if (replayState == 2 && replayMode() == 0) {
+            replayState = 0;
+            lastRecvAt = System.currentTimeMillis();
+            turnAtLastPrompt = turnNow;
+            botMsSinceRecv = 0;
+            checkpointNanosSinceRecv = 0;
+        } else if (bot) {
             botMsSinceRecv += System.currentTimeMillis() - botStartedAt;
         } else {
             lastRecvAt = System.currentTimeMillis();
@@ -222,7 +233,9 @@ public final class SabTransport implements InteractiveBridge {
         // prompt belongs to. A bot's prompt updates the bot alone: the people
         // at the table see the board on their own next prompt, as they did
         // when Forge's AI held these seats.
-        if (bot) {
+        final int replay = replayState == 0 ? 0 : replayMode();
+        replayState = replay;
+        if (bot || (replay == 1 && !dice)) {
             sendState(seat);
         } else {
             broadcastState(dice);
@@ -238,8 +251,10 @@ public final class SabTransport implements InteractiveBridge {
         // what a large reading is: this is not one decision being slow.
         // `bot` is the part of the window spent on bot prompts.
         final long promptReadyAt = System.currentTimeMillis();
-        publishCheckpointMetrics();
-        if (!bot) {
+        if (replay == 0) {
+            publishCheckpointMetrics();
+        }
+        if (!bot && replay == 0) {
             if (lastRecvAt > 0) {
                 final int turns = turnAtLastPrompt < 0 ? 0 : Math.max(0, turnNow - turnAtLastPrompt);
                 post("forge:decision", "{\"ms\":" + (promptReadyAt - lastRecvAt)

@@ -21,7 +21,7 @@ const postResponse = (requestId, payload) =>
   self.postMessage({ type: "response", requestId, payload });
 const postError = (requestId, error) => self.postMessage({ type: "response", requestId, error });
 
-function boot() {
+function boot(args = {}) {
   if (booting) return booting;
   booting = new Promise((resolve, reject) => {
     // The launcher reads argv from scriptArgs in non-node runtimes, and derives
@@ -29,6 +29,9 @@ function boot() {
     self.scriptArgs = ["--serve"];
     self.__forgeBootResolve = resolve;
     self.__forgeWasmUrl = wasmUrl;
+    self.__forgeReplayControl = args.forgeReplayControl
+      ? new Int32Array(args.forgeReplayControl)
+      : null;
     try {
       importScripts(launcherUrl);
     } catch (e) {
@@ -115,7 +118,7 @@ async function startGame(requestId, args) {
   }
 
   try {
-    await boot();
+    await boot(args);
   } catch (e) {
     return postError(requestId, `forge engine failed to load: ${e && e.message ? e.message : e}`);
   }
@@ -206,7 +209,7 @@ async function startMultiplayerGame(requestId, args) {
   }
 
   try {
-    await boot();
+    await boot(args);
   } catch (e) {
     return postError(requestId, `forge engine failed to load: ${e && e.message ? e.message : e}`);
   }

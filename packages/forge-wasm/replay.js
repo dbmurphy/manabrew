@@ -71,10 +71,20 @@ export class ReplayForgeEngine {
     if (this.options[callback]) this.notify(callback, structuredClone(message[field]), playerSlot);
   }
 
-  createContext() {
-    const context = { states: new Map(), waiting: new Map(), queue: [], wake: null, failure: null };
+  createContext(replayMode = 0) {
+    const replayControl = replayMode ? new Int32Array(new SharedArrayBuffer(4)) : null;
+    if (replayControl) Atomics.store(replayControl, 0, replayMode);
+    const context = {
+      states: new Map(),
+      waiting: new Map(),
+      queue: [],
+      wake: null,
+      failure: null,
+      replayControl,
+    };
     context.engine = new this.Engine({
       eagerPolling: () => context !== this.active,
+      replayControl: replayControl?.buffer,
       workerUrl: this.options.workerUrl,
       launcherUrl: this.options.launcherUrl,
       wasmUrl: this.options.wasmUrl,
@@ -301,7 +311,20 @@ export class ReplayForgeEngine {
     )
       throw new Error("Restore requires a paused, empty-stack priority prompt.");
     if (signal?.aborted) throw signal.reason ?? new Error("Restore cancelled.");
-    const candidate = this.createContext();
+    const frames = [...this.journal.slice(0, point.index), point];
+    const broadcastFrom = Math.max(
+      0,
+      frames.findLastIndex((frame) => {
+        if (frame.inputType === "diceRolled") return false;
+        if (this.method === "startGame") return frame.slot === LOCAL;
+        const seat =
+          frame.slot === LOCAL
+            ? (this.request.enginePlayerIndex ?? 0)
+            : Number(frame.slot.slice("player-".length));
+        return !this.request.botSeats?.includes(seat);
+      }),
+    );
+    const candidate = this.createContext(broadcastFrom > 0 ? 1 : 2);
     let rejectCancelled;
     const cancelled = new Promise((_, reject) => {
       rejectCancelled = reject;
@@ -320,12 +343,14 @@ export class ReplayForgeEngine {
     try {
       const prepare = async () => {
         await candidate.engine[this.method](structuredClone(this.request));
-        for (const expected of [...this.journal.slice(0, point.index), point]) {
+        let index = 0;
+        for (const expected of frames) {
           const frame = await this.nextFrame(candidate, expected);
           if (frame.slot !== expected.slot || (await frame.digest) !== (await expected.digest))
             throw new Error("Restore candidate diverged; the original game was preserved.");
           if (candidate.failure) throw candidate.failure;
           if (!expected.action) return frame;
+          if (++index === broadcastFrom) Atomics.store(candidate.replayControl, 0, 2);
           candidate.engine.respond(frame.prompt.promptId, expected.action, frame.slot);
           candidate.waiting.delete(frame.slot);
         }
@@ -335,6 +360,7 @@ export class ReplayForgeEngine {
         throw new Error("Restore candidate was superseded.");
       clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
+      Atomics.store(candidate.replayControl, 0, 0);
       this.active = candidate;
       this.journal = this.journal.slice(0, point.index);
       this.journalBytes = point.bytes;

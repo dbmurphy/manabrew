@@ -119,7 +119,7 @@ The facade retains up to 32 empty-stack priority boundaries, at most one per tur
 
 Every replayed answer and the target boundary must match the original seat, prompt, and deciding seat's visible `gameView` fingerprint. Prompt IDs and outer state timing/checkpoint metadata are excluded. Cancellation, timeout, mismatch, and candidate failure discard the second worker and preserve the original pending prompt. This check detects observed divergence; it does **not** prove equality of hidden engine state or determinism for every card. Keep the engine, launcher, worker, and card assets pinned for the session. Browser runtime coverage and broad card coverage are still required before adopting this experimental API in the app.
 
-Normal play pays for cloning callback data, hashing prompt state, and retaining answers instead of full Java snapshots. The isolated candidate consumes seat messages through asynchronous atomic wakeups (with a timer fallback), then returns to normal animation-frame polling when adopted. Restore pays for a second engine boot and replay from the beginning, so its latency grows with game history and temporarily requires two workers. This is not a sparse native-checkpoint implementation. `maxJournalBytes` defaults to 8 MiB and bounds estimated serialized journal size, not total JavaScript or WASM heap use. Exceeding it disables rewind and releases history while allowing play to continue. `getReplayStatus()` reports availability, recorded inputs, estimated bytes, and whether a restore is running.
+Normal play pays for cloning callback data, hashing prompt state, and retaining answers instead of full Java snapshots. The isolated candidate consumes seat messages through asynchronous atomic wakeups (with a timer fallback), then returns to normal animation-frame polling when adopted. With a matching WASM build, it generates only the deciding seat’s view during the replay prefix, resumes full broadcasts before the target, and suppresses replay timing telemetry. Older artifacts remain compatible but do not skip the unused views. Restore pays for a second engine boot and replay from the beginning, so its latency grows with game history and temporarily requires two workers. This is not a sparse native-checkpoint implementation. `maxJournalBytes` defaults to 8 MiB and bounds estimated serialized journal size, not total JavaScript or WASM heap use. Exceeding it disables rewind and releases history while allowing play to continue. `getReplayStatus()` reports availability, recorded inputs, estimated bytes, and whether a restore is running.
 
 The repository's real WASM integration probe exercises replay, regenerated branches, continuation, timeout, cancellation, mismatch, worker failure, stale responses, and journal exhaustion:
 
@@ -148,6 +148,22 @@ yarn bench:forge-replay-profile --launcher /path/to/forgeharness.js \
 ```
 
 Browser probes use Playwright, installed Chrome or Playwright's Firefox, and a local server with the required isolation headers. `--timer-fallback` disables `Atomics.waitAsync` in that test page to exercise candidate polling on runtimes without it. These are headless runtime probes, not app UI tests. Use `--seats 4` for multiplayer and `--fixture token|combat|scry|bounce|extra` for token creation, attacking/blocking, scry, creature bounce, or extra turns. The latter four assert that their intended mechanic actually occurred. These small synthetic decks are reproducible comparisons, not representative Commander performance estimates.
+
+Capture a four-seat Commander policy once with real Manabot, then compare the same decisions across modes (bot thinking is excluded from the subsequent measurements):
+
+```bash
+yarn bench:forge-replay-profile --launcher /path/to/forgeharness.js \
+  --record-trace /tmp/commander-trace.json --seed 43 --turns 20 \
+  --manabot-js /path/to/wasm.js --manabot-wasm /path/to/wasm_bg.wasm
+yarn bench:forge-replay-profile --launcher /path/to/forgeharness.js \
+  --trace /tmp/commander-trace.json --runs 3
+yarn bench:forge-replay-profile --launcher /path/to/forgeharness.js \
+  --trace /tmp/commander-trace.json --mode replay --runs 1 --restore
+```
+
+The default presets are Kaalia, Animar, Teval, and Neheb; `--presets` accepts comma-separated filenames from `public/preset_decks` without `.json`. The trace includes their deck lists, seed, visible prompt frames, and answers, so retain the trace with the measurements. Capture currently runs in Node. Cross-mode trace comparison normalizes only the temporary `casting-<abilityId>` display entry to its source card: snapshot copying consumes ability allocation IDs, even when the game is otherwise identical. Actual stack target IDs and all other fields must match. Production replay fingerprints and restored suffix checks remain strict.
+
+Use `bench:forge-replay --seats 4 --local-seat 2 --bot-seats 1,3` to check mixed-seat cache restoration as well as the ordinary all-human multiplayer probe.
 
 ## Types
 

@@ -34,7 +34,8 @@ const start = (engine) =>
     : engine.startMultiplayerGame({
         decks: Array(seats).fill(deck),
         playerNames: Array.from({ length: seats }, (_, i) => `Seat ${i}`),
-        enginePlayerIndex: 0,
+        enginePlayerIndex: Number(option("local-seat", "0")),
+        botSeats: option("bot-seats", "").split(",").filter(Boolean).map(Number),
         seed: request.seed,
         startingLife: request.startingLife,
       });
@@ -100,6 +101,8 @@ async function create(extra = {}) {
   engines.push(engine);
   return {
     engine,
+    views: () =>
+      new Map([...states].map(([slot, state]) => [slot, structuredClone(state.gameView)])),
     get prompts() {
       return prompts;
     },
@@ -145,7 +148,9 @@ try {
       current.prompt.input.type === "chooseAction" &&
       board.stack.length === 0
     ) {
-      point = { ...engine.getRestorePoints().at(-1), index: history.length };
+      // Other seats consume the same broadcast on independent polling ticks.
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      point = { ...engine.getRestorePoints().at(-1), index: history.length, views: run.views() };
     }
     if (
       !current.slot &&
@@ -206,6 +211,8 @@ try {
   const started = performance.now();
   await restore();
   const restoreMs = performance.now() - started;
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.deepEqual(run.views(), point.views);
   current = await run.frame();
   assert.ok(current.prompt.promptId > original.prompt.promptId);
   assert.throws(
@@ -282,6 +289,7 @@ try {
       forwardSnapshotCopies: run.copies,
       checked: [
         "replay",
+        "all restored seat views",
         "callback mutation isolation",
         "caller action mutation isolation",
         "dispose during replay",

@@ -97,6 +97,7 @@ export class ForgeEngine {
       ...args,
       forgeLauncherUrl: this.locations.launcher,
       forgeWasmUrl: this.locations.wasm,
+      forgeReplayControl: this.options.replayControl,
     };
   }
 
