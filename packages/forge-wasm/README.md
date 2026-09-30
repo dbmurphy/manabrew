@@ -132,6 +132,23 @@ yarn bench:forge-replay --launcher /path/to/forgeharness.js \
 
 The matching `forgeharness.js.wasm` must sit beside the launcher. These probes use real engine assets; package verification with `--stub-engine` separately checks packing, types, and bundling.
 
+## Replay profiling
+
+`yarn bench:forge-replay-profile --launcher /path/to/forgeharness.js` compares ordinary snapshots, snapshots disabled, and the replay facade over identical seeded decisions. It rotates their order across three runs, checks matching actions and final visible state, and emits JSON with the WASM SHA-256, runtime version, startup time, forward-play wall/CPU time, snapshot cost/count, and estimated journal size. Only the opening dice acknowledgements are sorted for comparison because their seat delivery order can vary.
+
+Forward time starts at the first priority prompt and ends at the selected turn's first main phase; startup is reported separately. Node CPU covers the process and its workers. Chrome CPU covers the isolated test browser's processes via CDP; each case uses a fresh page so earlier worker lifetimes do not distort later readings. Firefox CPU is not measured. `--restore` retains a validation transcript and checks timeout, cancellation, adoption, stale prompt rejection, and the complete continuation; use runs without this option for the forward-play performance comparison.
+
+```sh
+yarn bench:forge-replay-profile --launcher /path/to/forgeharness.js --runs 3 --turns 10
+yarn bench:forge-replay-profile --launcher /path/to/forgeharness.js --browser chrome
+yarn bench:forge-replay-profile --launcher /path/to/forgeharness.js \
+  --browser firefox --mode replay --runs 1 --turns 5 --restore
+yarn bench:forge-replay-profile --launcher /path/to/forgeharness.js \
+  --fixture scry --mode replay --runs 1 --turns 10 --restore
+```
+
+Browser probes use Playwright, installed Chrome or Playwright's Firefox, and a local server with the required isolation headers. `--timer-fallback` disables `Atomics.waitAsync` in that test page to exercise candidate polling on runtimes without it. These are headless runtime probes, not app UI tests. Use `--seats 4` for multiplayer and `--fixture token|combat|scry|bounce|extra` for token creation, attacking/blocking, scry, creature bounce, or extra turns. The latter four assert that their intended mechanic actually occurred. These small synthetic decks are reproducible comparisons, not representative Commander performance estimates.
+
 ## Types
 
 Messages are typed by [`@manabrew/protocol`](https://www.npmjs.com/package/@manabrew/protocol), which the package depends on: `onState` hands you a `StateUpdate`, `onPrompt` a `Prompt`, `onDisplay` a `DisplayEvent`, and `respond` takes a `PromptOutput`. The range tracks the protocol's major version, which is the wire compatibility boundary.
@@ -181,20 +198,3 @@ One internal is exported because Manabrew's own client imports it rather than ke
 ## Licence
 
 `@manabrew/forge-wasm` is distributed under the GNU Affero General Public License version 3 or later. Forge itself is GPL-3.0 licensed. Corresponding source is available in the Manabrew repository and its pinned `forge` submodule.
-
-## Replay profiling
-
-`yarn bench:forge-replay-profile --launcher /path/to/forgeharness.js` compares ordinary snapshots, snapshots disabled, and the replay facade over identical seeded decisions. It rotates their order across three runs, checks matching actions and final visible state, and emits JSON with the WASM SHA-256, runtime version, startup time, forward-play wall/CPU time, snapshot cost/count, and estimated journal size. Only the opening dice acknowledgements are sorted for comparison because their seat delivery order can vary.
-
-Forward time starts at the first priority prompt and ends at the selected turn's first main phase; startup is reported separately. Node CPU covers the process and its workers. Chrome CPU covers the isolated test browser's processes via CDP. Firefox CPU is not measured. `--restore` retains a validation transcript and checks timeout, cancellation, adoption, stale prompt rejection, and the complete continuation; use runs without this option for the forward-play performance comparison.
-
-```sh
-yarn bench:forge-replay-profile --launcher /path/to/forgeharness.js --runs 3 --turns 10
-yarn bench:forge-replay-profile --launcher /path/to/forgeharness.js --browser chrome
-yarn bench:forge-replay-profile --launcher /path/to/forgeharness.js \
-  --browser firefox --mode replay --runs 1 --turns 5 --restore
-yarn bench:forge-replay-profile --launcher /path/to/forgeharness.js \
-  --fixture scry --mode replay --runs 1 --turns 10 --restore
-```
-
-Browser probes use Playwright, installed Chrome or Playwright's Firefox, and a local server with the required isolation headers. `--timer-fallback` disables `Atomics.waitAsync` in that test page to exercise candidate polling on runtimes without it. These are headless runtime probes, not app UI tests. Use `--seats 4` for multiplayer and `--fixture token|combat|scry|bounce|extra` for token creation, attacking/blocking, scry, creature bounce, or extra turns. The latter four assert that their intended mechanic actually occurred. These small synthetic decks are reproducible comparisons, not representative Commander performance estimates.
