@@ -1,3 +1,4 @@
+import { ReplayForgeEngine } from "./replay.js";
 import workerUrl from "./forge-engine.worker.js?url";
 import launcherUrl from "./forgeharness.js?url";
 import wasmUrl from "./forgeharness.js.wasm?url";
@@ -48,3 +49,7 @@ export async function createForgeEngine(options = {}) {
 }
 
 export { VERSION, BUILD_COMMIT } from "./stamp.js";
+
+export async function createReplayForgeEngine(options = {}) {
+  return new ReplayForgeEngine(ForgeEngine, options);
+}

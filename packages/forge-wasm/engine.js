@@ -20,6 +20,7 @@ export class ForgeEngine {
     this.locations = platform.locations(options);
     this.worker = null;
     this.ready = null;
+    this.rejectReady = null;
     this.requestId = 0;
     this.pending = new Map();
     this.seats = new Map();
@@ -30,14 +31,23 @@ export class ForgeEngine {
   async init() {
     if (this.ready) return this.ready;
     this.ready = new Promise((resolve, reject) => {
+      this.rejectReady = reject;
       const unsupported = this.platform.unsupported();
       if (unsupported) {
         reject(new Error(unsupported));
         return;
       }
-      this.worker = this.platform.spawnWorker(this.locations.worker);
-      this.worker.onError((error) => reject(error));
-      this.worker.onMessage((message) => {
+      const worker = this.platform.spawnWorker(this.locations.worker);
+      this.worker = worker;
+      worker.onError((error) => {
+        if (this.worker !== worker) return;
+        reject(error);
+        for (const pending of this.pending.values()) pending.reject(error);
+        this.pending.clear();
+        this.options.onError?.(error);
+      });
+      worker.onMessage((message) => {
+        if (this.worker !== worker) return;
         if (message?.type === "response") {
           const pending = this.pending.get(message.requestId);
           if (!pending) return;
@@ -47,7 +57,10 @@ export class ForgeEngine {
           return;
         }
         if (message?.type !== "event") return;
-        if (message.event === "worker:init" && message.payload?.stage === "ready") resolve();
+        if (message.event === "worker:init" && message.payload?.stage === "ready") {
+          this.rejectReady = null;
+          resolve();
+        }
         if (message.event === "game:sab") this.attachSeat(LOCAL_SEAT, message.payload.buffer);
         if (message.event === "game:remote_sab") {
           this.attachSeat(message.payload.playerSlot, message.payload.buffer);
@@ -138,6 +151,8 @@ export class ForgeEngine {
   }
 
   dispose() {
+    this.rejectReady?.(new Error("Forge engine disposed."));
+    this.rejectReady = null;
     for (const seat of this.seats.values()) seat.cancelled = true;
     this.seats.clear();
     this.worker?.terminate();

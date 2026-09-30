@@ -91,6 +91,47 @@ Call `dispose()` to terminate the worker. A running Forge game is synchronous in
 
 `directive()` sends an out-of-band instruction such as a concession or a restore request. Each seat has its own directive lane, apart from its prompt buffer, and the engine reads every lane while it waits on any prompt, so a directive lands at once, even while another seat is deciding.
 
+## Experimental isolated replay
+
+`createReplayForgeEngine()` is an opt-in alternative for games whose human and bot responses all pass through JavaScript. It disables Forge snapshots, records protocol answers, and rewinds by replaying from the original seed in a second worker. The ordinary `createForgeEngine()` API and Manabrew app restore flow are unchanged.
+
+```js
+import { createReplayForgeEngine } from "@manabrew/forge-wasm";
+
+const engine = await createReplayForgeEngine({
+  onState: (state, slot) => renderSeat(state, slot),
+  onPrompt: (prompt, slot) =>
+    chooseForSeat(prompt, slot, (action) => engine.respond(prompt.promptId, action, slot)),
+  onRestorePoints: (points) => showRewindChoices(points),
+  onRestored: () => resetExternalBots(),
+  onReplayUnavailable: (reason) => disableRewind(reason),
+  onError: (error) => console.error(error),
+});
+await engine.startGame({ deck, opponentDecks: [deck], seed: 42 });
+
+// When paused at an empty-stack priority prompt:
+await engine.restoreTo(selectedPointId, { timeoutMs: 30_000, signal: abortSignal });
+```
+
+The factory creates a lazy facade; the first start boots the worker. One facade runs one game. `startMultiplayerGame()` uses the same slot routing as the ordinary engine. Every seat must answer through `respond()`, including external Manabot seats. Internal Forge AI is rejected: a seed alone has not reproduced its choices reliably. Direct SharedArrayBuffer bot clients, directives, concessions, restore voting, and app/relay integration are not provided by this facade. `dispose()` ends the session.
+
+The facade retains up to 32 empty-stack priority boundaries, at most one per turn/step/active player combination. These are input boundaries, so phases without a priority prompt have no point. `getRestorePoints()` returns their IDs and labels. Restore is allowed only while the live engine has one pending empty-stack priority prompt. Responses and concurrent restores are rejected during candidate validation. On success, future history is dropped and the target prompt gets a fresh public ID; late responses carrying an old ID are rejected. Reset external bot state and discard cached prompts in `onRestored` before responding to the replacement prompt.
+
+Every replayed answer and the target boundary must match the original seat, prompt, and deciding seat's visible `gameView` fingerprint. Prompt IDs and outer state timing/checkpoint metadata are excluded. Cancellation, timeout, mismatch, and candidate failure discard the second worker and preserve the original pending prompt. This check detects observed divergence; it does **not** prove equality of hidden engine state or determinism for every card. Keep the engine, launcher, worker, and card assets pinned for the session. Browser runtime coverage and broad card coverage are still required before adopting this experimental API in the app.
+
+Normal play pays for cloning and hashing prompt state and retaining answers instead of full Java snapshots. Restore pays for a second engine boot and replay from the beginning, so its latency grows with game history and temporarily requires two workers. This is not a sparse native-checkpoint implementation. `maxJournalBytes` defaults to 8 MiB and bounds estimated serialized journal size, not total JavaScript or WASM heap use. Exceeding it disables rewind and releases history while allowing play to continue. `getReplayStatus()` reports availability, recorded inputs, estimated bytes, and whether a restore is running.
+
+The repository's real WASM integration probe exercises replay, regenerated branches, continuation, timeout, cancellation, mismatch, worker failure, stale responses, and journal exhaustion:
+
+```sh
+yarn bench:forge-replay --launcher /path/to/forgeharness.js
+yarn bench:forge-replay --launcher /path/to/forgeharness.js --seats 4 --seed 43
+yarn bench:forge-replay --launcher /path/to/forgeharness.js \
+  --manabot-js /path/to/wasm.js --manabot-wasm /path/to/wasm_bg.wasm
+```
+
+The matching `forgeharness.js.wasm` must sit beside the launcher. These probes use real engine assets; package verification with `--stub-engine` separately checks packing, types, and bundling.
+
 ## Types
 
 Messages are typed by [`@manabrew/protocol`](https://www.npmjs.com/package/@manabrew/protocol), which the package depends on: `onState` hands you a `StateUpdate`, `onPrompt` a `Prompt`, `onDisplay` a `DisplayEvent`, and `respond` takes a `PromptOutput`. The range tracks the protocol's major version, which is the wire compatibility boundary.

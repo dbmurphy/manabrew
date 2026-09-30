@@ -1,3 +1,4 @@
+import { ReplayForgeEngine } from "./replay.js";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import { ForgeEngine as Engine } from "./engine.js";
@@ -51,3 +52,7 @@ export async function createForgeEngine(options = {}) {
 }
 
 export { VERSION, BUILD_COMMIT } from "./stamp.js";
+
+export async function createReplayForgeEngine(options = {}) {
+  return new ReplayForgeEngine(ForgeEngine, options);
+}

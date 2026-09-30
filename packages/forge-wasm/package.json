@@ -35,6 +35,7 @@
     "forge.js",
     "forge.d.ts",
     "engine.js",
+    "replay.js",
     "node.js",
     "node-worker.cjs",
     "stamp.js",

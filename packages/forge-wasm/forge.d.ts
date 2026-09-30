@@ -111,3 +111,43 @@ export declare class ForgeEngine {
 export declare function createForgeEngine(options?: ForgeEngineOptions): Promise<ForgeEngine>;
 export declare const VERSION: string;
 export declare const BUILD_COMMIT: string;
+
+export interface ForgeRestorePoint {
+  id: number;
+  turn: number;
+  step: string;
+  activePlayerId: string;
+}
+
+export interface ForgeReplayStatus {
+  available: boolean;
+  reason: string | null;
+  recordedInputs: number;
+  journalBytes: number;
+  restoring: boolean;
+}
+
+export interface ForgeReplayOptions extends ForgeEngineOptions {
+  maxJournalBytes?: number;
+  onRestorePoints?: (points: ForgeRestorePoint[]) => void;
+  onReplayUnavailable?: (reason: string) => void;
+  onRestored?: (point: ForgeRestorePoint) => void;
+}
+
+export interface ForgeReplayEngine {
+  startGame(
+    options: Omit<ForgeStartGameOptions, "forgeAi" | "snapshotRecording">,
+  ): Promise<"game-started">;
+  startMultiplayerGame(
+    options: Omit<ForgeStartMultiplayerGameOptions, "forgeAiSeats" | "snapshotRecording">,
+  ): Promise<"multiplayer-started">;
+  respond(promptId: number, action: PromptOutput, playerSlot?: string): void;
+  getRestorePoints(): ForgeRestorePoint[];
+  getReplayStatus(): ForgeReplayStatus;
+  restoreTo(id: number, options?: { signal?: AbortSignal; timeoutMs?: number }): Promise<void>;
+  dispose(): void;
+}
+
+export declare function createReplayForgeEngine(
+  options?: ForgeReplayOptions,
+): Promise<ForgeReplayEngine>;

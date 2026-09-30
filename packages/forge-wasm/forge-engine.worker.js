@@ -138,7 +138,7 @@ async function startGame(requestId, args) {
   const variant = forgeVariant(humanDeck);
   const commanderGame = variant !== "Constructed";
   const request = {
-    gameId: `forge-${Date.now()}`,
+    gameId: args.gameId || `forge-${Date.now()}`,
     variant,
     startingLife: (args && args.startingLife) || (commanderGame ? 40 : 20),
     seed: gameSeed(args),
@@ -229,7 +229,7 @@ async function startMultiplayerGame(requestId, args) {
   const variant = forgeVariant(decks[0]);
   const commanderGame = variant !== "Constructed";
   const request = {
-    gameId: `forge-${Date.now()}`,
+    gameId: args.gameId || `forge-${Date.now()}`,
     variant,
     startingLife: (args && args.startingLife) || (commanderGame ? 40 : 20),
     seed: gameSeed(args),
