@@ -9,3 +9,7 @@ Seed replay uses a separate worker and adopts it only after the recorded input p
 Forge `GameSnapshot` was not a safe intermediate replay anchor in the audit: turn counters and per-player land-history fields retained future values after both full-phase and sparse restores. Do not replace seed replay with snapshot-plus-replay without auditing the entire restore state first.
 
 Run `yarn bench:forge-replay` with real engine artifacts for behavioral coverage. `yarn build:forge-wasm-package --stub-engine` followed by `yarn verify:forge-wasm-package` checks packing, consumer types, and Vite bundling only; never publish a stub build.
+
+The replay facade owns incoming protocol objects and clones only at consumer callback boundaries. Keep each callback isolated from the journal and other callbacks. The integration probe deliberately mutates callback messages and caller-owned actions to check this. Candidate-only eager polling must switch back on adoption and stop on disposal; preserve the ordinary engine scheduler.
+
+`yarn bench:forge-replay-profile` compares snapshots, disabled snapshots, and replay with matched seeded actions/final state. Run performance cases serially, without competing engine probes; use `--restore` separately for browser and multi-mechanic correctness. Animation-frame polling can hide CPU savings in browser wall time.

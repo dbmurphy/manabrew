@@ -46,6 +46,7 @@
     "fix:all": "eslint . --fix && prettier --write src && cargo fmt --all && yarn typecheck",
     "preview": "vite preview",
     "build:harness": "node scripts/harness.mjs build",
+    "bench:forge-replay-profile": "node scripts/engine-bench/forge-replay-profile.mjs",
     "bench:forge-replay": "node scripts/engine-bench/forge-replay.mjs",
     "bench:stress": "node scripts/engine-bench/stress.mjs",
     "bench:manabot": "node scripts/engine-bench/manabot-game.mjs",

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
+import { decks, scriptedAnswer } from "./replay-fixture.mjs";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -16,14 +17,9 @@ const temporary = mkdtempSync(join(tmpdir(), "forge-replay-"));
 const worker = join(temporary, "worker.js");
 const delegate = `importScripts(${JSON.stringify(join(root, "packages/forge-wasm/forge-engine.worker.js"))});\n`;
 writeFileSync(worker, delegate);
-const deck = {
-  format: "standard",
-  cards: [
-    { name: "Forest", count: 20 },
-    { name: "Memnite", count: 20 },
-    { name: "Sprout", count: 20 },
-  ],
-};
+const fixture = option("fixture", "token");
+const deck = decks[fixture];
+assert.ok(deck, `Unknown fixture ${fixture}`);
 const request = {
   deck,
   opponentDecks: [deck],
@@ -62,45 +58,9 @@ function answer(frame) {
     bot.observe_frame(JSON.stringify({ kind: "state", state }));
     return JSON.parse(bot.answer_frame(JSON.stringify({ kind: "prompt", prompt }))).action;
   }
-  const input = prompt.input;
-  let output;
-  switch (input.type) {
-    case "diceRolled":
-      output = { type: "diceRolledAcknowledged" };
-      break;
-    case "mulligan":
-      output = { type: "mulliganDecision", keep: true };
-      break;
-    case "revealCards":
-      output = { type: "revealCardsAcknowledged" };
-      break;
-    case "payManaCost":
-      output = { type: "pay", auto: !input.canConfirmFromPool };
-      break;
-    case "chooseAction": {
-      const action = input.actions.find((entry) => entry.type === "cast");
-      output = action ? { type: "act", actionId: action.id } : { type: "pass" };
-      break;
-    }
-    case "chooseAttackers":
-      output = { type: "declareAttackers", assignments: [] };
-      break;
-    case "chooseBlockers":
-      output = { type: "declareBlockers", assignments: [] };
-      break;
-    case "chooseCards":
-      output = {
-        type: "chooseCardsDecision",
-        chosenCardIds: input.cards
-          .slice(0, Math.max(input.min, Math.min(1, input.max)))
-          .map((card) => card.id),
-      };
-      break;
-    default:
-      throw new Error(`Unsupported fixture prompt ${input.type}`);
-  }
-  return { type: input.type, output };
+  return scriptedAnswer(frame, { combat: fixture === "combat" });
 }
+
 async function create(extra = {}) {
   const states = new Map(),
     queue = [];
@@ -113,6 +73,10 @@ async function create(extra = {}) {
     wasmUrl: `${launcher}.wasm`,
     workerUrl: worker,
     ...extra,
+    onMessage: (message) => {
+      if (message.kind === "state") message.state.gameView.turn = -1;
+      if (message.kind === "prompt") message.prompt.input.type = "mutated";
+    },
     onState: (state, slot) => states.set(slot, state),
     onPrompt: (prompt, slot) => {
       prompts++;
@@ -168,7 +132,9 @@ try {
   const engine = run.engine;
   await start(engine);
   const history = [];
-  let point, current;
+  let point,
+    current,
+    rejectedBusyPoint = false;
   for (;;) {
     current = await run.frame();
     const board = current.state.gameView;
@@ -189,10 +155,16 @@ try {
       board.stack.length === 0
     )
       break;
+    if (point && !rejectedBusyPoint && current.prompt.input.type !== "chooseAction") {
+      await assert.rejects(engine.restoreTo(point.id), /paused, empty-stack/);
+      rejectedBusyPoint = true;
+    }
     assert.ok(history.length < 600);
     const action = answer(current);
     history.push({ frame: current, action });
-    engine.respond(current.prompt.promptId, action, current.slot);
+    const delivered = structuredClone(action);
+    engine.respond(current.prompt.promptId, delivered, current.slot);
+    delivered.output.type = "mutated";
   }
   assert.ok(point);
   const original = current;
@@ -265,8 +237,19 @@ try {
     engine.respond(current.prompt.promptId, answer(current), current.slot);
     current = await run.frame();
   }
+  for (
+    let i = 0;
+    current.prompt.input.type !== "chooseAction" || current.state.gameView.stack.length;
+    i++
+  ) {
+    assert.ok(i < 100);
+    engine.respond(current.prompt.promptId, answer(current), current.slot);
+    current = await run.frame();
+  }
   assert.equal(run.copies, 0);
+  const disposing = engine.restoreTo(engine.getRestorePoints().at(-1).id);
   engine.dispose();
+  await assert.rejects(disposing, /disposed/);
   const capped = await create({ maxJournalBytes: 1 });
   await start(capped.engine);
   let frame = await capped.frame();
@@ -277,6 +260,11 @@ try {
   capped.engine.respond(frame.prompt.promptId, answer(frame), frame.slot);
   await capped.frame();
   capped.engine.dispose();
+  const booting = await create();
+  const boot = start(booting.engine);
+  booting.engine.dispose();
+  await assert.rejects(boot, /disposed/);
+  assert.equal(booting.engine.getReplayStatus().journalBytes, 0);
   const unsupported = await create();
   await assert.rejects(
     unsupported.engine.startGame({ ...request, forgeAi: true }),
@@ -287,12 +275,17 @@ try {
     JSON.stringify({
       result: "matched",
       seats,
+      fixture,
       inputs: history.length,
       botInputs: history.filter(({ frame }) => frame.slot).length,
       restoreMs,
       forwardSnapshotCopies: run.copies,
       checked: [
         "replay",
+        "callback mutation isolation",
+        "caller action mutation isolation",
+        "dispose during replay",
+        "dispose during initial boot",
         "regenerated branch",
         "live continuation",
         "cancel",

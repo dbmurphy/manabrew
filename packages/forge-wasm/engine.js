@@ -118,6 +118,7 @@ export class ForgeEngine {
       seat,
       (message) => this.dispatchMessage(message, playerSlot),
       (error) => this.options.onError?.(error),
+      this.options.eagerPolling,
     );
   }
 

@@ -35,4 +35,5 @@ export declare function pollSeat<T = unknown>(
   seat: ForgeSeat,
   onMessage: (message: T, json: string) => void,
   onError?: (error: unknown, json: string) => void,
+  eager?: () => boolean,
 ): void;

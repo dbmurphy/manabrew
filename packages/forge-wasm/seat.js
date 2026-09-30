@@ -131,7 +131,17 @@ export function noteSeatMessage(seat, message) {
  * Polls rather than `Atomics.wait` because the main thread cannot block, and on
  * an animation frame because that is the rate the board redraws at anyway.
  */
-export function pollSeat(seat, onMessage, onError) {
+export function pollSeat(seat, onMessage, onError, eager = () => false) {
+  const next = () => {
+    if (seat.cancelled) return;
+    if (!eager()) return schedule(poll);
+    if (typeof Atomics.waitAsync !== "function") return setTimeout(poll, 0);
+    const signal = Atomics.load(seat.signal, 0);
+    if (signal === SIGNAL_PROMPT_READY) return queueMicrotask(poll);
+    const wait = Atomics.waitAsync(seat.signal, 0, signal, 100);
+    if (wait.async) wait.value.then(poll);
+    else queueMicrotask(poll);
+  };
   const poll = () => {
     if (seat.cancelled) return;
     const json = readSeatMessage(seat);
@@ -144,7 +154,7 @@ export function pollSeat(seat, onMessage, onError) {
         onError?.(error, json);
       }
     }
-    schedule(poll);
+    next();
   };
-  schedule(poll);
+  next();
 }

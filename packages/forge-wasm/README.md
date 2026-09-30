@@ -119,7 +119,7 @@ The facade retains up to 32 empty-stack priority boundaries, at most one per tur
 
 Every replayed answer and the target boundary must match the original seat, prompt, and deciding seat's visible `gameView` fingerprint. Prompt IDs and outer state timing/checkpoint metadata are excluded. Cancellation, timeout, mismatch, and candidate failure discard the second worker and preserve the original pending prompt. This check detects observed divergence; it does **not** prove equality of hidden engine state or determinism for every card. Keep the engine, launcher, worker, and card assets pinned for the session. Browser runtime coverage and broad card coverage are still required before adopting this experimental API in the app.
 
-Normal play pays for cloning and hashing prompt state and retaining answers instead of full Java snapshots. Restore pays for a second engine boot and replay from the beginning, so its latency grows with game history and temporarily requires two workers. This is not a sparse native-checkpoint implementation. `maxJournalBytes` defaults to 8 MiB and bounds estimated serialized journal size, not total JavaScript or WASM heap use. Exceeding it disables rewind and releases history while allowing play to continue. `getReplayStatus()` reports availability, recorded inputs, estimated bytes, and whether a restore is running.
+Normal play pays for cloning callback data, hashing prompt state, and retaining answers instead of full Java snapshots. The isolated candidate consumes seat messages through asynchronous atomic wakeups (with a timer fallback), then returns to normal animation-frame polling when adopted. Restore pays for a second engine boot and replay from the beginning, so its latency grows with game history and temporarily requires two workers. This is not a sparse native-checkpoint implementation. `maxJournalBytes` defaults to 8 MiB and bounds estimated serialized journal size, not total JavaScript or WASM heap use. Exceeding it disables rewind and releases history while allowing play to continue. `getReplayStatus()` reports availability, recorded inputs, estimated bytes, and whether a restore is running.
 
 The repository's real WASM integration probe exercises replay, regenerated branches, continuation, timeout, cancellation, mismatch, worker failure, stale responses, and journal exhaustion:
 
@@ -181,3 +181,20 @@ One internal is exported because Manabrew's own client imports it rather than ke
 ## Licence
 
 `@manabrew/forge-wasm` is distributed under the GNU Affero General Public License version 3 or later. Forge itself is GPL-3.0 licensed. Corresponding source is available in the Manabrew repository and its pinned `forge` submodule.
+
+## Replay profiling
+
+`yarn bench:forge-replay-profile --launcher /path/to/forgeharness.js` compares ordinary snapshots, snapshots disabled, and the replay facade over identical seeded decisions. It rotates their order across three runs, checks matching actions and final visible state, and emits JSON with the WASM SHA-256, runtime version, startup time, forward-play wall/CPU time, snapshot cost/count, and estimated journal size. Only the opening dice acknowledgements are sorted for comparison because their seat delivery order can vary.
+
+Forward time starts at the first priority prompt and ends at the selected turn's first main phase; startup is reported separately. Node CPU covers the process and its workers. Chrome CPU covers the isolated test browser's processes via CDP. Firefox CPU is not measured. `--restore` retains a validation transcript and checks timeout, cancellation, adoption, stale prompt rejection, and the complete continuation; use runs without this option for the forward-play performance comparison.
+
+```sh
+yarn bench:forge-replay-profile --launcher /path/to/forgeharness.js --runs 3 --turns 10
+yarn bench:forge-replay-profile --launcher /path/to/forgeharness.js --browser chrome
+yarn bench:forge-replay-profile --launcher /path/to/forgeharness.js \
+  --browser firefox --mode replay --runs 1 --turns 5 --restore
+yarn bench:forge-replay-profile --launcher /path/to/forgeharness.js \
+  --fixture scry --mode replay --runs 1 --turns 10 --restore
+```
+
+Browser probes use Playwright, installed Chrome or Playwright's Firefox, and a local server with the required isolation headers. `--timer-fallback` disables `Atomics.waitAsync` in that test page to exercise candidate polling on runtimes without it. These are headless runtime probes, not app UI tests. Use `--seats 4` for multiplayer and `--fixture token|combat|scry|bounce|extra` for token creation, attacking/blocking, scry, creature bounce, or extra turns. The latter four assert that their intended mechanic actually occurred. These small synthetic decks are reproducible comparisons, not representative Commander performance estimates.

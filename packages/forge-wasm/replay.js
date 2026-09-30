@@ -48,6 +48,7 @@ export class ReplayForgeEngine {
   }
 
   notify(name, ...args) {
+    if (this.disposed) return;
     try {
       this.options[name]?.(...args);
     } catch (error) {
@@ -57,7 +58,7 @@ export class ReplayForgeEngine {
 
   emit(message, slot) {
     const playerSlot = slot === LOCAL ? undefined : slot;
-    this.notify("onMessage", structuredClone(message), playerSlot);
+    if (this.options.onMessage) this.notify("onMessage", structuredClone(message), playerSlot);
     const field = { state: "state", prompt: "prompt", display: "event", error: "error" }[
       message.kind
     ];
@@ -67,12 +68,13 @@ export class ReplayForgeEngine {
       display: "onDisplay",
       error: "onError",
     }[message.kind];
-    if (callback) this.notify(callback, structuredClone(message[field]), playerSlot);
+    if (this.options[callback]) this.notify(callback, structuredClone(message[field]), playerSlot);
   }
 
   createContext() {
     const context = { states: new Map(), waiting: new Map(), queue: [], wake: null, failure: null };
     context.engine = new this.Engine({
+      eagerPolling: () => context !== this.active,
       workerUrl: this.options.workerUrl,
       launcherUrl: this.options.launcherUrl,
       wasmUrl: this.options.wasmUrl,
@@ -119,7 +121,7 @@ export class ReplayForgeEngine {
 
   receive(context, message, slot) {
     if (this.disposed || context.failure) return;
-    if (message.kind === "state") context.states.set(slot, structuredClone(message.state));
+    if (message.kind === "state") context.states.set(slot, message.state);
     if (message.kind === "error") return;
     if (message.kind === "prompt") {
       const state = context.states.get(slot);
@@ -129,7 +131,7 @@ export class ReplayForgeEngine {
       }
       const frame = {
         slot,
-        prompt: structuredClone(message.prompt),
+        prompt: message.prompt,
         state,
         digest: this.disabledReason ? Promise.resolve(null) : fingerprint(message.prompt, state),
       };
@@ -203,12 +205,13 @@ export class ReplayForgeEngine {
       gameId: globalThis.crypto.randomUUID(),
       snapshotRecording: false,
     });
-    this.active = this.createContext();
+    const context = this.createContext();
+    this.active = context;
     try {
-      return await this.active.engine[method](structuredClone(this.request));
+      return await context.engine[method](structuredClone(this.request));
     } catch (error) {
-      this.failContext(this.active, error);
-      this.active.engine.dispose();
+      this.failContext(context, error);
+      context.engine.dispose();
       throw error;
     }
   }
@@ -359,6 +362,10 @@ export class ReplayForgeEngine {
     this.disposed = true;
     this.restore?.cancel(new Error("Replay engine disposed."));
     this.active?.engine.dispose();
+    this.active = null;
+    this.restore = null;
+    this.request = null;
+    this.journalBytes = 0;
     this.journal = [];
     this.points = [];
   }
