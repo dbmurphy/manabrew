@@ -1,15 +1,16 @@
 # forge-harness — package boundaries
 
-Java side of the cross-engine work. One CLI entry, three internal packages with one-directional dependencies.
+Java side of the cross-engine work. One CLI entry, four internal packages with one-directional dependencies.
 
 ```
 forge.harness            Main            CLI launcher / dispatcher (one-shot, --server, --interactive-server)
 forge.harness.common     generic harness shared by parity AND host
 forge.harness.parity     deterministic full-game parity runner
 forge.harness.host       interactive self-hosted-node engine surface
+forge.harness.embedded   Forge's own human controller answered in-process (spike, upstream candidate)
 ```
 
-Dependency rule (do not violate): `parity → common`, `host → common`, `Main → {common, parity, host}`. **`common` never imports `parity` or `host`. `parity` and `host` never import each other.** If a `common` class reaches for a `parity`/`host` type, it is misfiled — move it, don't add the back-edge.
+Dependency rule (do not violate): `parity → common`, `host → {common, embedded}`, `Main → {common, parity, host}`. `embedded` imports nothing from `forge.harness`: it is written to move into Forge unchanged. **`common` never imports `parity` or `host`. `parity` and `host` never import each other.** If a `common` class reaches for a `parity`/`host` type, it is misfiled — move it, don't add the back-edge.
 
 ## What goes where
 
@@ -71,20 +72,24 @@ Concede mirrors native Forge's out-of-band contract: `player.concede()` sets the
 
 ### Forge's own human controller (spike, `-Dmanabrew.forgeHuman=true`)
 
-Behind the flag, human seats use `ForgeHumanLobbyPlayer` → `ForgeHumanController` (Forge's `PlayerControllerHuman` plus 7 overrides) with `ForgeHumanGui` (a `ProtocolGuiGame`, from witchesofthehill/forge#17) as its GUI. When a Forge `Input` waits, `ForgeHumanGui.awaitInput` asks the session for the answer with the same `await*` prompts `ManaBrewInteractiveController` uses and replays it as Forge clicks; blocking dialogs arrive as `ProtocolMethod` events and map to the same prompts. The protocol and client do not change. Browser builds opt in with `FORGE_HUMAN=1 forge-harness/build-wasm.sh`. The traps that shaped it:
+Behind the flag, human seats run Forge's `PlayerControllerHuman`. The split:
 
-JVM and native hosts can opt in at runtime with `MANABREW_FORGE_HUMAN=1`. Native builds register the input fields and event subscriber methods in `native/extra-config/reflect-config.json`; browser builds register them in `native/embedded-config/reflect-config.json`. Keep both registrations in step when adding reflective accesses. The supporting fork PR against `manabrew` is witchesofthehill/forge#18.
+- `embedded` (generic, no Manabrew types): `EmbeddedHumanController` keeps Forge's rules methods (priority, casting, payment, targeting, combat declarations, mulligans) and sends every question Forge would ask through a dialog to `HumanSeat.questions()`, a plain `PlayerController`. `EmbeddedHumanGui` (a `ProtocolGuiGame`, from witchesofthehill/forge#17) answers each waiting `Input` through the seat's decision methods and replays the answer as clicks; the dialogs Forge still raises from targeting and cost payment go to the seat too. `InputAccess` reads the private Input fields that upstream would expose as getters.
+- `host.ManabrewHumanSeat`: `questions()` is a `ManaBrewInteractiveController` that is never installed as the player's controller, so every dialog-style question is the prompt the default path sends. The Input decisions call the same session methods with the same kinds as that controller. Do not add a prompt kind here: a decision with no counterpart in `ManaBrewInteractiveController` is a gap to report, not a prompt to invent.
 
-- Mulligan prompts must carry `player.getStats().getMulliganCount()`: reporting zero makes SimpleAi mulligan forever, including at an empty hand. Forge bottoms London cards after each redraw, before the next keep question; the old interactive controller instead bottoms them on keep. Its empty `tuckCardsViaMulligan` is intentional, not evidence of free mulligans.
-- JVM adapter traces require both `-Dmanabrew.forgeHumanTrace=true` and `RUST_LOG=info,self_hosted_node::java=debug` on the node; ordinary JVM stderr is forwarded at debug level.
+The protocol and client do not change. Browser builds opt in with `FORGE_HUMAN=1 forge-harness/build-wasm.sh`; JVM and native hosts with `MANABREW_FORGE_HUMAN=1`. Native builds register the Input fields and event subscriber methods in `native/extra-config/reflect-config.json`, browser builds in `native/embedded-config/reflect-config.json`; keep both in step when `InputAccess` reads a new field. The supporting fork PR against `manabrew` is witchesofthehill/forge#18. Traces: `-Dforge.embeddedHumanTrace=true`, and on a node also `RUST_LOG=info,self_hosted_node::java=debug` (JVM stderr is forwarded at debug level).
 
+The traps that shaped it:
+
+- Priority and pay-to-prevent run the interactive controller under `player.runWithController`: its payability probes call the player's choosers, and Forge's human choosers would open an Input mid-probe.
+- Mulligan prompts must carry `player.getStats().getMulliganCount()`: zero makes SimpleAi mulligan forever, even at an empty hand. Forge bottoms London cards after each redraw; the default controller bottoms them on keep, which is why its `tuckCardsViaMulligan` is empty.
 - The session's game thread is named `Game …` under the flag: `ThreadUtil.isGameThread` checks the name, and otherwise `InputPayMana`'s auto-pay runs on another thread and races a cancel.
 - PCH sleeps on every phase it auto-passes (`YIELD_SKIP_*_DELAY`); the per-controller override is replaced when yield state is restored, so the flag sets the global preference.
 - Offer `InputPayMana.getUsefulManaAbilities` as payment sources, never every mana ability: Manabot loops on sources that cannot pay.
-- A mana ability's own cost (a horizon land's life) raises a Forge confirm the old path never showed; `ForgeHumanGui` treats it as consented while carrying out a payment answer.
+- A cost Forge raises while a payment answer is carried out (a horizon land's life) is consented; spell costs and an accepted pay-to-prevent are not confirmed again, as on the default path.
 - Forge rejects an invalid block or attack through `message()`, and clicks toggle: clear the seat's declarations before replaying an answer.
-- `getChoices(min = max = -1)` is a reveal; a one-option `getAbilityToPlay` is the cost-variant question and must be answered, or the cast cancels.
-- Name-a-card goes through `ManaBrewInteractiveController.nameableFaces`, keeping the in-game-names decision above.
+- `getChoices(min = max = -1)` is a reveal. The pending mana ability answers `getAbilityToPlay` during payment, or the tap asks which ability.
+- Convoke and improvise arrive as their own Input before mana payment; the seat offers them through the payment prompt's convoke sources, then pays mana in a second prompt.
 - Not yet matched: phyrexian life payment and in-payment delve/waterbend (Forge asks for delve up front).
 
 ## Typed prompt emission (compile-time protocol check)

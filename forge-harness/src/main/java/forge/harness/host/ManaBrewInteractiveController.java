@@ -1736,6 +1736,10 @@ public final class ManaBrewInteractiveController extends PlayerController implem
 
     public boolean payCostToPreventEffect(
             final Cost cost, final SpellAbility sa, final boolean alreadyPaid, final FCollectionView<Player> allPayers) {
+        return askToPayCostToPreventEffect(cost, sa) && payAuthorizedCost(cost, sa);
+    }
+
+    boolean askToPayCostToPreventEffect(final Cost cost, final SpellAbility sa) {
         probingPayability = true;
         try {
             if (!ActionSpace.canPayCost(cost, sa, player, true)) {
@@ -1754,7 +1758,7 @@ public final class ManaBrewInteractiveController extends PlayerController implem
                 targetPlayers.add(target);
             }
         }
-        final boolean accept = session.awaitBooleanChoice(
+        return session.awaitBooleanChoice(
                 "pay_cost_to_prevent_effect",
                 me(),
                 cost == null ? "Pay cost?" : describePayCost(cost),
@@ -1768,14 +1772,14 @@ public final class ManaBrewInteractiveController extends PlayerController implem
                 targetPlayers,
                 sa == null ? null : sa.getStackDescription(),
                 null);
-        if (!accept) {
-            return false;
-        }
-        return payAuthorizedCost(cost, sa);
     }
 
     @Override
     public boolean payCostDuringRoll(final Cost cost, final SpellAbility sa) {
+        return askToPayCostDuringRoll(cost, sa) && payAuthorizedCost(cost, sa);
+    }
+
+    boolean askToPayCostDuringRoll(final Cost cost, final SpellAbility sa) {
         probingPayability = true;
         try {
             if (!ActionSpace.canPayCost(cost, sa, player, true)) {
@@ -1784,7 +1788,7 @@ public final class ManaBrewInteractiveController extends PlayerController implem
         } finally {
             probingPayability = false;
         }
-        final boolean accept = session.awaitBooleanChoice(
+        return session.awaitBooleanChoice(
                 "pay_cost_to_prevent_effect",
                 me(),
                 cost == null ? "Pay cost?" : describePayCost(cost),
@@ -1792,7 +1796,6 @@ public final class ManaBrewInteractiveController extends PlayerController implem
                 "pay_cost_during_roll",
                 cost == null ? null : cost.getClass().getSimpleName(),
                 null);
-        return accept && payAuthorizedCost(cost, sa);
     }
 
     private boolean payAuthorizedCost(final Cost cost, final SpellAbility sa) {
@@ -2722,11 +2725,11 @@ public final class ManaBrewInteractiveController extends PlayerController implem
         return String.valueOf(normalized);
     }
 
-    private static String sourceName(final SpellAbility sa) {
+    static String sourceName(final SpellAbility sa) {
         return sa == null || sa.getHostCard() == null ? null : sa.getHostCard().getName();
     }
 
-    private static String sourceCardId(final SpellAbility sa) {
+    static String sourceCardId(final SpellAbility sa) {
         return sa == null || sa.getHostCard() == null
                 ? null
                 : SnapshotExtractor.javaCardId(sa.getHostCard());

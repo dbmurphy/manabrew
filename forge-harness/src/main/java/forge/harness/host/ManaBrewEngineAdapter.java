@@ -3,6 +3,8 @@ package forge.harness.host;
 import forge.harness.common.CountingRandom;
 import forge.harness.common.HeadlessGuiBase;
 import forge.harness.common.ForgeEngineReset;
+import forge.harness.embedded.EmbeddedHumanGui;
+import forge.harness.embedded.EmbeddedHumanLobbyPlayer;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
@@ -47,7 +49,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class ManaBrewEngineAdapter {
     private static final Gson GSON = new Gson();
-    /** Spike: seat humans on Forge's PlayerControllerHuman through ForgeHumanGui. */
+    /** Spike: seat humans on Forge's PlayerControllerHuman through EmbeddedHumanGui. */
     static final boolean FORGE_HUMAN = Boolean.getBoolean("manabrew.forgeHuman")
             || "1".equals(System.getenv("MANABREW_FORGE_HUMAN"));
     private final Map<String, ManaBrewInteractiveSession> sessions = new ConcurrentHashMap<>();
@@ -123,7 +125,8 @@ public final class ManaBrewEngineAdapter {
                 registeredPlayer.setPlayer(new LobbyPlayerAi(playerConfig.getName(), null));
             } else {
                 registeredPlayer.setPlayer(FORGE_HUMAN
-                        ? new ForgeHumanLobbyPlayer(playerConfig.getName(), session)
+                        ? new EmbeddedHumanLobbyPlayer(playerConfig.getName(),
+                                (g, p, lobby) -> new ManabrewHumanSeat(g, p, lobby, session))
                         : new ManaBrewInteractiveLobbyPlayer(playerConfig.getName(), session));
             }
             registeredPlayers.add(registeredPlayer);
@@ -132,7 +135,7 @@ public final class ManaBrewEngineAdapter {
         final Match match = new Match(rules, registeredPlayers, "ManaBrew");
         final Game game = match.createGame();
         if (FORGE_HUMAN) {
-            ForgeHumanGui.attach(game, session);
+            EmbeddedHumanGui.attach(game);
         }
         session.attach(match, game);
         sessions.put(session.getSessionId(), session);
