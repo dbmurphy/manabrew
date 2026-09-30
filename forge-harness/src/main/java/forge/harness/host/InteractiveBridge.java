@@ -9,6 +9,9 @@ package forge.harness.host;
  */
 public interface InteractiveBridge {
 
+    /** The `player` of a directive the engine host sent, rather than a seat. */
+    int HOST_SEAT = -1;
+
     /** Publishes the prompt and blocks until the client answers it. */
     String exchange(String promptJson);
 
@@ -31,4 +34,5 @@ public interface InteractiveBridge {
      * {@link #exchange(int, String)}.
      */
     void publishDisplay(int playerIndex, String displayEventJson);
+    void publishState();
 }

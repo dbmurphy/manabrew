@@ -100,7 +100,7 @@ pub enum StateEnvelope {
     Snapshot {
         #[serde(rename = "fromPlayer")]
         from_player: String,
-        entry: GameSnapshotEventDto,
+        entry: Box<GameSnapshotEventDto>,
     },
     Fatal {
         message: String,

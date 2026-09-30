@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.52.0](https://github.com/witchesofthehill/manabrew/compare/v3.51.2...v3.52.0) (2026-09-29)
+
+### Features
+
+* snapshot restore via directive ([#1006](https://github.com/witchesofthehill/manabrew/issues/1006)) ([d071b2f](https://github.com/witchesofthehill/manabrew/commit/d071b2ffa05dab0efa079d0184b7d3e17e1852a2))
+
 ## [3.51.2](https://github.com/witchesofthehill/manabrew/compare/v3.51.1...v3.51.2) (2026-09-29)
 
 ### Other

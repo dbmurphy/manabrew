@@ -3,7 +3,6 @@ import type { DisplayEvent } from "@/protocol/display";
 import type { CardDto, GameViewDto, PlayerDto } from "@/protocol/game";
 import type { Deck } from "@/protocol/deck";
 import type { GameLogEntry } from "@/types/gameLog";
-import type { GameSnapshotEntry } from "@/types/gameSnapshot";
 import type { EngineKind, GameFormat } from "@/types/server";
 import type { IronsmithDeckIssue } from "@/game";
 
@@ -56,7 +55,6 @@ export interface GameState {
   gameView: ClientGameView | null;
   currentPrompt: Prompt | null;
   gameLog: GameLogEntry[];
-  snapshots: GameSnapshotEntry[];
   isGameActive: boolean;
   debugInfo: string;
   /** Set when the host engine fails fatally (crash / invalid deck / can't
@@ -131,5 +129,7 @@ export interface GameState {
     isHost: boolean,
     myPlayerSlot: string | null,
   ) => void;
-  restoreSnapshot: (checkpointId: number) => Promise<void>;
+  requestRestore: (checkpointId: number) => Promise<void>;
+  voteRestore: (voteId: number, accept: boolean) => Promise<void>;
+  setSnapshotRecording: (enabled: boolean) => Promise<void>;
 }

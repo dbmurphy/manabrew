@@ -104,6 +104,7 @@ public final class WasmMain {
                 } else {
                     SabTransport.bind();
                 }
+                SabTransport.bindDirectiveLanes();
                 final com.google.gson.JsonObject start = com.google.gson.JsonParser
                         .parseString(requestJson).getAsJsonObject();
                 final String gameId = start.get("gameId").getAsString();

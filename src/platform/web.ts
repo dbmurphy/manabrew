@@ -21,7 +21,6 @@ import type {
   StartGameParams,
   StartMultiplayerGameParams,
   RespondParams,
-  RestoreSnapshotParams,
   SendDirectiveParams,
   ServerConnectParams,
   CreateRoomParams,
@@ -82,10 +81,13 @@ import forgeWorkerUrl from "@forge-wasm/forge-engine.worker.js?url";
 // The seat protocol lives with @manabrew/forge-wasm, which drives the same
 // worker, so there is one implementation rather than one per consumer.
 import {
+  createDirectiveLane,
   createSeat,
   deliverSeatDirective,
   noteSeatMessage,
+  writeDirectiveLane,
   writeSeatMessage,
+  type ForgeDirectiveLane,
   type ForgeSeat,
 } from "@forge-wasm/seat.js";
 
@@ -136,6 +138,8 @@ function readSeat<T>(
   worker.postMessage({ buffer: seat.buffer });
   return worker;
 }
+
+const seatIndexOf = (playerSlot: string) => Number(playerSlot.slice("player-".length));
 
 const dlog = (...args: unknown[]) => {
   if (isPromptLoggingEnabled()) console.log(...args);
@@ -221,7 +225,6 @@ const FORGE_ENGINE_COMMANDS = new Set([
   "end_game",
   "get_prompt",
   "get_game_view",
-  "restore_snapshot",
   "wasm_init",
   "ensure_card_data",
   "ping",
@@ -248,6 +251,13 @@ class WorkerBridge {
   // their buffers.
   private localBotSlots = new Set<string>();
   private localBotWorkers = new Map<string, Worker>();
+  // Only the Forge worker has directive lanes; the Rust worker still takes a
+  // directive through the seat buffer.
+  private directiveLanes: {
+    lanes: ForgeDirectiveLane[];
+    host: ForgeDirectiveLane;
+    localSeat: number;
+  } | null = null;
 
   get gameBuffer(): SharedArrayBuffer | null {
     return this.localSeat?.buffer ?? null;
@@ -257,6 +267,7 @@ class WorkerBridge {
     this.eventBus = eventBus;
 
     eventBus.on<{ buffer: SharedArrayBuffer }>("game:sab", (payload) => {
+      this.directiveLanes = null;
       const seat = createSeat(payload.buffer);
       if (this.localSeat) this.dropSeat(this.localSeat);
       this.localSeat = seat;
@@ -303,6 +314,29 @@ class WorkerBridge {
             console.error(`[WorkerBridge] Failed to read SAB message for ${playerSlot}:`, error),
         ),
       );
+    });
+
+    eventBus.on<{ buffers: SharedArrayBuffer[]; hostBuffer: SharedArrayBuffer; localSeat: number }>(
+      "game:directive_lanes",
+      (payload) => {
+        this.directiveLanes = {
+          lanes: payload.buffers.map(createDirectiveLane),
+          host: createDirectiveLane(payload.hostBuffer),
+          localSeat: payload.localSeat,
+        };
+      },
+    );
+
+    eventBus.on<{ seat: number; state: unknown }>("game:seat_state", ({ seat, state }) => {
+      if (!this.directiveLanes) return;
+      if (seat === this.directiveLanes.localSeat) {
+        this.applyEngineMessage({ kind: "state", state });
+      } else {
+        this.eventBus.emit("game:relay_message", {
+          forPlayer: `player-${seat}`,
+          msg: { kind: "state", state },
+        });
+      }
     });
 
     // The engine has nothing more to say once the game is over, so the bots
@@ -416,7 +450,11 @@ class WorkerBridge {
         );
       if (!seat) return;
       if (kind === "directive") {
-        deliverSeatDirective(seat, payload.state.directive as DirectiveInput);
+        this.deliverDirective(
+          seat,
+          seatIndexOf(authenticatedSlot),
+          payload.state.directive as DirectiveInput,
+        );
         return;
       }
       const action = payload.state.action as PromptOutput | undefined;
@@ -434,20 +472,35 @@ class WorkerBridge {
     this.writeLocalMessage({ kind: "response", promptId, action });
   }
 
-  /** Deliver a directive to the local seat: now if the engine is blocked on
-   *  the local prompt, otherwise at its next prompt. */
   deliverLocalDirective(directive: DirectiveInput): void {
     if (!this.localSeat) {
       console.error("[WorkerBridge] No SharedArrayBuffer available for directive");
       return;
     }
-    deliverSeatDirective(this.localSeat, directive);
+    this.deliverDirective(this.localSeat, this.directiveLanes?.localSeat, directive);
   }
 
   /** Deliver a directive to a remote seat by slot; drops unknown slots. */
   deliverRemoteDirective(playerSlot: string, directive: DirectiveInput): void {
     const seat = this.remoteSeats.get(playerSlot);
-    if (seat) deliverSeatDirective(seat, directive);
+    if (seat) this.deliverDirective(seat, seatIndexOf(playerSlot), directive);
+  }
+
+  private deliverDirective(
+    seat: ForgeSeat,
+    seatIndex: number | undefined,
+    directive: DirectiveInput,
+  ): void {
+    if (this.directiveLanes && seatIndex !== undefined) {
+      writeDirectiveLane(this.directiveLanes.lanes[seatIndex]!, directive);
+    } else {
+      deliverSeatDirective(seat, directive);
+    }
+  }
+
+  deliverHostDirective(directive: DirectiveInput): void {
+    if (!this.directiveLanes) throw new Error("This tab does not host the engine.");
+    writeDirectiveLane(this.directiveLanes.host, directive);
   }
 
   hasRemoteSeat(playerSlot: string): boolean {
@@ -704,6 +757,7 @@ class WebGameApi implements IGameApi {
       opponentDecks: params.opponentDecks,
       engine: params.engine,
       forgeAi: params.aiController === "forge",
+      snapshotRecording: usePreferencesStore.getState().snapshotRecording,
     });
   }
 
@@ -725,6 +779,8 @@ class WebGameApi implements IGameApi {
         commanderNames: params.commanderNames,
         playerNames: params.playerNames,
         enginePlayerIndex: params.enginePlayerIndex,
+        botSeats: (params.botPlayerSlots ?? []).map(seatIndexOf),
+        snapshotRecording: usePreferencesStore.getState().snapshotRecording,
         startingLife: params.startingLife,
         engine: params.engine,
       });
@@ -777,6 +833,10 @@ class WebGameApi implements IGameApi {
     }
   }
 
+  async sendHostDirective(directive: DirectiveInput): Promise<void> {
+    this.bridge.deliverHostDirective(directive);
+  }
+
   async endGame(): Promise<void> {
     this.isMultiplayer = false;
     this.isHost = false;
@@ -786,12 +846,6 @@ class WebGameApi implements IGameApi {
       return;
     }
     await this.bridge.invoke("end_game");
-  }
-
-  async restoreSnapshot(params: RestoreSnapshotParams): Promise<void> {
-    await this.bridge.invoke("restore_snapshot", {
-      checkpointId: params.checkpointId,
-    });
   }
 
   async getPrompt(): Promise<Prompt | null> {
@@ -1776,9 +1830,6 @@ class WebServerApi implements IServerApi {
           return;
         case "log":
           this.eventBus.emit("game:log", envelope.entry);
-          return;
-        case "snapshot":
-          this.eventBus.emit("game:snapshot", envelope.entry);
           return;
         case "fatal":
           this.eventBus.emit("game:fatal", { message: envelope.message });

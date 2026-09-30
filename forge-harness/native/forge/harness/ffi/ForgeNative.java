@@ -98,6 +98,15 @@ public final class ForgeNative {
         }
     }
 
+    @CEntryPoint(name = "forge_get_state_revision")
+    static CCharPointer getStateRevision(IsolateThread thread, CCharPointer sessionId) {
+        try {
+            return ok(ADAPTER.getStateRevision(str(sessionId)));
+        } catch (Throwable t) {
+            return err(t);
+        }
+    }
+
     @CEntryPoint(name = "forge_end_game")
     static CCharPointer endGame(IsolateThread thread, CCharPointer sessionId) {
         try {
