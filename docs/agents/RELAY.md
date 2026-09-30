@@ -37,7 +37,7 @@ connected service session hosting an empty lobby table that named `host_handoff`
 `Authenticate.features`), mints a fresh `resume_token` on the room and sends that session
 `HostHandoff { request, turn, checkpoint }`. The token is the whole authorisation: the taker
 claims the room with an ordinary `ResumeRoom` from a new session, `resume_room_sync` rotates the
-host, clears the old host's pending prompts and queued inputs (`GameReplayCache::host_changed`),
+host, clears the old host's cached boards, pending prompts and queued inputs (`GameReplayCache::host_changed`),
 and the handler broadcasts `HostChanged { host, turn }` to the seats so they drop every engine id
 they hold and wait for a whole board. The same node reconnecting after a socket blip goes through
 the same rotation with the same username and is not a host change. Nothing claims the room

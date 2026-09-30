@@ -426,13 +426,13 @@ export function useGameEventListeners() {
             peekActiveGameSession()?.roomId ?? useServerStore.getState().currentRoom?.room_id;
           if (roomId && payload.room_id !== roomId) return;
           setState({
+            gameView: null,
             currentPrompt: null,
             deferredQueue: [],
             isFlashing: false,
             isWaitingForResponse: false,
             relinquishedPriority: false,
             seatAddressedStates: false,
-            snapshots: [],
             debugInfo: `Host changed to ${payload.host}; resuming from turn ${payload.turn}`,
           });
           useGameUIStore.getState().resetAll();

@@ -335,6 +335,15 @@ async fn dead_host_game_is_handed_to_an_idle_pod() {
     alice.start_game(2).await.unwrap();
     let game_id = alice.game_id.clone().unwrap();
 
+    host_a
+        .broadcast_value(json!({ "kind": "state", "state": { "gameView": null } }))
+        .await
+        .unwrap();
+    alice
+        .expect_state_from("node-a", Duration::from_secs(5))
+        .await
+        .unwrap();
+
     let checkpoint = json!({ "version": 1, "turn": 3 }).to_string();
     host_a
         .send_message(&ClientMessage::ReportCheckpoint {
@@ -377,6 +386,17 @@ async fn dead_host_game_is_handed_to_an_idle_pod() {
         .await
         .unwrap();
     assert_eq!((host.as_str(), turn), ("node-b-takeover", 3));
+
+    alice.resync_expecting(&game_id).await.unwrap();
+    assert!(
+        tokio::time::timeout(
+            Duration::from_millis(500),
+            alice.expect_state_from("node-b-takeover", Duration::from_secs(5)),
+        )
+        .await
+        .is_err(),
+        "resync must not relabel the old engine's board as the replacement host's state"
+    );
 
     host_b
         .broadcast_value(json!({ "kind": "state", "state": { "gameView": null } }))

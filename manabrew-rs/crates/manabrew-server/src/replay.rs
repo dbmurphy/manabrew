@@ -98,6 +98,8 @@ impl GameReplayCache {
     /// The old host's prompts and the answers waiting for it name engine ids
     /// the new host never issued.
     pub fn host_changed(&mut self) {
+        self.last_state = None;
+        self.last_state_by_slot.clear();
         self.pending_prompts.clear();
         self.queued_inputs.clear();
     }
