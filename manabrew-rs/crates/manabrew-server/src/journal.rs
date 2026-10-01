@@ -106,6 +106,16 @@ impl JournalStore {
         writer: &str,
         manifest: &JournalManifest,
     ) -> Result<JournalPosition, String> {
+        self.open_writer(game_id, writer, manifest, false)
+    }
+
+    pub fn open_writer(
+        &mut self,
+        game_id: &str,
+        writer: &str,
+        manifest: &JournalManifest,
+        replace_writer: bool,
+    ) -> Result<JournalPosition, String> {
         validate_identity(game_id, writer)?;
         for hash in [&manifest.engine_sha256, &manifest.assets_sha256] {
             if hash.len() != 64 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
@@ -134,9 +144,18 @@ impl JournalStore {
             .map_err(failure)?;
         if let Some((previous, owner)) = existing {
             if serde_json::from_str::<JournalManifest>(&previous).map_err(failure)? != *manifest
-                || owner != writer
+                || (owner != writer && !replace_writer)
             {
                 return Err("journal already exists with another manifest or writer".into());
+            }
+            if owner != writer {
+                let changed = tx.execute(
+                    "UPDATE engine_journals SET writer=?2, epoch=epoch+1 WHERE game_id=?1 AND epoch < 9223372036854775807",
+                    params![game_id, writer],
+                ).map_err(failure)?;
+                if changed != 1 {
+                    return Err("journal writer epoch exhausted".into());
+                }
             }
         } else {
             tx.execute("INSERT INTO engine_journals(game_id, manifest, writer, epoch, bytes) VALUES (?1, ?2, ?3, 1, ?4)",

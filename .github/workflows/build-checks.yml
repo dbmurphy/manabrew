@@ -451,6 +451,9 @@ jobs:
           cargo build --release -p manabrew-server --example journal_store
           node scripts/engine-bench/relay-journal.mjs --binary target/release/examples/journal_store
 
+      - name: Verify journal authorization and reconnect
+        run: node scripts/engine-bench/relay-journal-wire.mjs --binary target/release/manabrew-server
+
   multiplayer-regression:
     name: Multiplayer zombie regression
     runs-on: ubuntu-latest

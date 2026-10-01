@@ -47,6 +47,7 @@
     "preview": "vite preview",
     "build:harness": "node scripts/harness.mjs build",
     "bench:forge-replay-profile": "node scripts/engine-bench/forge-replay-profile.mjs",
+    "bench:relay-journal-wire": "node scripts/engine-bench/relay-journal-wire.mjs",
     "bench:relay-journal": "node scripts/engine-bench/relay-journal.mjs",
     "bench:forge-journal": "node scripts/engine-bench/forge-decision-journal.mjs",
     "bench:forge-replay": "node scripts/engine-bench/forge-replay.mjs",

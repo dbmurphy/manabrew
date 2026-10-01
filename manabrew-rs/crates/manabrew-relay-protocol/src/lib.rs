@@ -332,6 +332,13 @@ pub enum ClientMessage {
 
     RequestResync,
 
+    DecisionJournal {
+        game_id: String,
+        request_id: String,
+        official_key: String,
+        request: DecisionJournalRequest,
+    },
+
     /// The host's latest turn-start checkpoint. Hidden information for every
     /// seat: the relay keeps the newest one per game for a host handoff and
     /// never forwards it to a player.
@@ -437,6 +444,12 @@ pub enum ServerMessage {
         turn: u32,
         checkpoint: String,
     },
+    DecisionJournalResult {
+        game_id: String,
+        request_id: String,
+        result: Result<String, String>,
+    },
+
     /// A different session now runs the engine. Every earlier engine id is
     /// void; the next `state` from `host` is a whole board.
     HostChanged {
@@ -735,6 +748,16 @@ pub const FEATURE_PLANE_QUALITY: &str = "plane_quality";
 /// take a game over.
 pub const FEATURE_HOST_HANDOFF: &str = "host_handoff";
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "operation", rename_all = "snake_case")]
+pub enum DecisionJournalRequest {
+    Open { manifest: String },
+    Append { epoch: i64, batch: String },
+    Read { after: i64, limit: u32 },
+}
+
+pub const FEATURE_DECISION_JOURNAL: &str = "decision_journal_v1";
+
 pub const FEATURES: &[&str] = &[
     FEATURE_LOCAL_GAME,
     FEATURE_ROOM_TRANSPORT,
@@ -744,6 +767,7 @@ pub const FEATURES: &[&str] = &[
     FEATURE_ROOM_INVITES,
     FEATURE_GAME_OUTCOME,
     FEATURE_HOST_HANDOFF,
+    FEATURE_DECISION_JOURNAL,
 ];
 
 /// Largest signalling blob the relay forwards.

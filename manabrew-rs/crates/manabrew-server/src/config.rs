@@ -48,6 +48,7 @@ pub struct ServerConfig {
     pub official_key: Option<String>,
     pub events_dir: Option<String>,
     pub capture_dir: Option<String>,
+    pub journal_db: Option<String>,
     pub capture_max_gb: u64,
     pub deck_hub_enabled: bool,
     /// The hub takes the analytics feed and, with `DECK_HUB`, deck-play
@@ -106,6 +107,9 @@ impl ServerConfig {
             events_dir: std::env::var("MANABREW_EVENTS_DIR")
                 .ok()
                 .filter(|dir| !dir.is_empty()),
+            journal_db: std::env::var("MANABREW_JOURNAL_DB")
+                .ok()
+                .filter(|path| !path.is_empty()),
             capture_dir: std::env::var("MANABREW_GAME_CAPTURE_DIR")
                 .ok()
                 .filter(|dir| !dir.is_empty()),

@@ -209,6 +209,7 @@ fn broadcast_to_lobby(state: &Arc<ServerState>, msg: &ServerMessage) {
 fn advertised_features(state: &Arc<ServerState>) -> Vec<String> {
     crate::protocol::FEATURES
         .iter()
+        .filter(|f| state.journal.is_some() || **f != crate::protocol::FEATURE_DECISION_JOURNAL)
         .filter(|f| {
             state.direct_transport
                 || (**f != crate::protocol::FEATURE_ROOM_TRANSPORT
@@ -762,9 +763,14 @@ pub async fn handle_connection(
         };
 
         if let Some(mut player) = state.players.get_mut(&player_id) {
-            if player.generation == generation {
-                player.last_seen = Instant::now();
+            if player.generation != generation {
+                disconnect_reason = "session_replaced";
+                break;
             }
+            player.last_seen = Instant::now();
+        } else {
+            disconnect_reason = "session_removed";
+            break;
         }
 
         metrics::record_socket_read(frame.len());
@@ -790,7 +796,27 @@ pub async fn handle_connection(
                     }
                 };
                 debug!("[recv] '{}' -> {}", username, client_msg_type(&client_msg));
-                handle_client_message(&state, &player_id, &username, &tx, client_msg);
+                match client_msg {
+                    ClientMessage::DecisionJournal {
+                        game_id,
+                        request_id,
+                        official_key,
+                        request,
+                    } => {
+                        let response = crate::journal_transport::handle(
+                            state.clone(),
+                            player_id.clone(),
+                            generation,
+                            game_id,
+                            request_id,
+                            official_key,
+                            request,
+                        )
+                        .await;
+                        send_msg(&tx, &response);
+                    }
+                    other => handle_client_message(&state, &player_id, &username, &tx, other),
+                }
             }
             Message::Close(_) => {
                 disconnect_reason = "client_close";
@@ -1747,6 +1773,10 @@ fn handle_client_message(
             }
         }
 
+        ClientMessage::DecisionJournal { .. } => {
+            unreachable!("journal requests use the ordered storage handler")
+        }
+
         ClientMessage::ReportCheckpoint {
             game_id,
             seq,
@@ -2181,6 +2211,7 @@ fn msg_type_of(msg: &ServerMessage) -> &'static str {
         ServerMessage::PlayerList { .. } => "PlayerList",
         ServerMessage::RoomCreated { .. } => "RoomCreated",
         ServerMessage::RoomResumed { .. } => "RoomResumed",
+        ServerMessage::DecisionJournalResult { .. } => "DecisionJournalResult",
         ServerMessage::HostHandoff { .. } => "HostHandoff",
         ServerMessage::HostChanged { .. } => "HostChanged",
         ServerMessage::PlayerJoined { .. } => "PlayerJoined",
@@ -2221,6 +2252,7 @@ fn client_msg_type(msg: &ClientMessage) -> &'static str {
         ClientMessage::StartGame { .. } => "StartGame",
         ClientMessage::EndGame { .. } => "EndGame",
         ClientMessage::ReportGameOutcome { .. } => "ReportGameOutcome",
+        ClientMessage::DecisionJournal { .. } => "DecisionJournal",
         ClientMessage::ReportCheckpoint { .. } => "ReportCheckpoint",
         ClientMessage::ReportEngineStats { .. } => "ReportEngineStats",
         ClientMessage::RequestResync => "RequestResync",

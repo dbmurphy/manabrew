@@ -76,3 +76,5 @@ The replay profiler can capture real Manabot decisions with `--record-trace` and
 `parity-repair-agent.py` requires `PARITY_AUTH` in the environment as `username:password`. Supply it through local secrets or CI secrets. The previously committed dashboard credential must be rotated because it remains in Git history.
 
 `yarn bench:relay-journal` builds and drives the relay's `journal_store` example against a temporary SQLite database. It exercises crash/reopen and competing writers in separate processes; `--binary <path>` skips the build. The Rust server CI job runs it. It checks durable storage semantics, not relay authorization or hosted end-to-end delivery.
+
+`yarn bench:relay-journal-wire` builds the relay (or accepts `--binary <path>`), starts temporary local instances with a private journal database, and drives real WebSockets through authorization, retry, reconnect, restart, and host-change checks. It uses Node 24's built-in WebSocket and removes its temporary database. The Rust server CI job runs it; no real fleet or production data is used.
