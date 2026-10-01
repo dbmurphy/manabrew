@@ -1,5 +1,23 @@
 # Changelog
 
+## [3.53.2](https://github.com/witchesofthehill/manabrew/compare/v3.53.1...v3.53.2) (2026-09-30)
+
+### Fixes
+
+* preload cards ([#1024](https://github.com/witchesofthehill/manabrew/issues/1024)) ([f6e9aed](https://github.com/witchesofthehill/manabrew/commit/f6e9aed955e917c35d83b0367c1bd82ecb3a0053))
+
+## [3.53.1](https://github.com/witchesofthehill/manabrew/compare/v3.53.0...v3.53.1) (2026-09-30)
+
+### Fixes
+
+* optimise snapshot on pass-until ([#1023](https://github.com/witchesofthehill/manabrew/issues/1023)) ([82b7e1f](https://github.com/witchesofthehill/manabrew/commit/82b7e1f5b5d1753ef7944af4f166381d700cbfd3))
+
+## [3.53.0](https://github.com/witchesofthehill/manabrew/compare/v3.52.0...v3.53.0) (2026-09-30)
+
+### Features
+
+* **observability:** measure hosted and wasm checkpoint costs ([#1022](https://github.com/witchesofthehill/manabrew/issues/1022)) ([33f3346](https://github.com/witchesofthehill/manabrew/commit/33f33465694b62389412944de15f82840c6a31c1))
+
 ## [3.52.0](https://github.com/witchesofthehill/manabrew/compare/v3.51.2...v3.52.0) (2026-09-29)
 
 ### Features

@@ -614,6 +614,14 @@ impl JavaEngineHandle {
         guard.is_game_over(session_id)
     }
 
+    pub fn drain_checkpoint_metrics(&self, session_id: &str) -> Result<String, String> {
+        let bridge = self.bridge_for(session_id)?;
+        let mut guard = bridge
+            .lock()
+            .map_err(|_| "java subprocess mutex poisoned".to_string())?;
+        guard.drain_checkpoint_metrics(session_id)
+    }
+
     pub fn state_revision(&self, session_id: &str) -> Result<u64, String> {
         let bridge = self.bridge_for(session_id)?;
         let mut guard = bridge
@@ -806,6 +814,10 @@ mod graal_ffi {
             viewer: c_int,
         ) -> *mut c_char;
         pub fn forge_get_game_over(
+            thread: *mut graal_isolatethread_t,
+            session_id: *const c_char,
+        ) -> *mut c_char;
+        pub fn forge_drain_checkpoint_metrics(
             thread: *mut graal_isolatethread_t,
             session_id: *const c_char,
         ) -> *mut c_char;
@@ -1116,6 +1128,13 @@ impl GraalEngineHandle {
             graal_ffi::forge_get_game_over(self.bridge.thread, session.as_ptr())
         })?;
         Ok(value.trim() == "true")
+    }
+
+    fn drain_checkpoint_metrics(&self, session_id: &str) -> Result<String, String> {
+        let session = cstring(session_id)?;
+        self.bridge.decode(unsafe {
+            graal_ffi::forge_drain_checkpoint_metrics(self.bridge.thread, session.as_ptr())
+        })
     }
 
     fn state_revision(&self, session_id: &str) -> Result<u64, String> {
@@ -1624,6 +1643,35 @@ fn prompt_input_name(input: &PromptInput) -> String {
 }
 
 #[cfg(forge_backend)]
+fn report_checkpoint_metrics(
+    engine: &ForgeEngine,
+    session_id: &str,
+    seats: usize,
+) -> Option<Duration> {
+    let samples = engine
+        .drain_checkpoint_metrics(session_id)
+        .and_then(|json| {
+            serde_json::from_str::<Vec<[u64; 2]>>(&json).map_err(|error| error.to_string())
+        });
+    match samples {
+        Ok(samples) => {
+            let mut total = Duration::ZERO;
+            for [copy, bookkeeping] in samples {
+                let copy = Duration::from_nanos(copy);
+                let bookkeeping = Duration::from_nanos(bookkeeping);
+                crate::metrics::record_forge_checkpoint(seats, copy, bookkeeping);
+                total += copy + bookkeeping;
+            }
+            Some(total)
+        }
+        Err(error) => {
+            warn!(%error, "checkpoint metrics unavailable");
+            None
+        }
+    }
+}
+
+#[cfg(forge_backend)]
 #[allow(clippy::too_many_arguments)]
 fn run_hosted_engine_game_inner(
     game_id: String,
@@ -1667,13 +1715,14 @@ fn run_hosted_engine_game_inner(
             player.bot = true;
         }
     }
-    let request = StartGameRequest::new(
+    let mut request = StartGameRequest::new(
         game_id.clone(),
         game_variant,
         starting_life,
         rand::random(),
         players,
     );
+    request.checkpoint_metrics = true;
     let session_id = engine.start_game(&request.to_json().map_err(|err| err.to_string())?)?;
     info!(game_id, session_id, "hosted java-forge session started");
 
@@ -1877,11 +1926,20 @@ fn run_hosted_engine_game_inner(
                 .map_err(|err| format!("failed to parse java prompt: {err}"))?;
             if last_prompt.as_ref().map(|p| p.prompt_id) != Some(prompt.prompt_id) {
                 last_activity = Instant::now();
-                if let Some(started) = decision_submitted.take() {
-                    crate::metrics::record_forge_decision_stage("next_prompt", started.elapsed());
+                let decision_elapsed = decision_received.take().map(|started| started.elapsed());
+                let submitted_elapsed = decision_submitted.take().map(|started| started.elapsed());
+                let checkpoint_time =
+                    report_checkpoint_metrics(&engine, &session_id, player_names.len());
+                if let Some(elapsed) = submitted_elapsed {
+                    crate::metrics::record_forge_decision_stage("next_prompt", elapsed);
                 }
-                if let Some(started) = decision_received.take() {
-                    let elapsed = started.elapsed();
+                if let Some(elapsed) = decision_elapsed {
+                    if let Some(checkpoint_time) = checkpoint_time {
+                        crate::metrics::record_forge_checkpoint_decision(
+                            player_names.len(),
+                            checkpoint_time,
+                        );
+                    }
                     crate::metrics::record_forge_decision_stage("decision_total", elapsed);
                     crate::metrics::record_forge_decision(player_names.len(), elapsed);
                     // The metric alone cannot say which game was slow, and these
@@ -1960,6 +2018,7 @@ fn run_hosted_engine_game_inner(
         }
 
         if engine.is_game_over(&session_id)? {
+            report_checkpoint_metrics(&engine, &session_id, player_names.len());
             info!("hosted java-forge session reached game over");
             let mut final_messages = Vec::new();
             for player_index in 0..player_names.len() {
@@ -2738,6 +2797,7 @@ pub trait JavaBridge {
     ) -> Result<(), String>;
     fn get_snapshot(&mut self, session_id: &str, viewer: Option<usize>) -> Result<String, String>;
     fn is_game_over(&mut self, session_id: &str) -> Result<bool, String>;
+    fn drain_checkpoint_metrics(&mut self, session_id: &str) -> Result<String, String>;
     fn state_revision(&mut self, session_id: &str) -> Result<u64, String>;
     fn end_game(&mut self, session_id: &str) -> Result<(), String>;
     fn abort_game(&mut self, session_id: &str) -> Result<(), String>;
@@ -2866,6 +2926,10 @@ impl JavaBridge for UnavailableJavaBridge {
     }
 
     fn is_game_over(&mut self, _session_id: &str) -> Result<bool, String> {
+        Err(unsupported_message().to_string())
+    }
+
+    fn drain_checkpoint_metrics(&mut self, _session_id: &str) -> Result<String, String> {
         Err(unsupported_message().to_string())
     }
 
@@ -3162,6 +3226,11 @@ impl JavaBridge for SubprocessBridge {
         Ok(value.trim() == "true")
     }
 
+    fn drain_checkpoint_metrics(&mut self, session_id: &str) -> Result<String, String> {
+        let body = json!({ "command": "drainCheckpointMetrics", "sessionId": session_id });
+        self.call(&body.to_string())
+    }
+
     fn state_revision(&mut self, session_id: &str) -> Result<u64, String> {
         let body = json!({ "command": "getStateRevision", "sessionId": session_id });
         parse_state_revision(&self.call(&body.to_string())?)
@@ -3217,6 +3286,7 @@ pub struct StartGameRequest {
     starting_life: i32,
     seed: u64,
     players: Vec<PlayerConfig>,
+    checkpoint_metrics: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -3260,6 +3330,7 @@ impl StartGameRequest {
             starting_life,
             seed,
             players,
+            checkpoint_metrics: false,
         }
     }
 

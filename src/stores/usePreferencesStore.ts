@@ -109,6 +109,9 @@ export interface PreferencesState {
   inGameAnimations: boolean;
   setInGameAnimations: (value: boolean) => void;
 
+  preloadCardImages: boolean;
+  setPreloadCardImages: (value: boolean) => void;
+
   snapshotRecording: boolean;
   setSnapshotRecording: (value: boolean) => void;
 
@@ -195,6 +198,7 @@ const PERSISTED_PREFERENCE_KEYS = [
   "battlefieldCardStyle",
   "boardBackgroundId",
   "inGameAnimations",
+  "preloadCardImages",
   "snapshotRecording",
   "chooseOrderOnMultipleTriggers",
   "ironsmithRuntimeEnabled",
@@ -367,6 +371,8 @@ export const usePreferencesStore = create<PreferencesState>()(
 
           inGameAnimations: true,
           setInGameAnimations: (inGameAnimations) => set({ inGameAnimations }),
+          preloadCardImages: true,
+          setPreloadCardImages: (preloadCardImages) => set({ preloadCardImages }),
           snapshotRecording: true,
           setSnapshotRecording: (snapshotRecording) => set({ snapshotRecording }),
 

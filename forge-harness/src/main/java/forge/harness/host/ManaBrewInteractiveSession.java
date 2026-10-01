@@ -6,14 +6,12 @@ import forge.harness.common.ParityCardMap;
 import forge.harness.common.ParityOrder;
 import forge.harness.common.SnapshotExtractor;
 
-import com.google.common.eventbus.Subscribe;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import forge.harness.protocol.*;
 import forge.game.Game;
 import forge.game.GameSnapshot;
-import forge.game.event.GameEventPlayerPriority;
 import forge.game.ability.ApiType;
 import forge.game.GameEntity;
 import forge.game.Match;
@@ -88,6 +86,8 @@ public final class ManaBrewInteractiveSession {
     private volatile Map<String, Object> restoreVoteView;
     private volatile long stateRevision;
     private volatile boolean snapshotRecording;
+    private boolean checkpointMetricsEnabled;
+    private final List<long[]> checkpointTimings = new ArrayList<>();
     private boolean priorityPromptOpen;
     private Set<Integer> botSeats = Set.of();
 
@@ -176,12 +176,6 @@ public final class ManaBrewInteractiveSession {
             }
         });
         game.subscribeToEvents(displayEventProjector);
-        game.subscribeToEvents(new Object() {
-            @Subscribe
-            public void onPriority(final GameEventPlayerPriority event) {
-                recordCheckpoint();
-            }
-        });
     }
 
     public String getSessionId() {
@@ -463,6 +457,9 @@ public final class ManaBrewInteractiveSession {
             final List<Card> untappableCards
     ) {
         requireAttached();
+        if (!botSeats.contains(playerId)) {
+            recordCheckpoint();
+        }
         publishPriorityPrompt(playerId, actionsForPrompt, untappableCards);
         while (!closed && !game.isGameOver()) {
             final JsonObject action;
@@ -2171,18 +2168,32 @@ public final class ManaBrewInteractiveSession {
         return restoreVote.awaiting.isEmpty();
     }
 
+    void enableCheckpointMetrics() {
+        checkpointMetricsEnabled = true;
+    }
+
+    String drainCheckpointMetrics() {
+        synchronized (checkpointTimings) {
+            final String result = GSON.toJson(checkpointTimings);
+            checkpointTimings.clear();
+            return result;
+        }
+    }
+
     private void recordCheckpoint() {
         final PhaseHandler handler = game.getPhaseHandler();
         if (handler.getTurn() == checkpointTurn && handler.getPhase() == checkpointPhase) {
             return;
         }
-        checkpointTurn = handler.getTurn();
-        checkpointPhase = handler.getPhase();
         if (!snapshotRecording || !game.getStack().isEmpty() || game.getStack().hasSimultaneousStackEntries()) {
             return;
         }
+        checkpointTurn = handler.getTurn();
+        checkpointPhase = handler.getPhase();
+        final long started = checkpointMetricsEnabled ? System.nanoTime() : 0;
         final GameSnapshot snapshot = new GameSnapshot(game);
         snapshot.makeCopy();
+        final long copied = checkpointMetricsEnabled ? System.nanoTime() : 0;
         checkpoints.addLast(new Checkpoint(
                 nextCheckpointId++, handler.getTurn(), handler.getPhase(), handler.getPlayerTurn(),
                 handler.getPriorityPlayer(), snapshot));
@@ -2190,6 +2201,12 @@ public final class ManaBrewInteractiveSession {
             checkpoints.removeFirst();
         }
         publishCheckpointViews();
+        if (checkpointMetricsEnabled) {
+            final long finished = System.nanoTime();
+            synchronized (checkpointTimings) {
+                checkpointTimings.add(new long[] { copied - started, finished - copied });
+            }
+        }
     }
 
     private void publishCheckpointViews() {
