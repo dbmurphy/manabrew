@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import LimitedDeckBuilder from "@/components/limited/LimitedDeckBuilder";
 import { LimitedPackOpening } from "@/components/limited/LimitedPackOpening";
@@ -28,14 +28,7 @@ export default function Sealed() {
       refresh(id);
     }
   }, [id, activeSealed, refresh]);
-  const initialMain = useMemo(
-    () => activeSealed?.suggestedDeck?.main ?? [],
-    [activeSealed?.suggestedDeck],
-  );
-  const initialSideboard = useMemo(
-    () => activeSealed?.suggestedDeck?.sideboard ?? [],
-    [activeSealed?.suggestedDeck],
-  );
+
   if (!activeSealed || activeSealed.sessionId !== id) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -53,7 +46,7 @@ export default function Sealed() {
         <div>
           <p className="text-sm text-muted-foreground">
             {activeSealed.packs.length} packs · {activeSealed.cards.length} cards ·{" "}
-            {activeSealed.aiDecks.length} opponents
+            {activeSealed.aiDecks.length} AI opponents ready for the gauntlet
           </p>
         </div>
         {openedSession === activeSealed.sessionId && (
@@ -83,8 +76,7 @@ export default function Sealed() {
             key={activeSealed.sessionId}
             sessionKey={activeSealed.sessionId}
             pool={activeSealed.cards}
-            initialMain={initialMain}
-            initialSideboard={initialSideboard}
+            suggestedMain={activeSealed.suggestedDeck?.main}
             defaultDeckName={activeSealed.deckName}
             format="sealed"
             onChange={(deck) => setBuiltDeck({ sessionId: activeSealed.sessionId, ...deck })}

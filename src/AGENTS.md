@@ -137,6 +137,8 @@ Card IDs identify physical occurrences. Picks, moves, undo and named configurati
 
 `platform/web.ts` keeps Limited commands on a persistent Rust query worker, separate from the replaceable game worker. `resolveSealedPool` resolves generated basics to real store-owned printings before solo or multiplayer builds are initialized. Launch the game route before awaiting engine startup so its listeners receive the first state and prompt. A multiplayer return marker becomes started only when the game store is active, not when the relay announces the pairing.
 
+Sealed `suggestedDeck` is an opt-in build from the human pool; `aiDecks` are opponents from separate pools, not alternative builds. Draft/Sealed match formats require existing decks; opening packs requires a Limited table with `draft_config`/`sealed_config`. Draft bots fill empty seats through `fill_with_bots`, not lobby-spawned game bots.
+
 Multiplayer ownership, targeted snapshots and retained paired rooms are documented in `docs/agents/RELAY.md`.
 
 ## Deck analysis — combos & bracket

@@ -18,8 +18,8 @@ interface Props {
   session: BuildSession;
   deck: BuildDeck;
   shortTouch: boolean;
-  initialMain?: DraftCard[];
-  initialSideboard?: DraftCard[];
+  suggestedMain?: DraftCard[];
+  suggestedSideboard?: DraftCard[];
   defaultDeckName: string;
   targetMainSize: number;
   requireCompleteToSave: boolean;
@@ -33,8 +33,8 @@ export function LimitedBuildActions({
   session,
   deck,
   shortTouch,
-  initialMain,
-  initialSideboard,
+  suggestedMain,
+  suggestedSideboard,
   defaultDeckName,
   targetMainSize,
   requireCompleteToSave,
@@ -97,19 +97,27 @@ export function LimitedBuildActions({
         <Button variant="ghost" size="sm" onClick={() => setDialog("compare")}>
           Compare saved
         </Button>
-        {!!initialMain?.length && (
+        {!!suggestedMain?.length && (
           <Button
             variant="ghost"
             size="sm"
             onClick={() =>
               useLimitedBuildStore
                 .getState()
-                .suggest(sessionKey, initialMain, initialSideboard ?? [])
+                .suggest(sessionKey, suggestedMain, suggestedSideboard ?? [])
             }
           >
             Use suggested build
           </Button>
         )}
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!deck.main.length}
+          onClick={() => useLimitedBuildStore.getState().suggest(sessionKey, [], [])}
+        >
+          Move all to sideboard
+        </Button>
         <LimitedBuildSaveActions
           deck={deck}
           defaultDeckName={defaultDeckName}

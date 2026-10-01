@@ -11,12 +11,12 @@ import { useIsShortScreen, useIsTouch } from "@/hooks/useBreakpoints";
 import { cn } from "@/lib/utils";
 import type { DraftCard } from "@/types/limited";
 import type { DeckFormat } from "@/protocol/deck";
-
 export interface LimitedDeckBuilderProps {
   sessionKey: string;
   pool: DraftCard[];
   initialMain?: DraftCard[];
   initialSideboard?: DraftCard[];
+  suggestedMain?: DraftCard[];
   targetMainSize?: number;
   defaultDeckName?: string;
   format?: DeckFormat;
@@ -31,6 +31,7 @@ export default function LimitedDeckBuilder({
   pool,
   initialMain,
   initialSideboard,
+  suggestedMain,
   targetMainSize = 40,
   defaultDeckName = "Limited Deck",
   format = "draft",
@@ -134,8 +135,8 @@ export default function LimitedDeckBuilder({
         session={session}
         deck={deck}
         shortTouch={shortTouch}
-        initialMain={initialMain}
-        initialSideboard={initialSideboard}
+        suggestedMain={suggestedMain ?? initialMain}
+        suggestedSideboard={suggestedMain ? undefined : initialSideboard}
         defaultDeckName={defaultDeckName}
         targetMainSize={targetMainSize}
         requireCompleteToSave={requireCompleteToSave}
