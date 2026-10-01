@@ -307,6 +307,7 @@ public final class ManaBrewInteractiveSession {
             throw new IllegalArgumentException("journal commit barrier requires a threaded engine");
         }
         decisionJournal = new DecisionJournal(startRequest, commitBarrier);
+        ParityCardMap.useNativeIds(game);
     }
 
     public String readDecisionJournal() {
