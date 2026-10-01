@@ -1,5 +1,36 @@
 # Changelog
 
+## [3.54.0](https://github.com/witchesofthehill/manabrew/compare/v3.53.2...v3.54.0) (2026-10-01)
+
+### Features
+
+* **ui:** redesign mobile interface ([#931](https://github.com/witchesofthehill/manabrew/issues/931)) ([074774d](https://github.com/witchesofthehill/manabrew/commit/074774d1d460f25ee82bc4e486cbecc7ee386f81))
+
+## Unreleased
+
+### Fixes
+* **ui:** move the mobile stack below opponent fields and let touches outside its cards switch fields
+* **ui:** cover full battlefield cards with mana-tap actions on mobile and desktop
+* **ui:** filter card-choice prompts by name on mobile and desktop without losing selected cards
+* **ui:** grow compact stack cards while keeping short-screen controls clear
+* **ui:** return to the battlefield after casting from the command zone
+* **ui:** dismiss touch card previews with one outside tap without activating the card beneath
+
+* **ui:** keep printed and rules card inspection above stacked zone viewers
+* **ui:** keep the mobile account avatar circular at touch-target size
+* **ui:** reclaim card browsing space in Community deck previews on mobile portrait and landscape
+* **ui:** stop compact prompt card-row tweens when their Pixi modal is rebuilt
+* **ui:** expose all mobile combat stops and restore taps after cancelled hand peeks
+* **ui:** fit compact square cards to bottom-anchored fields and retain accessible overflow stacks
+* **ui:** fit two opponent rows and two or three local rows in compact square-card fields
+* **ui:** fill compact tap and untap overlays while preserving card dragging
+* **ui:** expand mobile choice prompts with readable rows and a scrollable option list
+* **ui:** fit mobile Pass, turn-skip, autopass, and settings into one short action row
+* **ui:** update live zone locks and keep narrow desktop source-card prompts usable
+* **ui:** use the deck editor menu style for landscape offline modes and app select controls
+* **ui:** match rules-preview view controls to printed previews
+* **ui:** remove synthesized game sounds, sound settings, and unused volume preferences
+
 ## [3.53.2](https://github.com/witchesofthehill/manabrew/compare/v3.53.1...v3.53.2) (2026-09-30)
 
 ### Fixes

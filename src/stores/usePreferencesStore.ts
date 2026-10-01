@@ -162,7 +162,11 @@ export interface PreferencesState {
   lastRoomSetup: LastRoomSetup | null;
   setLastRoomSetup: (setup: LastRoomSetup) => void;
   tableBackground: BoardBackgroundId;
+  mobileHandedness: "right" | "left";
   setTableBackground: (background: BoardBackgroundId) => void;
+  hapticFeedback: boolean;
+  setHapticFeedback: (enabled: boolean) => void;
+  setMobileHandedness: (handedness: "right" | "left") => void;
 }
 
 const PERSISTED_PREFERENCE_KEYS = [
@@ -186,6 +190,8 @@ const PERSISTED_PREFERENCE_KEYS = [
   "battlefieldCardStyle",
   "boardBackgroundId",
   "inGameAnimations",
+  "mobileHandedness",
+  "hapticFeedback",
   "preloadCardImages",
   "snapshotRecording",
   "chooseOrderOnMultipleTriggers",
@@ -327,7 +333,7 @@ export const usePreferencesStore = create<PreferencesState>()(
           lockZoneTiles: false,
           setLockZoneTiles: (lockZoneTiles) => set({ lockZoneTiles }),
 
-          battlefieldCardStyle: "realistic",
+          battlefieldCardStyle: "art",
           setBattlefieldCardStyle: (battlefieldCardStyle) => set({ battlefieldCardStyle }),
 
           boardBackgroundId: DEFAULT_BOARD_BACKGROUND_ID,
@@ -361,6 +367,12 @@ export const usePreferencesStore = create<PreferencesState>()(
 
           opponentLayout: "focused",
           setOpponentLayout: (opponentLayout) => set({ opponentLayout }),
+
+          hapticFeedback: true,
+          setHapticFeedback: (hapticFeedback) => set({ hapticFeedback }),
+
+          mobileHandedness: "right",
+          setMobileHandedness: (mobileHandedness) => set({ mobileHandedness }),
 
           cardHoverDelayMs: 350,
           setCardHoverDelayMs: (ms) => set({ cardHoverDelayMs: ms }),
@@ -429,7 +441,15 @@ export const usePreferencesStore = create<PreferencesState>()(
       },
       {
         name: STORAGE_KEYS.PREFERENCES,
-        version: 1,
+        version: 2,
+        migrate: (persistedState, version) => {
+          if (!persistedState || typeof persistedState !== "object") return {};
+          const persisted = persistedState as Record<string, unknown>;
+          if (version < 2 && persisted.battlefieldCardStyle === "realistic") {
+            persisted.battlefieldCardStyle = "art";
+          }
+          return persisted;
+        },
         merge: (persistedState, currentState) => ({
           ...currentState,
           ...pickPersistedPreferences(persistedState),

@@ -72,3 +72,5 @@ Never use `--no-verify` to bypass the commit-msg or pre-commit hooks. If a hook 
 `yarn bench:forge-replay-profile --launcher /path/to/forgeharness.js` rotates snapshot/replay modes through identical games and reports JSON timings and artifact identity. Browser runtime coverage uses `--browser chrome|firefox`; `--restore` validates rewind/continuation, and `--fixture combat|scry|bounce|extra` broadens mechanics. Forward performance runs should omit `--restore` and run without concurrent engine jobs. See the Forge WASM README for metric boundaries and browser prerequisites.
 
 The replay profiler can capture real Manabot decisions with `--record-trace` and compare them with `--trace`; see the package README for Commander commands. Only its cross-mode comparison normalizes transient casting display IDs. Do not weaken production replay digests or real stack target IDs to accommodate snapshot allocation differences.
+
+`parity-repair-agent.py` requires `PARITY_AUTH` in the environment as `username:password`. Supply it through local secrets or CI secrets. The previously committed dashboard credential must be rotated because it remains in Git history.
