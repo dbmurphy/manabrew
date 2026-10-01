@@ -31,7 +31,6 @@ const required = [
   "forge.js",
   "forge.d.ts",
   "engine.js",
-  "replay.js",
   "node.js",
   "node-worker.cjs",
   "stamp.js",
@@ -110,12 +109,12 @@ writeFileSync(
 );
 writeFileSync(
   join(consumer, "src.js"),
-  'import { ForgeEngine, createReplayForgeEngine, VERSION } from "@manabrew/forge-wasm"; console.log(ForgeEngine, createReplayForgeEngine, VERSION);\n',
+  'import { ForgeEngine, VERSION } from "@manabrew/forge-wasm"; console.log(ForgeEngine, VERSION);\n',
 );
 writeFileSync(
   join(consumer, "usage.ts"),
   [
-    'import { ForgeEngine, createReplayForgeEngine, VERSION, BUILD_COMMIT } from "@manabrew/forge-wasm";',
+    'import { ForgeEngine, VERSION, BUILD_COMMIT } from "@manabrew/forge-wasm";',
     'import type { ForgeDeck } from "@manabrew/forge-wasm";',
     'import { createSeat, SAB_SIZE } from "@manabrew/forge-wasm/seat";',
     'import type { Deck, GameViewDto, Prompt } from "@manabrew/protocol";',
@@ -138,10 +137,6 @@ writeFileSync(
     '  onDisplay: (event) => { void (event.kind === "cardPlayed" ? event.cardName : ""); },',
     "});",
     "void engine.startGame({ deck });",
-    "const replay = await createReplayForgeEngine({ maxJournalBytes: 4096, onRestored: (point) => { const id: number = point.id; void id; } });",
-    "void replay.startGame({ deck, seed: 42 });",
-    "void replay.restoreTo(1, { signal: new AbortController().signal });",
-    "replay.dispose();",
     'engine.respond(1, { type: "chooseBoolean", output: { type: "decision", value: true } });',
     'engine.directive({ type: "concede" });',
     "",
@@ -152,7 +147,6 @@ writeFileSync(
   JSON.stringify({
     compilerOptions: {
       lib: ["DOM", "ES2022"],
-      target: "ES2022",
       module: "ESNext",
       moduleResolution: "Bundler",
       strict: true,
@@ -187,10 +181,9 @@ for (const expected of ["forge-engine.worker", "forgeharness"]) {
 writeFileSync(
   join(consumer, "node-usage.mjs"),
   [
-    'import { createForgeEngine, createReplayForgeEngine, ForgeEngine, VERSION } from "@manabrew/forge-wasm";',
+    'import { createForgeEngine, ForgeEngine, VERSION } from "@manabrew/forge-wasm";',
     'if (typeof ForgeEngine !== "function") throw new Error("the node entry exports no ForgeEngine.");',
     'if (!VERSION) throw new Error("the node entry exports no VERSION.");',
-    'if (typeof createReplayForgeEngine !== "function") throw new Error("the node entry exports no replay factory.");',
     'if (process.argv.includes("--import-only")) {',
     "  console.log(`Node entry loads: @manabrew/forge-wasm ${VERSION}`);",
     "  process.exit(0);",

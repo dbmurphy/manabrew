@@ -67,12 +67,6 @@ Never use `--no-verify` to bypass the commit-msg or pre-commit hooks. If a hook 
 
 `ingest-events.py` normalizes `engine_error` and `engine_fatal` to `games.game_over = 0`, including existing analytics rows when opening the database. Offline clients can report these terminal failures with `game_over = 1`; that source flag must not turn crashes into successful completions.
 
-`yarn bench:forge-replay --launcher /path/to/forgeharness.js` runs the real isolated-replay integration probe. Use `--seats 4 --seed 43` for multiplayer and `--manabot-js /path/to/wasm.js --manabot-wasm /path/to/wasm_bg.wasm` for real external bot decisions. The matching `.js.wasm` must be beside the launcher. This probe exercises the experimental package facade; it does not enable replay in the app.
-
-`yarn bench:forge-replay-profile --launcher /path/to/forgeharness.js` rotates snapshot/replay modes through identical games and reports JSON timings and artifact identity. Browser runtime coverage uses `--browser chrome|firefox`; `--restore` validates rewind/continuation, and `--fixture combat|scry|bounce|extra` broadens mechanics. Forward performance runs should omit `--restore` and run without concurrent engine jobs. See the Forge WASM README for metric boundaries and browser prerequisites.
-
-The replay profiler can capture real Manabot decisions with `--record-trace` and compare them with `--trace`; see the package README for Commander commands. Only its cross-mode comparison normalizes transient casting display IDs. Do not weaken production replay digests or real stack target IDs to accommodate snapshot allocation differences.
-
 `parity-repair-agent.py` requires `PARITY_AUTH` in the environment as `username:password`. Supply it through local secrets or CI secrets. The previously committed dashboard credential must be rotated because it remains in Git history.
 
 `yarn bench:relay-journal` builds and drives the relay's `journal_store` example against a temporary SQLite database. It exercises crash/reopen and competing writers in separate processes; `--binary <path>` skips the build. The Rust server CI job runs it. It checks durable storage semantics, not relay authorization or hosted end-to-end delivery.

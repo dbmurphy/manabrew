@@ -46,7 +46,6 @@ for (const file of [
   "forge.js",
   "forge.d.ts",
   "engine.js",
-  "replay.js",
   "node.js",
   "node-worker.cjs",
   "forge-engine.worker.js",

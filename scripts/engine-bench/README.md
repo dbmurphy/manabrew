@@ -61,12 +61,6 @@ resumes. `--seats 2 --decks a,b` plays duels, side A alternating seats.
 prompt with the seat's view and the decision as one JSON line on stderr; a
 game the engine ends with an exception reports `outcome.reason` `engine_error`.
 
-## Isolated replay
-
-`yarn bench:forge-replay` checks the experimental package rewind API against real WASM. `yarn bench:forge-replay-profile` compares ordinary snapshots, snapshots disabled, and journaling with a fixed external policy, asserting identical decisions and final visible state before comparing timings. It excludes internal Forge AI, whose clock-dependent choices make a seed alone insufficient. Use `--browser chrome|firefox` for real browser workers and `--restore` for replay/continuation checks; omit `--restore` when profiling normal forward play.
-
-See the [package's replay profiling guide](../../packages/forge-wasm/README.md#replay-profiling) for fixtures, measurement boundaries, browser prerequisites, and commands. Run these comparisons serially, without competing engine jobs. They measure small controlled fixtures, not Commander populations or app rendering.
-
 ## A run, not a game
 
 ```sh

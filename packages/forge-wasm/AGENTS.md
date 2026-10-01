@@ -2,20 +2,6 @@
 
 Read `/AGENTS.md` and `/scripts/AGENTS.md` for packaging workflows.
 
-`replay.js` is an experimental opt-in facade shared by the browser and Node factories. The app still uses the ordinary engine. Every external seat response must be journaled through the facade; do not expose raw seat buffers or directives that can bypass it. Internal Forge AI is unsupported because equal seeds did not reliably reproduce its decisions in the investigation.
+`yarn build:forge-wasm-package --stub-engine` followed by `yarn verify:forge-wasm-package` checks packing, consumer types, and Vite bundling only; never publish a stub build.
 
-Seed replay uses a separate worker and adopts it only after the recorded input prefix and target boundary match. Preserve the original worker on candidate failure, and issue fresh public prompt IDs on adoption. The fingerprint covers the deciding seat's visible game view and prompt, not all hidden engine state. A passing fixture is not a universal determinism guarantee.
-
-Forge `GameSnapshot` was not a safe intermediate replay anchor in the audit: turn counters and per-player land-history fields retained future values after both full-phase and sparse restores. Do not replace seed replay with snapshot-plus-replay without auditing the entire restore state first.
-
-Run `yarn bench:forge-replay` with real engine artifacts for behavioral coverage. `yarn build:forge-wasm-package --stub-engine` followed by `yarn verify:forge-wasm-package` checks packing, consumer types, and Vite bundling only; never publish a stub build.
-
-The replay facade owns incoming protocol objects and clones only at consumer callback boundaries. Keep each callback isolated from the journal and other callbacks. The integration probe deliberately mutates callback messages and caller-owned actions to check this. Candidate-only eager polling must switch back on adoption and stop on disposal; preserve the ordinary engine scheduler.
-
-`yarn bench:forge-replay-profile` compares snapshots, disabled snapshots, and replay with matched seeded actions/final state. Run performance cases serially, without competing engine probes; use `--restore` separately for browser and multi-mechanic correctness. Animation-frame polling can hide CPU savings in browser wall time.
-
-A compiled-module sharing experiment did not materially reduce Firefox rewind time in the measured fixture. Instantiation fell from about 1.1 seconds to 74 ms, but each fresh worker still spent about 5 seconds unpacking 36,609 asset files and 8–9 seconds initializing Forge. The experiment is not enabled: measure initialization stages before assuming compilation is the dominant cost.
-
-Candidate replay uses a private shared control word across `replay.js`, the worker, and WASM `SabTransport`: 1 sends only the deciding seat’s view, 2 resumes normal broadcasts before the last human prompt needed to reconstruct all target seat caches, and 0 resumes live operation on adoption. Both replay modes suppress decision/checkpoint telemetry; the first live response resets the timing window. Keep deciding-seat fingerprint validation strict and verify every restored seat view when changing this boundary. Older WASM artifacts ignore the word and remain correct, without the optimization.
-
-Ordinary engines accept opt-in `decisionJournal: true` and emit `forge:journal` through `onEvent`. This is the game-thread consumed-input stream, distinct from the replay facade's JavaScript response journal. It contains hidden information. The replay facade rejects this option because candidate adoption currently has no journal epoch/branch protocol. Preserve the shared JVM/native/WASM contract documented in the harness AGENTS file; older WASM artifacts may ignore the option, so consumers must require the initial manifest before treating journaling as active.
+Ordinary engines accept opt-in `decisionJournal: true` and emit `forge:journal` through `onEvent`. This is the game-thread consumed-input stream. It contains hidden information. Preserve the shared JVM/native/WASM contract documented in the harness AGENTS file; older WASM artifacts may ignore the option, so consumers must require the initial manifest before treating journaling as active.
