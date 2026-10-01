@@ -69,9 +69,11 @@ import { buildCombatRows } from "@/components/game/combatRows";
 import { readableTextColor, withAlpha } from "@/themes/gameTheme";
 import { useTheme } from "@/hooks/useTheme";
 import { boardBackgroundDarken, boardBackgroundUrl } from "@/pixi/board/boardBackgrounds";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
-import { useLimitedStore } from "@/stores/useLimitedStore";
-import { peek as peekGauntletMatch, tryConsumeGauntletMatch } from "@/lib/gauntletReturn";
+import { Navigate, useLocation } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { useLimitedGameReturn } from "@/hooks/useLimitedGameReturn";
+import { peek as peekGauntletMatch } from "@/lib/gauntletReturn";
+import { peekLimitedMatchReturn } from "@/game/limitedSession";
 import { intentIsHostile, intentPrefersArrow } from "@/types/promptType";
 import type { PromptType } from "@/protocol";
 import { declareAttackersOutput } from "@/components/prompts/internal/playerActions";
@@ -2077,26 +2079,31 @@ export default function Game({ exitTo }: GameProps = {}) {
   );
   useEffect(() => {
     if (!gameView?.gameOver && activePrompt?.input.type !== "gameOver") return;
-    if (peekGauntletMatch()) return;
+    if (peekGauntletMatch() || peekLimitedMatchReturn()) return;
     const timer = setTimeout(() => endGame(), 3000);
     return () => clearTimeout(timer);
   }, [gameView?.gameOver, activePrompt?.input.type, endGame]);
-  const navigate = useNavigate();
-  useEffect(() => {
-    if (!gameView?.gameOver) return;
-    const pending = tryConsumeGauntletMatch();
-    if (!pending) return;
-    const humanWon = gameView.winnerId != null && gameView.winnerId === myPlayerSlot;
-    void (async () => {
-      await useLimitedStore
-        .getState()
-        .recordGauntletOutcome(pending.gauntletId, humanWon, true, humanWon)
-        .catch(() => undefined);
-      await endGame();
-      navigate(`/gauntlet/${pending.gauntletId}`);
-    })();
-  }, [gameView?.gameOver, gameView?.winnerId, myPlayerSlot, navigate, endGame]);
-  if (!isGameActive) return <Navigate to={exitTo ?? "/lobby"} replace />;
+  const limitedReturn = useLimitedGameReturn({
+    gameOver: (gameView?.gameOver ?? false) || activePrompt?.input.type === "gameOver",
+    winnerId: gameView?.winnerId ?? null,
+    playerSlot: myPlayerSlot,
+    endGame,
+  });
+  if (!isGameActive)
+    return <Navigate to={limitedReturn.destination ?? exitTo ?? "/lobby"} replace />;
+  if (limitedReturn.error) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-4">
+        <p className="font-semibold">Game finished. Your Limited session could not be updated.</p>
+        <p className="text-sm text-destructive" role="alert">
+          {limitedReturn.error}
+        </p>
+        <Button variant="primary" onClick={() => void limitedReturn.retry()}>
+          Retry returning to pool
+        </Button>
+      </div>
+    );
+  }
   if (fatalError) {
     return <GameFailedScreen message={fatalError} onLeave={endGame} />;
   }

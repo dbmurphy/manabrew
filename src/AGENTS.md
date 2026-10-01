@@ -1,6 +1,6 @@
 # UI — React + TypeScript
 
-The web frontend for Manabrew. Tailwind CSS 4, Shadcn/UI, Zustand, React Router. PIXI.js for the game board canvas. (TanStack Query has been removed from the stack — see "Card data" below.)
+The web frontend for Manabrew. Tailwind CSS 4, Shadcn/UI, Zustand, React Router. PixiJS for the game board and Limited workspaces. (TanStack Query has been removed from the stack — see "Card data" below.)
 
 Read first: `/AGENTS.md`, `docs/STYLE_GUIDELINES.md`, `docs/agents/UI_THEME_RULES.md`.
 
@@ -115,7 +115,7 @@ Use these store APIs rather than importing card-data fetchers from `api/scryfall
 | ------------------------------------------ | -------------------------------------------------- |
 | Card metadata by name / set+collector / id | `useCard({ name, setCode?, collectorNumber? })`    |
 | Imperative card search                     | `useScryfallStore.getState().searchCards(...)`     |
-| Pixi `Texture` for a card image            | `useCardTexture(...)`                              |
+| Pixi `Texture` for a card image            | `useScryfallStore.getState().getCardTexture(card)` |
 | Card rulings                               | `useCardRulings(card)`                             |
 | Set list as a `Map`                        | `useSetLookup()`                                   |
 | Bulk warm the cache before a view loads    | `prefetchCards([...], "full" \| "art")`            |
@@ -128,6 +128,16 @@ Lookup keys are normalized internally (`id:` / `set:…::cn:…` / `name:…[::s
 
 The token archive includes English and available localized printings (`lang:any`) with image-language provenance and both faces. Preserve each face's printed power and toughness when archiving or synthesizing double-faced token metadata; the rules preview reads stats from the selected face. The store picks a matching-locale token by Oracle ID before falling back to its original printing, so preserve the selected printing's language whenever a deck image URL changes. Older archives without `imageLanguage` are treated as English.
 Forge token editions reuse their parent set code and collector numbers in game snapshots. `FRA/11` is Guiding Hydra, while token `TFRA/11` is Heartwood. Resolve an engine token through its script or archived token printing before looking up metadata or art; a raw parent-set lookup can return a different card.
+
+## Limited workspaces
+
+`components/limited/` owns pack opening and the shared pool/Main/Maybe builder; `pixi/limited/` owns one shared renderer with independently clipped lanes. Card metadata, previews and textures resolve through `useScryfallStore`; the booster wrapper is theme-drawn. Native card controls own keyboard, touch and inspection while GSAP animates the scene.
+
+Card IDs identify physical occurrences. Picks, moves, undo and named configurations retain those IDs and their printings; Maybe remains part of the complete sideboard. `useLimitedBuildStore` persists acquired pools and allocations by session. Only explicit draft undo reconciles the acquired pool downward. Session IDs must remain unique across worker restarts to avoid reusing another pool's persisted build.
+
+`platform/web.ts` keeps Limited commands on a persistent Rust query worker, separate from the replaceable game worker. `resolveSealedPool` resolves generated basics to real store-owned printings before solo or multiplayer builds are initialized. Launch the game route before awaiting engine startup so its listeners receive the first state and prompt. A multiplayer return marker becomes started only when the game store is active, not when the relay announces the pairing.
+
+Multiplayer ownership, targeted snapshots and retained paired rooms are documented in `docs/agents/RELAY.md`.
 
 ## Deck analysis — combos & bracket
 

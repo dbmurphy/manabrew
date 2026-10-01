@@ -1,26 +1,19 @@
-import { useState } from "react";
-import { HoverCardPreview } from "@/components/game/HoverCardPreview";
-import { DraftCardTile } from "@/components/limited/DraftCardTile";
-import { DraftPoolPanel } from "@/components/limited/DraftPoolPanel";
-import { DraftPreviewPanel } from "@/components/limited/DraftPreviewPanel";
-import { LimitedHoverPreviewPane } from "@/components/limited/LimitedHoverPreviewPane";
-import {
-  LimitedWorkspaceTabs,
-  type LimitedWorkspaceTab,
-} from "@/components/limited/LimitedWorkspaceTabs";
-import { RaritySetBadge } from "@/components/limited/RaritySetBadge";
-import { useCardPreview } from "@/hooks/useCardPreview";
+import { useRef, useState } from "react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { LimitedCardCanvas } from "@/components/limited/LimitedCardCanvas";
+import LimitedDeckBuilder from "@/components/limited/LimitedDeckBuilder";
+import { useLimitedBuildStore } from "@/components/limited/useLimitedBuildStore";
+import { useIsShortScreen, useIsTouch } from "@/hooks/useBreakpoints";
 import { cn } from "@/lib/utils";
 import type { ConspiracyHook, DraftCard, DraftState } from "@/types/limited";
+
 interface DraftWorkspaceProps {
   draft: DraftState;
   onPick: (card: DraftCard) => void | Promise<void>;
   onBuild?: () => void;
   pickPending?: boolean;
   conspiracyHooks?: ConspiracyHook[];
-}
-function cardKey(card: DraftCard, index: number): string {
-  return `${card.name}:${card.setCode}:${card.cardNumber}:${index}`;
 }
 export function DraftWorkspace({
   draft,
@@ -29,126 +22,206 @@ export function DraftWorkspace({
   pickPending = false,
   conspiracyHooks = [],
 }: DraftWorkspaceProps) {
-  const preview = useCardPreview([draft.round, draft.pickNumber]);
-  const [mobileTab, setMobileTab] = useState<LimitedWorkspaceTab>("pack");
-  const [selectedCardKey, setSelectedCardKey] = useState<string | null>(null);
-  const [previewSlot, setPreviewSlot] = useState<HTMLDivElement | null>(null);
-  const [previewCollapsed, setPreviewCollapsed] = useState(
-    () =>
-      typeof window !== "undefined" &&
-      window.localStorage.getItem("draft.previewPanelCollapsed") === "true",
-  );
-  const packKey = `${draft.round}:${draft.pickNumber}:${draft.currentPack.length}`;
-  const selectedStillVisible = draft.currentPack.some(
-    (card, index) => cardKey(card, index) === selectedCardKey,
-  );
-  const visibleSelectedKey = selectedStillVisible ? selectedCardKey : null;
-  const submitPick = (card: DraftCard, index: number) => {
-    if (!draft.awaitingHuman || pickPending) return;
-    setSelectedCardKey(cardKey(card, index));
-    void Promise.resolve(onPick(card)).catch(() => setSelectedCardKey(null));
+  const [mobileTab, setMobileTab] = useState<"pack" | "build">("pack");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const quickPick = useLimitedBuildStore((state) => state.quickPick);
+  const shortScreen = useIsShortScreen();
+  const isTouch = useIsTouch();
+  const shortTouch = shortScreen && isTouch;
+  const selected = draft.currentPack.find((card) => card.id === selectedId);
+  const disabled = !draft.awaitingHuman || pickPending || submitting;
+  const submit = async (card: DraftCard) => {
+    if (disabled || submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    try {
+      await onPick(card);
+      setSelectedId(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "The pick wasn't accepted. Try again.");
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
   };
-  const togglePreview = () => {
-    setPreviewCollapsed((value) => {
-      const next = !value;
-      window.localStorage.setItem("draft.previewPanelCollapsed", String(next));
-      return next;
-    });
+  const select = (card: DraftCard) => {
+    if (disabled) return;
+    setSelectedId(card.id);
+    if (quickPick) void submit(card);
   };
-  const packPanel = (
-    <section className="flex min-h-0 flex-1 flex-col rounded-md border border-border/70 bg-card/20">
-      <div className="flex items-center justify-between border-b border-border/40 px-3 py-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Current pack ({draft.currentPack.length})
-        </h2>
-        <span className="text-[11px] text-muted-foreground">
-          {draft.awaitingHuman ? `Choose a card` : `Waiting for the next pack`}
-        </span>
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+      <div
+        role="tablist"
+        aria-label="Draft workspace"
+        className={cn("flex shrink-0 gap-1 lg:hidden", shortTouch && "lg:flex")}
+      >
+        <Button
+          role="tab"
+          aria-selected={mobileTab === "pack"}
+          variant={mobileTab === "pack" ? "selected" : "ghost"}
+          size="sm"
+          onClick={() => setMobileTab("pack")}
+        >
+          Pack · {draft.currentPack.length}
+        </Button>
+        <Button
+          role="tab"
+          aria-selected={mobileTab === "build"}
+          variant={mobileTab === "build" ? "selected" : "ghost"}
+          size="sm"
+          onClick={() => setMobileTab("build")}
+        >
+          Pool / build · {draft.pickedPile.length}
+        </Button>
       </div>
       <div
-        key={packKey}
-        className="min-h-0 flex-1 overflow-y-auto p-3 motion-safe:animate-draft-pack-arrive"
-      >
-        {draft.currentPack.length === 0 ? (
-          <div className="flex h-full min-h-48 items-center justify-center text-sm text-muted-foreground">
-            Waiting for a pack…
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
-            {draft.currentPack.map((card, index) => {
-              const key = cardKey(card, index);
-              return (
-                <DraftCardTile
-                  key={key}
-                  card={card}
-                  index={index}
-                  onClick={() => submitPick(card, index)}
-                  disabled={!draft.awaitingHuman || pickPending}
-                  preview={preview}
-                  selected={visibleSelectedKey === key}
-                  pickPending={pickPending}
-                  overlay={<RaritySetBadge card={card} />}
-                />
-              );
-            })}
-          </div>
+        className={cn(
+          "grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-hidden lg:grid-cols-[minmax(0,.8fr)_minmax(0,1.4fr)]",
+          shortTouch && "lg:grid-cols-1",
         )}
-      </div>
-    </section>
-  );
-  const poolPanel = (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
-      {draft.humanConspiracies && draft.humanConspiracies.length > 0 && (
-        <section className="shrink-0 rounded-md border border-primary/40 bg-primary/5 p-3 text-xs">
-          <h2 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-primary">
-            Conspiracies ({draft.humanConspiracies.length})
-          </h2>
-          <ul className="space-y-1">
-            {draft.humanConspiracies.map((name) => {
-              const hook = conspiracyHooks.find((candidate) => candidate.cardName === name);
-              return (
-                <li key={name}>
-                  <span className="font-medium">{name}</span>
-                  {hook && <span className="ml-1 text-muted-foreground">· {hook.description}</span>}
-                </li>
-              );
-            })}
-          </ul>
+      >
+        <section
+          className={cn(
+            "flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-card",
+            mobileTab !== "pack" && "hidden lg:flex",
+            shortTouch && mobileTab !== "pack" && "lg:hidden",
+          )}
+          onKeyDown={(event) => {
+            if (
+              event.key !== "Enter" ||
+              event.target instanceof HTMLInputElement ||
+              event.target instanceof HTMLButtonElement ||
+              !selected ||
+              disabled
+            )
+              return;
+            event.preventDefault();
+            void submit(selected);
+          }}
+          tabIndex={0}
+          aria-label="Current booster. Select a card and press Enter to confirm."
+        >
+          <header className="shrink-0 space-y-2 border-b border-border p-3">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="font-serif text-xl">Current booster</h2>
+              <span className="text-xs text-muted-foreground">
+                Round {draft.round}/{draft.totalRounds} · Pick {draft.pickNumber}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+              <span>
+                {draft.passDirection ? `Pass ${draft.passDirection}` : "Choose from this booster"}
+                {draft.picksPerPass > 1
+                  ? ` · ${draft.picksRemainingInPack} picks before passing`
+                  : ""}
+              </span>
+              <label className="flex min-h-11 cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={quickPick}
+                  onChange={(event) =>
+                    useLimitedBuildStore.getState().setQuickPick(event.target.checked)
+                  }
+                />
+                Quick pick
+              </label>
+            </div>
+          </header>
+          {draft.currentPack.length ? (
+            <LimitedCardCanvas
+              cards={draft.currentPack}
+              selectedIds={selected ? [selected.id] : []}
+              onSelect={select}
+              onActivate={(card) => {
+                setSelectedId(card.id);
+                void submit(card);
+              }}
+              disabled={disabled}
+              cardSize={130}
+              arrivalKey={`${draft.sessionId}:${draft.round}:${draft.pickNumber}`}
+              className="min-h-0 flex-1"
+            />
+          ) : (
+            <p
+              role="status"
+              className="flex min-h-24 flex-1 items-center justify-center p-4 text-sm text-muted-foreground"
+            >
+              {draft.isComplete
+                ? "Draft complete. Finish your build."
+                : "Waiting for the next booster..."}
+            </p>
+          )}
+          <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-border p-3">
+            <p aria-live="polite" className="min-w-0 truncate text-sm">
+              {selected
+                ? selected.name
+                : draft.awaitingHuman
+                  ? "Select a card, then confirm."
+                  : "Waiting for the table."}
+            </p>
+            <Button
+              variant="primary"
+              disabled={!selected || disabled}
+              className="shrink-0"
+              onClick={() => {
+                if (selected) void submit(selected);
+              }}
+            >
+              {pickPending || submitting ? "Picking..." : "Confirm pick"}
+            </Button>
+          </footer>
         </section>
-      )}
-      <DraftPoolPanel cards={draft.pickedPile} preview={preview} onBuild={onBuild} />
-    </div>
-  );
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
-      <LimitedWorkspaceTabs value={mobileTab} onChange={setMobileTab} />
-
-      <div className="hidden min-h-0 flex-1 gap-3 overflow-hidden lg:flex">
-        <div className="flex min-w-0 flex-[2]">{packPanel}</div>
-        <aside className="flex min-h-0 w-[320px] shrink-0 flex-col gap-3 xl:w-[360px]">
-          {poolPanel}
-          <DraftPreviewPanel
-            setSlot={setPreviewSlot}
-            collapsed={previewCollapsed}
-            onCollapse={togglePreview}
-          />
-        </aside>
+        <section
+          className={cn(
+            "flex min-h-0 min-w-0 flex-col gap-2",
+            mobileTab !== "build" && "hidden lg:flex",
+            shortTouch && mobileTab !== "build" && "lg:hidden",
+          )}
+          aria-label="Your acquired pool and deck"
+        >
+          {(onBuild || !!draft.humanConspiracies?.length) && (
+            <div className="flex shrink-0 items-start justify-between gap-2">
+              {!!draft.humanConspiracies?.length && (
+                <details className="min-w-0 text-xs">
+                  <summary className="cursor-pointer font-semibold">
+                    Conspiracies · {draft.humanConspiracies.length}
+                  </summary>
+                  <ul className="max-h-24 space-y-1 overflow-y-auto pt-2">
+                    {draft.humanConspiracies.map((name) => (
+                      <li key={name}>
+                        <span className="font-medium">{name}</span>
+                        {conspiracyHooks.find((hook) => hook.cardName === name)?.description && (
+                          <span className="text-muted-foreground">
+                            {" "}
+                            · {conspiracyHooks.find((hook) => hook.cardName === name)?.description}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+              {onBuild && (
+                <Button variant="outline" size="sm" className="ml-auto" onClick={onBuild}>
+                  Expand builder
+                </Button>
+              )}
+            </div>
+          )}
+          <div className="min-h-0 flex-1">
+            <LimitedDeckBuilder
+              key={draft.sessionId}
+              sessionKey={draft.sessionId}
+              pool={draft.pickedPile}
+              defaultDeckName="Booster Draft Deck"
+              format="draft"
+            />
+          </div>
+        </section>
       </div>
-
-      <div className="min-h-0 flex-1 overflow-hidden lg:hidden">
-        <div className={cn("h-full", mobileTab !== "pack" && "hidden")}>{packPanel}</div>
-        <div className={cn("flex h-full", mobileTab !== "picks" && "hidden")}>{poolPanel}</div>
-        <div className={cn("h-full", mobileTab !== "preview" && "hidden")}>
-          <LimitedHoverPreviewPane preview={preview} className="h-full" />
-        </div>
-      </div>
-
-      <HoverCardPreview
-        preview={preview}
-        slot={previewSlot}
-        pinned={Boolean(previewSlot)}
-        imageSize="normal"
-      />
     </div>
   );
 }
