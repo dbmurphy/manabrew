@@ -144,6 +144,9 @@ final class DecisionJournal {
         }
         final JsonObject batch = new JsonObject();
         batch.addProperty("version", 1);
+        if (commitBarrier) {
+            batch.addProperty("commitBarrier", true);
+        }
         batch.addProperty("nextSequence", nextSequence);
         if (startRequest != null) {
             batch.addProperty("startRequest", startRequest);

@@ -78,7 +78,8 @@
     "test:watch": "vitest",
     "test:e2e:ironsmith": "node tests/e2e-ironsmith/ironsmith-multiplayer.mjs",
     "test:e2e:ironsmith:pair": "node tests/e2e-ironsmith/ironsmith-two-clients.mjs",
-    "test:e2e:engines": "node tests/e2e-ironsmith/other-engines-smoke.mjs"
+    "test:e2e:engines": "node tests/e2e-ironsmith/other-engines-smoke.mjs",
+    "bench:hosted-journal": "node scripts/engine-bench/hosted-journal.mjs"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [
@@ -174,7 +175,8 @@
     "typescript-eslint": "^8.48.0",
     "unplugin-icons": "^23.0.1",
     "vite": "^7.3.5",
-    "vitest": "^3.2.6"
+    "vitest": "^3.2.6",
+    "ws": "^8.18.0"
   },
   "resolutions": {
     "js-yaml": "^4.2.0",

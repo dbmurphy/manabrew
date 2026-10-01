@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 #[cfg(forge_backend)]
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 #[cfg(feature = "java-forge")]
 use std::io::{BufRead, BufReader, BufWriter, Write};
@@ -673,6 +673,48 @@ pub fn init_engine() -> Result<(), String> {
         )?);
     }
     Ok(())
+}
+
+#[cfg(forge_backend)]
+pub(crate) fn init_decision_journal() -> Result<(), String> {
+    #[cfg(any(feature = "java-forge", unix))]
+    let config = JavaRuntimeConfig::from_env();
+    #[cfg(feature = "java-forge")]
+    let artifact = {
+        if !config.extra_classpath.is_empty() || !config.extra_jvm_args.is_empty() {
+            return Err("decision journal identity requires an unmodified harness classpath and JVM options".into());
+        }
+        config.harness_jar.clone()
+    };
+    #[cfg(all(feature = "graal-forge", not(feature = "java-forge"), unix))]
+    let artifact = unsafe {
+        let mut info: libc::Dl_info = std::mem::zeroed();
+        if libc::dladdr(
+            graal_ffi::forge_read_decision_journal as *const () as *const libc::c_void,
+            &mut info,
+        ) == 0
+            || info.dli_fname.is_null()
+        {
+            return Err("cannot locate the loaded Forge library for journal identity".into());
+        }
+        use std::os::unix::ffi::OsStrExt;
+        PathBuf::from(std::ffi::OsStr::from_bytes(
+            std::ffi::CStr::from_ptr(info.dli_fname).to_bytes(),
+        ))
+    };
+    #[cfg(any(feature = "java-forge", unix))]
+    {
+        crate::journal::init_artifacts(&artifact, &config.assets_dir.join("res"))
+    }
+    #[cfg(all(not(feature = "java-forge"), not(unix)))]
+    {
+        Err("native journal artifact identity is only supported on Unix".into())
+    }
+}
+
+#[cfg(not(forge_backend))]
+pub(crate) fn init_decision_journal() -> Result<(), String> {
+    Err(unsupported_message().into())
 }
 
 #[cfg(not(forge_backend))]
@@ -1500,7 +1542,7 @@ impl JavaRuntimeConfig {
 
 #[cfg(forge_backend)]
 #[allow(clippy::too_many_arguments)]
-pub fn run_hosted_engine_game(
+pub(crate) fn run_hosted_engine_game(
     game_id: String,
     player_names: Vec<String>,
     decks: Vec<Deck>,
@@ -1517,6 +1559,7 @@ pub fn run_hosted_engine_game(
     game_over_tx: std_mpsc::Sender<HostedGameOver>,
     checkpoint_tx: std_mpsc::Sender<HostedCheckpoint>,
     cancel: Arc<AtomicBool>,
+    journal: Option<Arc<crate::journal::JournalDelivery>>,
 ) -> Result<(), String> {
     run_hosted_engine_game_inner(
         game_id,
@@ -1535,12 +1578,13 @@ pub fn run_hosted_engine_game(
         game_over_tx,
         checkpoint_tx,
         cancel,
+        journal,
     )
 }
 
 #[cfg(not(forge_backend))]
 #[allow(clippy::too_many_arguments)]
-pub fn run_hosted_engine_game(
+pub(crate) fn run_hosted_engine_game(
     _game_id: String,
     _player_names: Vec<String>,
     _decks: Vec<Deck>,
@@ -1557,6 +1601,7 @@ pub fn run_hosted_engine_game(
     _game_over_tx: std_mpsc::Sender<HostedGameOver>,
     _checkpoint_tx: std_mpsc::Sender<HostedCheckpoint>,
     _cancel: Arc<AtomicBool>,
+    _journal: Option<Arc<crate::journal::JournalDelivery>>,
 ) -> Result<(), String> {
     Err(unsupported_message().to_string())
 }
@@ -1650,6 +1695,7 @@ fn run_hosted_engine_game_inner(
     game_over_tx: std_mpsc::Sender<HostedGameOver>,
     checkpoint_tx: std_mpsc::Sender<HostedCheckpoint>,
     cancel: Arc<AtomicBool>,
+    journal: Option<Arc<crate::journal::JournalDelivery>>,
 ) -> Result<(), String> {
     let engine = obtain_engine()?;
 
@@ -1687,7 +1733,11 @@ fn run_hosted_engine_game_inner(
     )
     .with_checkpoint(checkpoint);
     request.checkpoint_metrics = true;
-    let session_id = engine.start_game(&request.to_json().map_err(|err| err.to_string())?)?;
+    request.decision_journal = journal.is_some();
+    request.decision_journal_commit_barrier = journal.is_some();
+    request.snapshot_recording = journal.as_ref().map(|_| false);
+    let start_request = request.to_json().map_err(|err| err.to_string())?;
+    let session_id = engine.start_game(&start_request)?;
     info!(
         game_id,
         session_id, restored, "hosted java-forge session started"
@@ -1713,10 +1763,32 @@ fn run_hosted_engine_game_inner(
         armed: std::cell::Cell::new(true),
     };
 
+    let mut journal = if let Some(delivery) = journal {
+        let batch = engine.read_decision_journal(&session_id)?;
+        let manifest: serde_json::Value = serde_json::from_str(&batch)
+            .map_err(|_| "engine did not retain its journal manifest".to_string())?;
+        let recorded_start = manifest
+            .get("startRequest")
+            .and_then(|value| value.as_str())
+            .ok_or("engine journal manifest is missing its start request")?;
+        let mut writer = crate::journal::JournalWriter::new(delivery, recorded_start)?;
+        let sequence = match writer.commit(batch, &cancel) {
+            Ok(sequence) => sequence,
+            Err(_) if cancel.load(std::sync::atomic::Ordering::Relaxed) => return Ok(()),
+            Err(error) => return Err(error),
+        };
+        engine.acknowledge_decision_journal(&session_id, sequence)?;
+        Some(writer)
+    } else {
+        None
+    };
+
     let mut remote_response_rxs: HashMap<usize, std_mpsc::Receiver<ClientToServerMessage>> =
         remote_response_rxs.into_iter().collect();
     let mut last_prompt: Option<AgentPrompt> = None;
     let mut pending_roll_acks: usize = 0;
+    let mut roll_acknowledged = HashSet::new();
+    let mut answered_prompt = None;
     let mut decision_received: Option<Instant> = None;
     let mut decision_submitted: Option<Instant> = None;
     // The last time an answer went in or a prompt came out. The loop polls
@@ -1738,8 +1810,16 @@ fn run_hosted_engine_game_inner(
                 match rx.try_recv() {
                     Ok(ClientToServerMessage::Response {
                         action: PromptOutput::DiceRolled(DiceRolledOutput::DiceRolledAcknowledged),
-                        ..
+                        prompt_id,
                     }) => {
+                        if journal.is_some()
+                            && (!last_prompt.as_ref().is_some_and(|prompt| {
+                                matches!(prompt.input, PromptInput::DiceRolled(_))
+                                    && (prompt_id == 0 || prompt.prompt_id == prompt_id)
+                            }) || !roll_acknowledged.insert(*player_index))
+                        {
+                            continue;
+                        }
                         if pending_roll_acks > 0 {
                             pending_roll_acks -= 1;
                             if pending_roll_acks == 0 {
@@ -1819,6 +1899,14 @@ fn run_hosted_engine_game_inner(
                                 }
                             }
                         }
+                        let effective_prompt = last_prompt.as_ref().map(|prompt| prompt.prompt_id);
+                        if journal.is_some()
+                            && effective_prompt.is_some()
+                            && answered_prompt == effective_prompt
+                        {
+                            continue;
+                        }
+                        answered_prompt = effective_prompt;
                         decision_received = Some(Instant::now());
                         let action_json = serde_json::to_string(&action).map_err(|err| {
                             format!(
@@ -1848,6 +1936,17 @@ fn run_hosted_engine_game_inner(
             }
         }
 
+        if let Some(journal) = journal.as_mut() {
+            let batch = engine.read_decision_journal(&session_id)?;
+            if !batch.is_empty() {
+                let sequence = match journal.commit(batch, &cancel) {
+                    Ok(sequence) => sequence,
+                    Err(_) if cancel.load(std::sync::atomic::Ordering::Relaxed) => return Ok(()),
+                    Err(error) => return Err(error),
+                };
+                engine.acknowledge_decision_journal(&session_id, sequence)?;
+            }
+        }
         let revision = engine.state_revision(&session_id)?;
         if revision != state_revision {
             state_revision = revision;
@@ -1921,6 +2020,7 @@ fn run_hosted_engine_game_inner(
                         let _ = remote_prompt_tx.send((agent_index, prompt_msg.clone()));
                     }
                     send_observer_state(&engine, &session_id, &remote_prompt_tx);
+                    roll_acknowledged.clear();
                     pending_roll_acks = remote_response_rxs.len();
                     if pending_roll_acks == 0 {
                         let ack = serde_json::to_string(&PromptOutput::DiceRolled(
@@ -3247,6 +3347,10 @@ pub struct StartGameRequest {
     seed: u64,
     players: Vec<PlayerConfig>,
     checkpoint_metrics: bool,
+    decision_journal: bool,
+    decision_journal_commit_barrier: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    snapshot_recording: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     checkpoint: Option<String>,
 }
@@ -3293,6 +3397,9 @@ impl StartGameRequest {
             seed,
             players,
             checkpoint_metrics: false,
+            decision_journal: false,
+            decision_journal_commit_barrier: false,
+            snapshot_recording: None,
             checkpoint: None,
         }
     }

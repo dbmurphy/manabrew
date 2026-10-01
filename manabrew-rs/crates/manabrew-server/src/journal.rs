@@ -29,6 +29,8 @@ pub struct JournalEntry {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct JournalBatch {
     version: u32,
+    #[serde(default, rename = "commitBarrier")]
+    _commit_barrier: bool,
     next_sequence: i64,
     start_request: Option<String>,
     unavailable_reason: Option<String>,

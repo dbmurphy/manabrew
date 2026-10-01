@@ -78,3 +78,5 @@ The replay profiler can capture real Manabot decisions with `--record-trace` and
 `yarn bench:relay-journal` builds and drives the relay's `journal_store` example against a temporary SQLite database. It exercises crash/reopen and competing writers in separate processes; `--binary <path>` skips the build. The Rust server CI job runs it. It checks durable storage semantics, not relay authorization or hosted end-to-end delivery.
 
 `yarn bench:relay-journal-wire` builds the relay (or accepts `--binary <path>`), starts temporary local instances with a private journal database, and drives real WebSockets through authorization, retry, reconnect, restart, and host-change checks. It uses Node 24's built-in WebSocket and removes its temporary database. The Rust server CI job runs it; no real fleet or production data is used.
+
+`yarn bench:hosted-journal` drives the opt-in hosted commit barrier against real local node and relay binaries through a WebSocket fault proxy. It requires Node 24 (`node:sqlite`) and the declared `ws` development dependency. See `scripts/engine-bench/README.md` for artifact arguments and JVM/native coverage.

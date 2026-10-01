@@ -236,7 +236,9 @@ try {
   const acknowledge = (sequence) => gated.call("acknowledgeDecisionJournal", { sequence });
   await new Promise((resolve) => setTimeout(resolve, 100));
   assert.equal(await gated.call("getPrompt", { playerIndex: 0 }), "");
-  assert.equal((await read()).nextSequence, 1);
+  const gatedManifest = await read();
+  assert.equal(gatedManifest.nextSequence, 1);
+  assert.equal(gatedManifest.commitBarrier, true);
   await assert.rejects(gated.drain(), /cannot mix/);
   await acknowledge(0);
   let prompt = await gated.prompt();
