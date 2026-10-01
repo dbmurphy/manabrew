@@ -217,6 +217,93 @@ try {
   shadow.close();
 }
 
+const gated = harness();
+try {
+  await assert.rejects(
+    gated.call("startGame", {
+      payload: JSON.stringify({
+        ...request,
+        decisionJournal: false,
+        decisionJournalCommitBarrier: true,
+      }),
+    }),
+    /requires decisionJournal/,
+  );
+  await gated.call("startGame", {
+    payload: JSON.stringify({ ...request, decisionJournalCommitBarrier: true }),
+  });
+  const read = async () => JSON.parse(await gated.call("readDecisionJournal"));
+  const acknowledge = (sequence) => gated.call("acknowledgeDecisionJournal", { sequence });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(await gated.call("getPrompt", { playerIndex: 0 }), "");
+  assert.equal((await read()).nextSequence, 1);
+  await assert.rejects(gated.drain(), /cannot mix/);
+  await acknowledge(0);
+  let prompt = await gated.prompt();
+  for (let sequence = 1; sequence <= 5; sequence++) {
+    const before = await views(gated);
+    await gated.call("submitAction", { payload: JSON.stringify(scriptedAnswer({ prompt })) });
+    const deadline = performance.now() + 10_000;
+    let batch;
+    do {
+      const raw = await gated.call("readDecisionJournal");
+      if (raw) batch = JSON.parse(raw);
+      if (batch?.entries.length) break;
+      await pause();
+    } while (performance.now() < deadline);
+    assert.equal(batch?.entries[0].sequence, sequence);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.deepEqual(await views(gated), before);
+    assert.deepEqual(JSON.parse(await gated.call("getPrompt", { playerIndex: 0 })), prompt);
+    await acknowledge(sequence - 1);
+    assert.deepEqual(await read(), batch);
+    await acknowledge(sequence);
+    prompt = await gated.prompt(prompt.promptId);
+  }
+  await gated.call("submitAction", {
+    payload: JSON.stringify({
+      type: "directive",
+      player: 0,
+      directive: { type: "requestRestore", checkpointId: 1 },
+    }),
+  });
+  const deadline = performance.now() + 10_000;
+  while (true) {
+    try {
+      await gated.call("getGameOver");
+    } catch (error) {
+      assert.match(error.message, /journal unavailable/);
+      break;
+    }
+    assert(performance.now() < deadline, "restore must fail closed");
+    await pause();
+  }
+  await gated.call("endGame");
+  await gated.call("startGame", {
+    payload: JSON.stringify({ ...request, decisionJournalCommitBarrier: true }),
+  });
+  const started = performance.now();
+  await gated.call("endGame");
+  assert(performance.now() - started < 2000, "close must wake the manifest barrier");
+  await gated.call("startGame", {
+    payload: JSON.stringify({ ...request, decisionJournalCommitBarrier: true }),
+  });
+  await read();
+  await acknowledge(0);
+  prompt = await gated.prompt();
+  await gated.call("submitAction", { payload: JSON.stringify(scriptedAnswer({ prompt })) });
+  const decisionDeadline = performance.now() + 10_000;
+  while (!(await gated.call("readDecisionJournal"))) {
+    assert(performance.now() < decisionDeadline, "decision must reach the barrier");
+    await pause();
+  }
+  const closing = performance.now();
+  await gated.call("endGame");
+  assert(performance.now() - closing < 2000, "close must wake the decision barrier");
+} finally {
+  gated.close();
+}
+
 const retained = harness();
 try {
   await retained.call("startGame", { payload: JSON.stringify(request) });
@@ -339,15 +426,22 @@ if (values.launcher) {
       }
     },
   });
+  let startupTimer;
   try {
-    await engine.startGame({
-      deck: decks.token,
-      opponentDecks: [decks.token],
-      seed: 43,
-      gameId: sessionId,
-      snapshotRecording: false,
-      decisionJournal: true,
-    });
+    await Promise.race([
+      engine.startGame({
+        deck: decks.token,
+        opponentDecks: [decks.token],
+        seed: 43,
+        gameId: sessionId,
+        snapshotRecording: false,
+        decisionJournal: true,
+      }),
+      new Promise((_, reject) => {
+        startupTimer = setTimeout(() => reject(new Error("WASM startup timeout")), 60_000);
+      }),
+    ]);
+    clearTimeout(startupTimer);
     while (recorded.length < decisions) {
       if (!queue.length && !failure) {
         await new Promise((resolve, reject) => {
@@ -371,6 +465,7 @@ if (values.launcher) {
     assert.equal(manifest.gameId, sessionId);
     wasm = { consumedDecisions: recorded.length, transport: "forge:journal", matched: true };
   } finally {
+    clearTimeout(startupTimer);
     engine.dispose();
   }
 }
@@ -387,6 +482,8 @@ console.log(
       overflow: "explicit invalidation; game continued",
       rejected: ["internal AI", "checkpoint start"],
       disabled: "no journal batches",
+      commitBarrier:
+        "startup and decisions wait for acknowledgement; restore fails closed; shutdown wakes waiters",
       retainedDelivery:
         "retries, partial/duplicate acknowledgements, prefix validation, reclaimed capacity, persistent invalidation",
       wasm,

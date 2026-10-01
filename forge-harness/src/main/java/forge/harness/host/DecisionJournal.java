@@ -9,6 +9,8 @@ import java.nio.charset.StandardCharsets;
 final class DecisionJournal {
     private static final int MAX_BYTES = 8 * 1024 * 1024;
     private static final int MAX_ENTRIES = 4096;
+    private final boolean commitBarrier;
+    private boolean closed;
     private String startRequest;
     private JsonArray entries = new JsonArray();
     private long nextSequence = 1;
@@ -19,7 +21,11 @@ final class DecisionJournal {
     private long lastReadSequence = -1;
     private long acknowledgedSequence = -1;
 
-    DecisionJournal(final String startRequest) {
+    DecisionJournal(final String startRequest, final boolean commitBarrier) {
+        this.commitBarrier = commitBarrier;
+        if (commitBarrier) {
+            retained = true;
+        }
         this.startRequest = startRequest;
         bytes = startRequest.getBytes(StandardCharsets.UTF_8).length;
         if (bytes > MAX_BYTES) {
@@ -55,6 +61,30 @@ final class DecisionJournal {
         startRequest = null;
         entries = new JsonArray();
         bytes = 0;
+        notifyAll();
+    }
+
+    synchronized void awaitAcknowledgement() {
+        if (!commitBarrier) {
+            return;
+        }
+        final long sequence = nextSequence - 1;
+        while (!closed && unavailableReason == null && acknowledgedSequence < sequence) {
+            try {
+                wait();
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("journal acknowledgement interrupted", error);
+            }
+        }
+        if (closed || unavailableReason != null) {
+            throw new IllegalStateException("journal unavailable: " + (closed ? "session closed" : unavailableReason));
+        }
+    }
+
+    synchronized void close() {
+        closed = true;
+        notifyAll();
     }
 
     synchronized String read() {
@@ -88,6 +118,7 @@ final class DecisionJournal {
             iterator.remove();
         }
         acknowledgedSequence = sequence;
+        notifyAll();
     }
 
     private void selectDeliveryMode(final boolean retain) {

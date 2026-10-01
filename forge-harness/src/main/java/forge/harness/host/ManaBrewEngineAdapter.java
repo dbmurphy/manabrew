@@ -141,7 +141,7 @@ public final class ManaBrewEngineAdapter {
             session.enableCheckpointMetrics();
         }
         if (request.journalStart != null) {
-            session.enableDecisionJournal(request.journalStart);
+            session.enableDecisionJournal(request.journalStart, request.journalCommitBarrier);
         }
         sessions.put(session.getSessionId(), session);
         session.start(rng);
@@ -455,6 +455,11 @@ public final class ManaBrewEngineAdapter {
         if (root.has("decisionJournal") && root.get("decisionJournal").getAsBoolean()) {
             request.journalStart = root.toString();
         }
+        request.journalCommitBarrier = root.has("decisionJournalCommitBarrier")
+                && root.get("decisionJournalCommitBarrier").getAsBoolean();
+        if (request.journalCommitBarrier && request.journalStart == null) {
+            throw new IllegalArgumentException("journal commit barrier requires decisionJournal");
+        }
         return request;
     }
 
@@ -481,6 +486,7 @@ public final class ManaBrewEngineAdapter {
         private final boolean snapshotRecording;
         private boolean checkpointMetrics;
         private String journalStart;
+        private boolean journalCommitBarrier;
         private final List<PlayerConfig> players;
         private final String checkpoint;
 

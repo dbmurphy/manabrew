@@ -173,9 +173,14 @@ public final class ManaBrewInteractiveSession {
         gameThread = new Thread(() -> {
             forge.util.MyRandom.setRandom(rng);
             try {
+                if (decisionJournal != null) {
+                    decisionJournal.awaitAcknowledgement();
+                }
                 match.startGame(game, startHook());
             } catch (RuntimeException | Error error) {
-                recordEngineError(error);
+                if (!closed) {
+                    recordEngineError(error);
+                }
             }
         }, "mana-brew-forge-" + sessionId);
         gameThread.setDaemon(true);
@@ -218,6 +223,9 @@ public final class ManaBrewInteractiveSession {
 
     public void close() {
         closed = true;
+        if (decisionJournal != null) {
+            decisionJournal.close();
+        }
         JsonObject action = new JsonObject();
         action.addProperty("kind", "pass");
         actions.offer(new QueuedAction(action, null));
@@ -294,8 +302,11 @@ public final class ManaBrewInteractiveSession {
         return closed;
     }
 
-    void enableDecisionJournal(final String startRequest) {
-        decisionJournal = new DecisionJournal(startRequest);
+    void enableDecisionJournal(final String startRequest, final boolean commitBarrier) {
+        if (commitBarrier && bridge != null) {
+            throw new IllegalArgumentException("journal commit barrier requires a threaded engine");
+        }
+        decisionJournal = new DecisionJournal(startRequest, commitBarrier);
     }
 
     public String readDecisionJournal() {
@@ -2018,6 +2029,7 @@ public final class ManaBrewInteractiveSession {
                 } else {
                     decisionJournal.record(promptedPlayerIndex, latestPromptJson, queued.canonical());
                 }
+                decisionJournal.awaitAcknowledgement();
             }
             final String kind = action.has("kind") ? action.get("kind").getAsString() : "";
             if (isRestoreDirective(action)) {
