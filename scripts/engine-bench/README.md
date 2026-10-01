@@ -236,3 +236,7 @@ Everything is behind `-Dforge.engineCounters=true`, a static final read at class
 init, so it folds away when it is off. An earlier round of this used atomics and
 two `nanoTime` calls on every `checkStaticAbilities` and had to be reverted
 (forge `9d14d1511bf`).
+
+## Consumed decision journal
+
+`yarn bench:forge-journal --jar <harness.jar> --forge-home <forge-gui> [--java <java>] [--launcher <forgeharness.js>]` records external decisions from a real JVM game, starts a fresh JVM from the exported request, and verifies consumed actions, prompts, and both terminal seat views. It exercises directives, snapshot-restore invalidation, buffer overflow with continued gameplay, disabled recording, and rejection of internal AI/checkpoint starts. The optional matching WASM launcher checks the `forge:journal` event stream against submitted answers, including the aggregated opening dice acknowledgement. The probe reports its harness hash; it does not claim JVM/WASM parity or hidden-state equality.

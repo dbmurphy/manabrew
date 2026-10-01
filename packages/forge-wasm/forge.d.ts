@@ -7,6 +7,21 @@ import type {
   StateUpdate,
 } from "@manabrew/protocol";
 
+export interface ForgeDecisionJournalEntry {
+  sequence: number;
+  playerIndex: number;
+  prompt: Prompt | null;
+  action: Record<string, unknown>;
+}
+
+export interface ForgeDecisionJournalBatch {
+  version: 1;
+  nextSequence: number;
+  startRequest?: string;
+  unavailableReason?: string;
+  entries: ForgeDecisionJournalEntry[];
+}
+
 export interface ForgeCardIdentity {
   name: string;
   setCode?: string;
@@ -52,6 +67,7 @@ export interface ForgeStartGameOptions {
   seed?: number;
   /** Off, the engine takes no restore snapshots. Defaults to on. */
   snapshotRecording?: boolean;
+  decisionJournal?: boolean;
 }
 
 export interface ForgeStartMultiplayerGameOptions {
@@ -72,6 +88,7 @@ export interface ForgeStartMultiplayerGameOptions {
   seed?: number;
   /** Off, the engine takes no restore snapshots. Defaults to on. */
   snapshotRecording?: boolean;
+  decisionJournal?: boolean;
 }
 
 /**
@@ -136,10 +153,13 @@ export interface ForgeReplayOptions extends ForgeEngineOptions {
 
 export interface ForgeReplayEngine {
   startGame(
-    options: Omit<ForgeStartGameOptions, "forgeAi" | "snapshotRecording">,
+    options: Omit<ForgeStartGameOptions, "forgeAi" | "snapshotRecording" | "decisionJournal">,
   ): Promise<"game-started">;
   startMultiplayerGame(
-    options: Omit<ForgeStartMultiplayerGameOptions, "forgeAiSeats" | "snapshotRecording">,
+    options: Omit<
+      ForgeStartMultiplayerGameOptions,
+      "forgeAiSeats" | "snapshotRecording" | "decisionJournal"
+    >,
   ): Promise<"multiplayer-started">;
   respond(promptId: number, action: PromptOutput, playerSlot?: string): void;
   getRestorePoints(): ForgeRestorePoint[];

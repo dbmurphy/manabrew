@@ -527,6 +527,14 @@ impl JavaEngineHandle {
         guard.is_game_over(session_id)
     }
 
+    pub fn drain_decision_journal(&self, session_id: &str) -> Result<String, String> {
+        let bridge = self.bridge_for(session_id)?;
+        let mut guard = bridge
+            .lock()
+            .map_err(|_| "java subprocess mutex poisoned".to_string())?;
+        guard.drain_decision_journal(session_id)
+    }
+
     pub fn drain_checkpoint_metrics(&self, session_id: &str) -> Result<String, String> {
         let bridge = self.bridge_for(session_id)?;
         let mut guard = bridge
@@ -724,6 +732,10 @@ mod graal_ffi {
             viewer: c_int,
         ) -> *mut c_char;
         pub fn forge_get_game_over(
+            thread: *mut graal_isolatethread_t,
+            session_id: *const c_char,
+        ) -> *mut c_char;
+        pub fn forge_drain_decision_journal(
             thread: *mut graal_isolatethread_t,
             session_id: *const c_char,
         ) -> *mut c_char;
@@ -1009,6 +1021,13 @@ impl GraalEngineHandle {
             graal_ffi::forge_get_game_over(self.bridge.thread, session.as_ptr())
         })?;
         Ok(value.trim() == "true")
+    }
+
+    fn drain_decision_journal(&self, session_id: &str) -> Result<String, String> {
+        let session = cstring(session_id)?;
+        self.bridge.decode(unsafe {
+            graal_ffi::forge_drain_decision_journal(self.bridge.thread, session.as_ptr())
+        })
     }
 
     fn drain_checkpoint_metrics(&self, session_id: &str) -> Result<String, String> {
@@ -2690,6 +2709,7 @@ pub trait JavaBridge {
     fn get_snapshot(&mut self, session_id: &str, viewer: Option<usize>) -> Result<String, String>;
     fn get_checkpoint(&mut self, session_id: &str) -> Result<Option<String>, String>;
     fn is_game_over(&mut self, session_id: &str) -> Result<bool, String>;
+    fn drain_decision_journal(&mut self, session_id: &str) -> Result<String, String>;
     fn drain_checkpoint_metrics(&mut self, session_id: &str) -> Result<String, String>;
     fn state_revision(&mut self, session_id: &str) -> Result<u64, String>;
     fn end_game(&mut self, session_id: &str) -> Result<(), String>;
@@ -2797,6 +2817,10 @@ impl JavaBridge for UnavailableJavaBridge {
     }
 
     fn is_game_over(&mut self, _session_id: &str) -> Result<bool, String> {
+        Err(unsupported_message().to_string())
+    }
+
+    fn drain_decision_journal(&mut self, _session_id: &str) -> Result<String, String> {
         Err(unsupported_message().to_string())
     }
 
@@ -3072,6 +3096,11 @@ impl JavaBridge for SubprocessBridge {
         let body = json!({ "command": "getGameOver", "sessionId": session_id });
         let value = self.call(&body.to_string())?;
         Ok(value.trim() == "true")
+    }
+
+    fn drain_decision_journal(&mut self, session_id: &str) -> Result<String, String> {
+        let body = json!({ "command": "drainDecisionJournal", "sessionId": session_id });
+        self.call(&body.to_string())
     }
 
     fn drain_checkpoint_metrics(&mut self, session_id: &str) -> Result<String, String> {

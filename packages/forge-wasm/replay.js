@@ -200,6 +200,8 @@ export class ReplayForgeEngine {
       throw new Error(
         "Replay requires externally journaled bot decisions; internal Forge AI is unsupported.",
       );
+    if (args.decisionJournal === true)
+      throw new Error("Engine decision journaling is not supported across facade restores.");
     if (args.snapshotRecording === true)
       throw new Error(
         "Replay replaces full snapshots; snapshotRecording must be false or omitted.",

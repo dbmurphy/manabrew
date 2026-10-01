@@ -760,6 +760,12 @@ jobs:
       - name: Build and test forge-harness
         run: node scripts/harness.mjs test
 
+      - name: Verify consumed decision replay
+        run: >-
+          node scripts/engine-bench/forge-decision-journal.mjs
+          --jar forge-harness/target/forge-harness-jar-with-dependencies.jar
+          --forge-home forge/forge-gui
+
   forge-room-graalvm-windows:
     name: GraalVM build (Windows)
     runs-on: windows-latest

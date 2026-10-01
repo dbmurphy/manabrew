@@ -91,6 +91,12 @@ Call `dispose()` to terminate the worker. A running Forge game is synchronous in
 
 `directive()` sends an out-of-band instruction such as a concession or a restore request. Each seat has its own directive lane, apart from its prompt buffer, and the engine reads every lane while it waits on any prompt, so a directive lands at once, even while another seat is deciding.
 
+## Experimental engine decision journal
+
+Pass `decisionJournal: true` to an ordinary engine's start options to receive `forge:journal` batches through `onEvent`. `ForgeDecisionJournalBatch` describes the payload. The initial batch carries `startRequest` as a JSON string; retain that string intact to preserve 64-bit seeds. Entries contain a monotonically increasing `sequence`, the deciding `playerIndex`, the current `prompt`, and the canonical `action` dequeued by the game thread. Directives are included. A consumed attempt can still be rejected by the game's subsequent validation.
+
+This is an opt-in foundation for retained relay history and shadow verification. It does not enable either service. Batches contain hidden information and must stay with trusted engine hosts. Consumers must pin the engine and assets, retain every batch, and require contiguous sequences. The pending buffer is capped at 4096 entries and 8 MiB of serialized data; `unavailableReason` permanently invalidates the history if it overflows or encounters snapshot restore. Internal Forge AI, starting from a checkpoint, and use with the isolated replay facade are unsupported. Older artifacts can ignore the option: require the initial manifest before claiming that journaling is active.
+
 ## Experimental isolated replay
 
 `createReplayForgeEngine()` is an opt-in alternative for games whose human and bot responses all pass through JavaScript. It disables Forge snapshots, records protocol answers, and rewinds by replaying from the original seed in a second worker. The ordinary `createForgeEngine()` API and Manabrew app restore flow are unchanged.

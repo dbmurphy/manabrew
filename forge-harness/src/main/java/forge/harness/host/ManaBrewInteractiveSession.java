@@ -58,7 +58,10 @@ public final class ManaBrewInteractiveSession {
     private final String sessionId;
     private Match match;
     private Game game;
-    private final BlockingQueue<JsonObject> actions = new LinkedBlockingQueue<>();
+    private final BlockingQueue<QueuedAction> actions = new LinkedBlockingQueue<>();
+    private record QueuedAction(JsonObject decoded, JsonObject canonical) {}
+
+    private DecisionJournal decisionJournal;
     private volatile String latestPromptJson;
     private volatile int promptedPlayerIndex = -1;
     private long promptSeq;
@@ -217,7 +220,7 @@ public final class ManaBrewInteractiveSession {
         closed = true;
         JsonObject action = new JsonObject();
         action.addProperty("kind", "pass");
-        actions.offer(action);
+        actions.offer(new QueuedAction(action, null));
         if (game != null && !game.isGameOver()) {
             game.setGameOver(forge.game.GameEndReason.Draw);
         }
@@ -291,13 +294,21 @@ public final class ManaBrewInteractiveSession {
         return closed;
     }
 
+    void enableDecisionJournal(final String startRequest) {
+        decisionJournal = new DecisionJournal(startRequest);
+    }
+
+    public String drainDecisionJournal() {
+        return decisionJournal == null ? "" : decisionJournal.drain();
+    }
+
     public String submitAction(final String actionJson) {
         if (closed) {
             throw new IllegalStateException("session is closed");
         }
         final JsonObject canonical = JsonParser.parseString(actionJson).getAsJsonObject();
         final JsonObject decoded = ManabrewProtocolAdapter.decodeAction(canonical);
-        actions.offer(decoded);
+        actions.offer(new QueuedAction(decoded, decisionJournal == null ? null : canonical));
         // No snapshot here — it would race the game thread this unblocks.
         return "";
     }
@@ -1981,12 +1992,20 @@ public final class ManaBrewInteractiveSession {
             if (bridge != null && actions.isEmpty() && !closed && !game.isGameOver()) {
                 submitAction(bridge.exchange(promptedPlayerIndex, latestPromptJson));
             }
-            final JsonObject action = actions.poll(1, java.util.concurrent.TimeUnit.SECONDS);
-            if (action == null) {
+            final QueuedAction queued = actions.poll(1, java.util.concurrent.TimeUnit.SECONDS);
+            if (queued == null) {
                 if (closed || game.isGameOver()) {
                     return syntheticPass();
                 }
                 continue;
+            }
+            final JsonObject action = queued.decoded();
+            if (decisionJournal != null && queued.canonical() != null) {
+                if (isRestoreDirective(action)) {
+                    decisionJournal.invalidate("snapshot restore is unsupported by decision replay");
+                } else {
+                    decisionJournal.record(promptedPlayerIndex, latestPromptJson, queued.canonical());
+                }
             }
             final String kind = action.has("kind") ? action.get("kind").getAsString() : "";
             if (isRestoreDirective(action)) {

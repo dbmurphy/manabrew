@@ -81,6 +81,10 @@ public final class ManaBrewEngineAdapter {
         Objects.requireNonNull(request, "request");
         requireInitialized();
 
+        if (request.journalStart != null && (request.getCheckpoint() != null
+                || request.getPlayers().stream().anyMatch(PlayerConfig::isAi))) {
+            throw new IllegalArgumentException("decision journal requires a seeded game with external decisions");
+        }
         final CountingRandom rng = new CountingRandom(request.getSeed(), "hosted");
 
         final int playerCount = request.getPlayers().size();
@@ -136,6 +140,9 @@ public final class ManaBrewEngineAdapter {
         if (request.checkpointMetrics) {
             session.enableCheckpointMetrics();
         }
+        if (request.journalStart != null) {
+            session.enableDecisionJournal(request.journalStart);
+        }
         sessions.put(session.getSessionId(), session);
         session.start(rng);
 
@@ -174,6 +181,10 @@ public final class ManaBrewEngineAdapter {
             throw new IllegalStateException(error);
         }
         return String.valueOf(session.isGameOver());
+    }
+
+    public String drainDecisionJournal(final String sessionId) {
+        return getSession(sessionId).drainDecisionJournal();
     }
 
     public String drainCheckpointMetrics(final String sessionId) {
@@ -433,6 +444,9 @@ public final class ManaBrewEngineAdapter {
         final StartGameRequest request = new StartGameRequest(
                 gameId, variant, startingLife, seed, snapshotRecording, players, optionalString(root, "checkpoint"));
         request.checkpointMetrics = root.has("checkpointMetrics") && root.get("checkpointMetrics").getAsBoolean();
+        if (root.has("decisionJournal") && root.get("decisionJournal").getAsBoolean()) {
+            request.journalStart = root.toString();
+        }
         return request;
     }
 
@@ -458,6 +472,7 @@ public final class ManaBrewEngineAdapter {
         private final long seed;
         private final boolean snapshotRecording;
         private boolean checkpointMetrics;
+        private String journalStart;
         private final List<PlayerConfig> players;
         private final String checkpoint;
 

@@ -146,6 +146,7 @@ async function startGame(requestId, args) {
     startingLife: (args && args.startingLife) || (commanderGame ? 40 : 20),
     seed: gameSeed(args),
     snapshotRecording: !args || args.snapshotRecording !== false,
+    decisionJournal: args?.decisionJournal === true,
     players: [
       {
         name: "You",
@@ -237,6 +238,7 @@ async function startMultiplayerGame(requestId, args) {
     startingLife: (args && args.startingLife) || (commanderGame ? 40 : 20),
     seed: gameSeed(args),
     snapshotRecording: !args || args.snapshotRecording !== false,
+    decisionJournal: args?.decisionJournal === true,
     players: decks.map((deck, index) => ({
       name: playerNames[index] || `Player ${index + 1}`,
       ai: forgeAiSeats.has(index),

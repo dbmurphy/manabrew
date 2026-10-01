@@ -370,6 +370,9 @@ public final class Main {
                         case "getGameOver":
                             sendOk(adapter.getGameOver(requireString(request, "sessionId")));
                             break;
+                        case "drainDecisionJournal":
+                            sendOk(adapter.drainDecisionJournal(requireString(request, "sessionId")));
+                            break;
                         case "drainCheckpointMetrics":
                             sendOk(adapter.drainCheckpointMetrics(requireString(request, "sessionId")));
                             break;
