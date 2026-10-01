@@ -370,6 +370,13 @@ public final class Main {
                         case "getGameOver":
                             sendOk(adapter.getGameOver(requireString(request, "sessionId")));
                             break;
+                        case "readDecisionJournal":
+                            sendOk(adapter.readDecisionJournal(requireString(request, "sessionId")));
+                            break;
+                        case "acknowledgeDecisionJournal":
+                            sendOk(adapter.acknowledgeDecisionJournal(requireString(request, "sessionId"),
+                                new java.math.BigDecimal(requireString(request, "sequence")).longValueExact()));
+                            break;
                         case "drainDecisionJournal":
                             sendOk(adapter.drainDecisionJournal(requireString(request, "sessionId")));
                             break;

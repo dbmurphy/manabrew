@@ -15,6 +15,9 @@ final class DecisionJournal {
     private int bytes;
     private String unavailableReason;
     private boolean failurePending;
+    private Boolean retained;
+    private long lastReadSequence = -1;
+    private long acknowledgedSequence = -1;
 
     DecisionJournal(final String startRequest) {
         this.startRequest = startRequest;
@@ -54,7 +57,57 @@ final class DecisionJournal {
         bytes = 0;
     }
 
+    synchronized String read() {
+        selectDeliveryMode(true);
+        lastReadSequence = nextSequence - 1;
+        return batch();
+    }
+
+    synchronized void acknowledge(final long sequence) {
+        selectDeliveryMode(true);
+        if (sequence < 0 || sequence > lastReadSequence) {
+            throw new IllegalArgumentException("journal acknowledgement exceeds read prefix");
+        }
+        if (unavailableReason != null) {
+            throw new IllegalStateException("journal unavailable: " + unavailableReason);
+        }
+        if (sequence <= acknowledgedSequence) {
+            return;
+        }
+        if (startRequest != null) {
+            bytes -= startRequest.getBytes(StandardCharsets.UTF_8).length;
+            startRequest = null;
+        }
+        final var iterator = entries.iterator();
+        while (iterator.hasNext()) {
+            final var entry = iterator.next();
+            if (entry.getAsJsonObject().get("sequence").getAsLong() > sequence) {
+                break;
+            }
+            bytes -= entry.toString().getBytes(StandardCharsets.UTF_8).length;
+            iterator.remove();
+        }
+        acknowledgedSequence = sequence;
+    }
+
+    private void selectDeliveryMode(final boolean retain) {
+        if (retained != null && retained != retain) {
+            throw new IllegalStateException("cannot mix journal drain and acknowledged delivery");
+        }
+        retained = retain;
+    }
+
     synchronized String drain() {
+        selectDeliveryMode(false);
+        final String result = batch();
+        startRequest = null;
+        entries = new JsonArray();
+        bytes = 0;
+        failurePending = false;
+        return result;
+    }
+
+    private String batch() {
         if (startRequest == null && entries.isEmpty() && !failurePending) {
             return "";
         }
@@ -68,11 +121,6 @@ final class DecisionJournal {
             batch.addProperty("unavailableReason", unavailableReason);
         }
         batch.add("entries", entries);
-        final String result = batch.toString();
-        startRequest = null;
-        entries = new JsonArray();
-        bytes = 0;
-        failurePending = false;
-        return result;
+        return batch.toString();
     }
 }

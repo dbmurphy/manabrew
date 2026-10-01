@@ -298,6 +298,18 @@ public final class ManaBrewInteractiveSession {
         decisionJournal = new DecisionJournal(startRequest);
     }
 
+    public String readDecisionJournal() {
+        return decisionJournal == null ? "" : decisionJournal.read();
+    }
+
+    public String acknowledgeDecisionJournal(final long sequence) {
+        if (decisionJournal == null) {
+            throw new IllegalStateException("decision journal is disabled");
+        }
+        decisionJournal.acknowledge(sequence);
+        return "";
+    }
+
     public String drainDecisionJournal() {
         return decisionJournal == null ? "" : decisionJournal.drain();
     }

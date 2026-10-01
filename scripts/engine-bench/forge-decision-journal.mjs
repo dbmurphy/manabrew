@@ -141,6 +141,7 @@ try {
   assert.deepEqual(JSON.parse(startRequest), request);
   assert.deepEqual(first.entries, []);
   assert.equal(await source.drain(), null);
+  await assert.rejects(source.call("readDecisionJournal"), /cannot mix/);
   for (let index = 0; index < decisions; index++) {
     if (index === 3) {
       const action = {
@@ -214,6 +215,65 @@ try {
   assert.equal(await shadow.drain(), null);
 } finally {
   shadow.close();
+}
+
+const retained = harness();
+try {
+  await retained.call("startGame", { payload: JSON.stringify(request) });
+  let prompt = await retained.prompt();
+  const read = () => retained.call("readDecisionJournal");
+  const acknowledge = (sequence) => retained.call("acknowledgeDecisionJournal", { sequence });
+  await assert.rejects(acknowledge(0), /read prefix/);
+  const manifest = await read();
+  assert.equal(await read(), manifest, "lost manifest delivery must be retryable");
+  await assert.rejects(retained.drain(), /cannot mix/);
+  await assert.rejects(acknowledge(-1), /read prefix/);
+  await assert.rejects(acknowledge(0.5));
+  await acknowledge(0);
+  await acknowledge(0);
+  assert.equal(await read(), "");
+  for (let pair = 0; pair < 5; pair++) {
+    const actions = [];
+    for (let index = 0; index < 2; index++) {
+      const action = scriptedAnswer({ prompt });
+      action.padding = "x".repeat(1024 * 1024);
+      actions.push(action);
+      await retained.call("submitAction", { payload: JSON.stringify(action) });
+      prompt = await retained.prompt(prompt.promptId);
+    }
+    const sequence = pair * 2 + 2;
+    await assert.rejects(acknowledge(sequence), /read prefix/);
+    const raw = await read();
+    const batch = JSON.parse(raw);
+    assert.equal(await read(), raw, "lost batch delivery must be retryable");
+    assert.equal(batch.unavailableReason, undefined);
+    assert.equal(batch.startRequest, undefined);
+    assert.equal(batch.nextSequence, sequence + 1);
+    assert.deepEqual(
+      batch.entries.map((entry) => entry.action),
+      actions,
+    );
+    await acknowledge(sequence - 1);
+    assert.deepEqual(JSON.parse(await read()).entries, [batch.entries[1]]);
+    await acknowledge(sequence - 2);
+    await acknowledge(sequence - 1);
+    assert.deepEqual(JSON.parse(await read()).entries, [batch.entries[1]]);
+    await acknowledge(sequence);
+    assert.equal(await read(), "");
+  }
+  const action = scriptedAnswer({ prompt });
+  action.padding = "x".repeat(8 * 1024 * 1024);
+  await retained.call("submitAction", { payload: JSON.stringify(action) });
+  prompt = await retained.prompt(prompt.promptId);
+  const failure = await read();
+  assert.match(JSON.parse(failure).unavailableReason, /limit/);
+  assert.equal(await read(), failure, "invalidation must survive lost delivery");
+  await assert.rejects(acknowledge(10), /unavailable/);
+  await retained.call("submitAction", { payload: JSON.stringify(scriptedAnswer({ prompt })) });
+  await retained.prompt(prompt.promptId);
+  assert.equal(await read(), failure);
+} finally {
+  retained.close();
 }
 
 const disabled = harness();
@@ -327,6 +387,8 @@ console.log(
       overflow: "explicit invalidation; game continued",
       rejected: ["internal AI", "checkpoint start"],
       disabled: "no journal batches",
+      retainedDelivery:
+        "retries, partial/duplicate acknowledgements, prefix validation, reclaimed capacity, persistent invalidation",
       wasm,
     },
     null,

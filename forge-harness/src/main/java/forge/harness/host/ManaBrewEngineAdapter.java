@@ -183,6 +183,14 @@ public final class ManaBrewEngineAdapter {
         return String.valueOf(session.isGameOver());
     }
 
+    public String readDecisionJournal(final String sessionId) {
+        return getSession(sessionId).readDecisionJournal();
+    }
+
+    public String acknowledgeDecisionJournal(final String sessionId, final long sequence) {
+        return getSession(sessionId).acknowledgeDecisionJournal(sequence);
+    }
+
     public String drainDecisionJournal(final String sessionId) {
         return getSession(sessionId).drainDecisionJournal();
     }
