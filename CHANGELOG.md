@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.54.1](https://github.com/witchesofthehill/manabrew/compare/v3.54.0...v3.54.1) (2026-10-01)
+
+### Fixes
+
+* **ui:** simplify sealed deck building and clarify draft setup ([#1015](https://github.com/witchesofthehill/manabrew/issues/1015)) ([5b90e1c](https://github.com/witchesofthehill/manabrew/commit/5b90e1cec1bb46bf297151ec578d20520fbf9cc3))
+
 ## [3.54.0](https://github.com/witchesofthehill/manabrew/compare/v3.53.2...v3.54.0) (2026-10-01)
 
 ### Features
