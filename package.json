@@ -79,7 +79,8 @@
     "test:e2e:ironsmith": "node tests/e2e-ironsmith/ironsmith-multiplayer.mjs",
     "test:e2e:ironsmith:pair": "node tests/e2e-ironsmith/ironsmith-two-clients.mjs",
     "test:e2e:engines": "node tests/e2e-ironsmith/other-engines-smoke.mjs",
-    "bench:hosted-journal": "node scripts/engine-bench/hosted-journal.mjs"
+    "bench:hosted-journal": "node scripts/engine-bench/hosted-journal.mjs",
+    "bench:verify-relay-journal": "node scripts/engine-bench/verify-relay-journal.mjs"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [

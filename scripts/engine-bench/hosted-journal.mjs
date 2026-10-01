@@ -10,6 +10,7 @@ import { DatabaseSync } from "node:sqlite";
 import { parseArgs } from "node:util";
 import { WebSocket, WebSocketServer } from "ws";
 import { scriptedAnswer } from "./replay-fixture.mjs";
+import { verifyRelayJournal } from "./verify-relay-journal.mjs";
 
 const { values } = parseArgs({
   options: {
@@ -44,7 +45,8 @@ let failure,
   outputs = 0,
   through = -1;
 let logs = "",
-  allowAnswers = true;
+  allowAnswers = true,
+  restartPrompt = false;
 const sockets = new Set(),
   pending = new Map(),
   attempts = new Map(),
@@ -124,7 +126,7 @@ function position() {
   const db = new DatabaseSync(database, { readOnly: true });
   try {
     return db
-      .prepare("SELECT epoch, sequence, manifest, unavailable_reason FROM engine_journals")
+      .prepare("SELECT game_id, epoch, sequence, manifest, unavailable_reason FROM engine_journals")
       .get();
   } finally {
     db.close();
@@ -139,6 +141,7 @@ async function joinSeat(seat, initial = false) {
   seat.socket = socket;
   seat.joined = false;
   seat.auth = false;
+  seat.answered.clear();
   socket.on("error", () => {});
   socket.on("close", () => sockets.delete(socket));
   socket.on("message", (data) => {
@@ -197,6 +200,7 @@ async function joinSeat(seat, initial = false) {
     await pause(100);
   }
   assert(seat.joined, logs);
+  if (!initial) send(socket, { type: "RequestResync" });
   if (initial) {
     const cards = Array.from({ length: 60 }, (_, i) => ({
       identity: {
@@ -249,6 +253,12 @@ proxy.on("connection", (downstream) => {
       }
       if (
         message.type === "BroadcastState" &&
+        message.state?.kind === "prompt" &&
+        attempts.get(4) >= 2
+      )
+        restartPrompt = true;
+      if (
+        message.type === "BroadcastState" &&
         ["state", "stateDelta", "prompt", "display"].includes(message.state?.kind)
       )
         outputs++;
@@ -295,6 +305,7 @@ proxy.on("connection", (downstream) => {
             restart = (async () => {
               await stop(relay);
               await startRelay();
+              await until(() => restartPrompt, "prompt before seats rejoin");
               await Promise.all(seats.map((seat) => joinSeat(seat)));
             })();
             restart.catch((error) => {
@@ -375,6 +386,50 @@ try {
   assert.match(manifest.assets_sha256, /^[a-f0-9]{64}$/);
   assert.equal(JSON.parse(manifest.start_request).decisionJournalCommitBarrier, true);
   assert.equal(JSON.parse(manifest.start_request).snapshotRecording, false);
+  const verificationOptions = {
+    database,
+    journalKey: durable.game_id,
+    jar: resolve(values.jar),
+    forgeHome: resolve(values["forge-home"]),
+    java: values["java-home"] ? join(values["java-home"], "bin", "java") : "java",
+  };
+  let verification;
+  if (!values["engine-artifact"]) {
+    verification = await verifyRelayJournal(verificationOptions);
+    assert.equal(verification.decisions, durable.sequence);
+    await assert.rejects(
+      verifyRelayJournal({ ...verificationOptions, jar: resolve(values.node) }),
+      /engine artifact mismatch/,
+    );
+    const divergentDatabase = join(directory, "divergent.db");
+    const original = new DatabaseSync(database, { readOnly: true });
+    try {
+      original.prepare("VACUUM INTO ?").run(divergentDatabase);
+    } finally {
+      original.close();
+    }
+    const divergent = new DatabaseSync(divergentDatabase);
+    try {
+      const first = JSON.parse(
+        divergent.prepare("SELECT entry FROM engine_decisions WHERE sequence = 1").get().entry,
+      );
+      first.prompt.promptId += 1000;
+      divergent
+        .prepare("UPDATE engine_decisions SET entry = ? WHERE sequence = 1")
+        .run(JSON.stringify(first));
+      await assert.rejects(
+        verifyRelayJournal({ ...verificationOptions, database: divergentDatabase }),
+        /prompt divergence at decision 1/,
+      );
+      divergent.exec("DELETE FROM engine_decisions WHERE sequence = 1");
+      await assert.rejects(
+        verifyRelayJournal({ ...verificationOptions, database: divergentDatabase }),
+        /journal prefix is incomplete/,
+      );
+    } finally {
+      divergent.close();
+    }
+  }
   assert(
     seats.every((seat) =>
       seat.messages.every((message) => message.type !== "DecisionJournalResult"),
@@ -390,6 +445,7 @@ try {
     },
   });
   await until(() => position().unavailable_reason, "durable invalidation");
+  await assert.rejects(verifyRelayJournal(verificationOptions), /journal is invalidated/);
   await until(
     () => seats.some((seat) => seat.messages.some((message) => message.state?.kind === "fatal")),
     "fail-closed engine outcome",
@@ -405,6 +461,7 @@ try {
         relayRestart: "retained prefix resumed",
         invalidation: "durable failure, no restore",
         artifactIdentity: "actual harness and rules assets",
+        replay: verification ?? "JVM verifier requires a JVM journal",
         privacy: "no seat journal traffic",
       },
       null,
