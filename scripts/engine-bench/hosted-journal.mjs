@@ -9,7 +9,7 @@ import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { parseArgs } from "node:util";
 import { WebSocket, WebSocketServer } from "ws";
-import { scriptedAnswer } from "./replay-fixture.mjs";
+import { scriptedAnswer } from "./journal-fixture.mjs";
 import { verifyRelayJournal } from "./verify-relay-journal.mjs";
 
 const { values } = parseArgs({
@@ -20,6 +20,7 @@ const { values } = parseArgs({
     "forge-home": { type: "string" },
     "java-home": { type: "string" },
     "engine-artifact": { type: "string" },
+    "jvm-node": { type: "string" },
   },
 });
 assert(
@@ -119,9 +120,9 @@ async function startRelay() {
   }
   assert(ready, logs);
 }
-function spawnNode(relayUrl, jar) {
+function spawnNode(relayUrl, jar, binary = values.node) {
   return capture(
-    spawn(resolve(values.node), [], {
+    spawn(resolve(binary), [], {
       env: {
         ...cleanEnv,
         SELF_HOSTED_NODE_ENGINE_BACKEND: "forge",
@@ -454,7 +455,9 @@ try {
     "journal receipt leaked to a seat",
   );
   let handoff;
-  if (!values["engine-artifact"]) {
+  const native = Boolean(values["engine-artifact"]);
+  if (native) assert(values["jvm-node"], "--jvm-node is required with --engine-artifact");
+  {
     const before = position();
     const waiting = seats.find((seat) => seat.prompt && !seat.answered.has(seat.prompt.promptId));
     assert(waiting, "a seat must hold an unanswered prompt when the host dies");
@@ -466,7 +469,9 @@ try {
     const jarTool = values["java-home"] ? join(values["java-home"], "bin", "jar") : "jar";
     const packed = spawn(jarTool, ["uf", badJar, "-C", directory, "artifact-marker.txt"]);
     assert.equal((await once(packed, "exit"))[0], 0, "jar update failed");
-    const declining = spawnNode(`ws://127.0.0.1:${relayPort}`, badJar);
+    const declining = native
+      ? spawnNode(`ws://127.0.0.1:${relayPort}`, resolve(values.jar), values["jvm-node"])
+      : spawnNode(`ws://127.0.0.1:${relayPort}`, badJar);
     takeovers.push(declining);
     const writable = new DatabaseSync(database);
     const original = writable
@@ -539,10 +544,13 @@ try {
         assert.equal(message.from_player, newHost, "stale host output reached a seat");
     const continued = position();
     assert(continued.epoch > before.epoch);
-    const replayed = await verifyRelayJournal(verificationOptions);
-    assert.equal(replayed.decisions, continued.sequence);
+    assert.equal(JSON.parse(continued.manifest).engine_sha256, manifest.engine_sha256);
+    const replayed = native
+      ? { verification: "native takeover replay; the JVM verifier cannot load a native journal" }
+      : await verifyRelayJournal(verificationOptions);
+    if (!native) assert.equal(replayed.decisions, continued.sequence);
     handoff = {
-      declined: "artifact mismatch and replay divergence, journal and visibility untouched",
+      declined: `${native ? "JVM engine on a native journal" : "different harness jar"} and replay divergence, journal and visibility untouched`,
       claimedAfter: before.sequence,
       continuedTo: continued.sequence,
       epochs: [before.epoch, continued.epoch],
@@ -577,7 +585,7 @@ try {
         invalidation: "durable failure, no restore",
         artifactIdentity: "actual harness and rules assets",
         replay: verification ?? "JVM verifier requires a JVM journal",
-        handoff: handoff ?? "JVM takeover requires a JVM journal",
+        handoff,
         privacy: "no seat journal traffic",
       },
       null,

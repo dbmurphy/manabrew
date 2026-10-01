@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { createForgeEngine } from "../../packages/forge-wasm/node.js";
 import { resolve } from "node:path";
-import { decks, scriptedAnswer } from "./replay-fixture.mjs";
+import { deck, scriptedAnswer } from "./journal-fixture.mjs";
 
 const { values } = parseArgs({
   options: {
@@ -31,9 +31,7 @@ const request = {
     name: `Player ${seat}`,
     ai: false,
     bot: seat === 1,
-    deck: decks.token.cards.flatMap(({ name, count }) =>
-      Array.from({ length: count }, () => ({ name })),
-    ),
+    deck: deck.cards.flatMap(({ name, count }) => Array.from({ length: count }, () => ({ name }))),
   })),
 };
 const pause = () => new Promise((resolve) => setTimeout(resolve, 5));
@@ -356,8 +354,8 @@ if (values.launcher) {
   try {
     await Promise.race([
       engine.startGame({
-        deck: decks.token,
-        opponentDecks: [decks.token],
+        deck,
+        opponentDecks: [deck],
         seed: 43,
         gameId: sessionId,
         snapshotRecording: false,
