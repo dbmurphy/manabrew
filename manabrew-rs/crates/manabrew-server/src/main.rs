@@ -102,6 +102,7 @@ async fn main() {
         )
         .with_journal(config.journal_db.as_deref())
         .expect("open durable engine journal")
+        .with_host_handoff(config.host_handoff)
         .with_art_base_url(config.art_base_url.clone())
         .with_direct_transport(config.direct_transport, config.ice_servers.clone()),
     );

@@ -1,5 +1,5 @@
-use crate::journal::{JournalManifest, JournalStore};
-use crate::protocol::{DecisionJournalRequest, RoomStatus, ServerMessage};
+use crate::journal::{JournalManifest, JournalPosition, JournalStore};
+use crate::protocol::{DecisionJournalRequest, JournalHandoff, RoomStatus, ServerMessage};
 use crate::state::ServerState;
 use dashmap::try_result::TryResult;
 use sha2::{Digest, Sha256};
@@ -23,6 +23,34 @@ impl JournalService {
     }
 }
 
+fn journal_key(room_id: &str, game_id: &str) -> String {
+    format!(
+        "{:x}",
+        Sha256::digest(format!("{}:{room_id}{game_id}", room_id.len()))
+    )
+}
+
+pub async fn handoff_status(
+    state: &Arc<ServerState>,
+    room_id: &str,
+    game_id: &str,
+) -> Result<Option<JournalPosition>, String> {
+    let Some(service) = state.journal.clone() else {
+        return Ok(None);
+    };
+    let key = journal_key(room_id, game_id);
+    tokio::task::spawn_blocking(move || {
+        service
+            .store
+            .lock()
+            .map_err(|_| "journal store unavailable".to_string())?
+            .status(&key)
+    })
+    .await
+    .map_err(|_| "journal storage worker failed".to_string())?
+}
+
+#[allow(clippy::too_many_arguments)]
 pub async fn handle(
     state: Arc<ServerState>,
     player_id: String,
@@ -31,6 +59,7 @@ pub async fn handle(
     request_id: String,
     official_key: String,
     request: DecisionJournalRequest,
+    handoff: Option<JournalHandoff>,
 ) -> ServerMessage {
     let result = execute(
         state,
@@ -40,6 +69,7 @@ pub async fn handle(
         &request_id,
         official_key,
         request,
+        handoff,
     )
     .await;
     ServerMessage::DecisionJournalResult {
@@ -49,6 +79,7 @@ pub async fn handle(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn execute(
     state: Arc<ServerState>,
     player_id: String,
@@ -57,6 +88,7 @@ async fn execute(
     request_id: &str,
     official_key: String,
     request: DecisionJournalRequest,
+    handoff: Option<JournalHandoff>,
 ) -> Result<String, String> {
     if state.official_key.as_deref() != Some(official_key.as_str()) {
         return Err("journal access denied".into());
@@ -85,11 +117,14 @@ async fn execute(
             .store
             .lock()
             .map_err(|_| "journal store unavailable")?;
-        let room_id = state
-            .players
-            .get(&player_id)
-            .and_then(|player| player.room_id.clone())
-            .ok_or("journal access denied")?;
+        let room_id = match &handoff {
+            Some(handoff) => handoff.room_id.clone(),
+            None => state
+                .players
+                .get(&player_id)
+                .and_then(|player| player.room_id.clone())
+                .ok_or("journal access denied")?,
+        };
         let room = state.rooms.get(&room_id).ok_or("journal access denied")?;
         // Room mutations can lock players; never wait on that map while holding a room guard.
         let player = match state.players.try_get(&player_id) {
@@ -97,11 +132,18 @@ async fn execute(
             TryResult::Absent => return Err("journal access denied".into()),
             TryResult::Locked => return Err("journal authorization is busy; retry".into()),
         };
-        if !player.connected
+        let owner = match &handoff {
+            Some(handoff) => {
+                matches!(request, DecisionJournalRequest::Read { .. })
+                    && !room.resume_token.is_empty()
+                    && room.resume_token == handoff.resume_token
+            }
+            None => player.room_id.as_deref() == Some(room_id.as_str()) && room.is_host(&player_id),
+        };
+        if !owner
+            || !player.connected
             || player.generation != generation
             || !player.is_service
-            || player.room_id.as_deref() != Some(room_id.as_str())
-            || !room.is_host(&player_id)
             || !room.hosted
             || !room.official
             || room.status != RoomStatus::InGame
@@ -112,10 +154,7 @@ async fn execute(
         {
             return Err("journal access denied".into());
         }
-        let journal_id = format!(
-            "{:x}",
-            Sha256::digest(format!("{}:{room_id}{game_id}", room_id.len()))
-        );
+        let journal_id = journal_key(&room_id, &game_id);
         let writer = format!("{}:{player_id}:{generation}", service.instance);
         match request {
             DecisionJournalRequest::Open { manifest } => {

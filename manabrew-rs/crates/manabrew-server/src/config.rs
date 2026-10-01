@@ -58,6 +58,9 @@ pub struct ServerConfig {
     pub hub_jwks_url: Option<String>,
     /// Opt-in. Off, the relay never sends a roster.
     pub direct_transport: bool,
+    /// Opt-in. Off, the relay neither keeps checkpoints nor offers a
+    /// checkpoint handoff; journal handoffs depend only on `journal_db`.
+    pub host_handoff: bool,
     /// ICE servers handed to the browser plane. See [`parse_ice_servers`].
     pub ice_servers: Vec<TransportIceServer>,
     /// Where this relay keeps card art. Set it and the relay serves
@@ -133,6 +136,8 @@ impl ServerConfig {
                 .ok()
                 .filter(|url| !url.is_empty()),
             direct_transport: std::env::var("MANABREW_DIRECT_TRANSPORT")
+                .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true")),
+            host_handoff: std::env::var("MANABREW_HOST_HANDOFF")
                 .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true")),
             ice_servers: std::env::var("MANABREW_ICE_SERVERS")
                 .ok()

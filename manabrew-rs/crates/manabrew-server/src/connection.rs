@@ -210,6 +210,7 @@ fn advertised_features(state: &Arc<ServerState>) -> Vec<String> {
     crate::protocol::FEATURES
         .iter()
         .filter(|f| state.journal.is_some() || **f != crate::protocol::FEATURE_DECISION_JOURNAL)
+        .filter(|f| state.host_handoff || **f != crate::protocol::FEATURE_HOST_HANDOFF)
         .filter(|f| {
             state.direct_transport
                 || (**f != crate::protocol::FEATURE_ROOM_TRANSPORT
@@ -802,6 +803,7 @@ pub async fn handle_connection(
                         request_id,
                         official_key,
                         request,
+                        handoff,
                     } => {
                         let response = crate::journal_transport::handle(
                             state.clone(),
@@ -811,6 +813,7 @@ pub async fn handle_connection(
                             request_id,
                             official_key,
                             request,
+                            handoff,
                         )
                         .await;
                         send_msg(&tx, &response);
@@ -1777,6 +1780,28 @@ fn handle_client_message(
             unreachable!("journal requests use the ordered storage handler")
         }
 
+        ClientMessage::DeclineHostHandoff {
+            room_id,
+            resume_token,
+            reason,
+        } => {
+            let is_service = state.players.get(player_id).is_some_and(|p| p.is_service);
+            let declined = is_service
+                && state.rooms.get_mut(&room_id).is_some_and(|mut room| {
+                    room.status == RoomStatus::InGame && room.decline_handoff(&resume_token)
+                });
+            if declined {
+                let reason: String = reason.chars().take(200).collect();
+                warn!(
+                    "[handoff] '{}' declined room {}: {}",
+                    username,
+                    &room_id[..8.min(room_id.len())],
+                    reason
+                );
+                metrics::record_host_handoff(metrics::HANDOFF_DECLINED);
+            }
+        }
+
         ClientMessage::ReportCheckpoint {
             game_id,
             seq,
@@ -1784,7 +1809,8 @@ fn handle_client_message(
             checkpoint,
         } => {
             let room_id = state.players.get(player_id).and_then(|p| p.room_id.clone());
-            let recorded = checkpoint.len() <= MAX_CHECKPOINT_BYTES
+            let recorded = state.host_handoff
+                && checkpoint.len() <= MAX_CHECKPOINT_BYTES
                 && room_id
                     .and_then(|room_id| state.rooms.get_mut(&room_id))
                     .filter(|room| room.is_host(player_id))
@@ -2253,6 +2279,7 @@ fn client_msg_type(msg: &ClientMessage) -> &'static str {
         ClientMessage::EndGame { .. } => "EndGame",
         ClientMessage::ReportGameOutcome { .. } => "ReportGameOutcome",
         ClientMessage::DecisionJournal { .. } => "DecisionJournal",
+        ClientMessage::DeclineHostHandoff { .. } => "DeclineHostHandoff",
         ClientMessage::ReportCheckpoint { .. } => "ReportCheckpoint",
         ClientMessage::ReportEngineStats { .. } => "ReportEngineStats",
         ClientMessage::RequestResync => "RequestResync",

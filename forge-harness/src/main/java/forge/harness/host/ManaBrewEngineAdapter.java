@@ -81,7 +81,7 @@ public final class ManaBrewEngineAdapter {
         Objects.requireNonNull(request, "request");
         requireInitialized();
 
-        if (request.journalStart != null && (request.getCheckpoint() != null
+        if (request.journalStart != null && (request.getCheckpoint() != null || request.checkpointExport
                 || request.getPlayers().stream().anyMatch(PlayerConfig::isAi))) {
             throw new IllegalArgumentException("decision journal requires a seeded game with external decisions");
         }
@@ -139,6 +139,9 @@ public final class ManaBrewEngineAdapter {
         session.attach(match, game, botSeats, request.isSnapshotRecording());
         if (request.checkpointMetrics) {
             session.enableCheckpointMetrics();
+        }
+        if (request.checkpointExport) {
+            session.enableCheckpointExport();
         }
         if (request.journalStart != null) {
             session.enableDecisionJournal(request.journalStart, request.journalCommitBarrier);
@@ -452,6 +455,7 @@ public final class ManaBrewEngineAdapter {
         final StartGameRequest request = new StartGameRequest(
                 gameId, variant, startingLife, seed, snapshotRecording, players, optionalString(root, "checkpoint"));
         request.checkpointMetrics = root.has("checkpointMetrics") && root.get("checkpointMetrics").getAsBoolean();
+        request.checkpointExport = root.has("checkpointExport") && root.get("checkpointExport").getAsBoolean();
         if (root.has("decisionJournal") && root.get("decisionJournal").getAsBoolean()) {
             request.journalStart = root.toString();
         }
@@ -485,6 +489,7 @@ public final class ManaBrewEngineAdapter {
         private final long seed;
         private final boolean snapshotRecording;
         private boolean checkpointMetrics;
+        private boolean checkpointExport;
         private String journalStart;
         private boolean journalCommitBarrier;
         private final List<PlayerConfig> players;

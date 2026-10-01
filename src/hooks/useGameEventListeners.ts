@@ -440,12 +440,14 @@ export function useGameEventListeners() {
             isWaitingForResponse: false,
             relinquishedPriority: false,
             seatAddressedStates: false,
-            debugInfo: `Host changed to ${payload.host}; resuming from turn ${payload.turn}`,
+            debugInfo: `Host changed to ${payload.host}`,
           });
           useGameUIStore.getState().resetAll();
           useStackUIStore.getState().reset();
           toast.info(
-            `The table moved to a new host. Play resumes from the start of turn ${payload.turn}.`,
+            payload.turn > 0
+              ? `The table moved to a new host. Play resumes from the start of turn ${payload.turn}.`
+              : "The table moved to a new host. Play resumes where it stopped.",
           );
         }),
       );

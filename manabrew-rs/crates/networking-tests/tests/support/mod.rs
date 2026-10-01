@@ -835,11 +835,18 @@ impl Client {
     ) -> Result<(ResumeRoomRequest, u32, String), String> {
         let started = tokio::time::Instant::now();
         while started.elapsed() < deadline {
-            match recv(&mut self.write, &mut self.read).await {
+            let remaining = deadline.saturating_sub(started.elapsed());
+            let Ok(message) =
+                tokio::time::timeout(remaining, recv(&mut self.write, &mut self.read)).await
+            else {
+                break;
+            };
+            match message {
                 Some(ServerMessage::HostHandoff {
                     request,
                     turn,
                     checkpoint,
+                    journal: false,
                 }) => {
                     check(format!(
                         "'{}' was asked to continue room {} from turn {turn}",
@@ -1148,6 +1155,7 @@ fn spawn_relay(port: u16, direct: bool, events_dir: Option<&std::path::Path>) ->
     command
         .env("FORGE_PORT", port.to_string())
         .env("FORGE_HEALTH_PORT", (port + 1).to_string())
+        .env("MANABREW_HOST_HANDOFF", "1")
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     if direct {

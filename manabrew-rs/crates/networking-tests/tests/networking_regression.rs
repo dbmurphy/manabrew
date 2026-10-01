@@ -304,6 +304,111 @@ async fn dead_node_room_is_reclaimed() {
     .await;
 }
 
+async fn declined_handoff_moves_to_the_next_pod() {
+    scenario(
+        "a hosted game with a checkpoint, and two idle pods that can take games over.",
+        "the host dies and the first pod offered the game declines it.",
+        "the declined token is dead, the relay offers the game to the other pod, and only that claim changes the host.",
+    );
+    let sim = Sim::spawn_relay_only(9690).await;
+    let handoff = vec!["host_handoff".to_string()];
+    let mut host_a = Client::connect_service(&sim.relay_url, "node-a", handoff.clone())
+        .await
+        .unwrap();
+    let room_a = host_a.create_hosted_room("Pod A").await.unwrap();
+    let mut pods = Vec::new();
+    for name in ["node-b", "node-c"] {
+        let mut pod = Client::connect_service(&sim.relay_url, name, handoff.clone())
+            .await
+            .unwrap();
+        pod.create_hosted_room(name).await.unwrap();
+        pods.push(pod);
+    }
+
+    let mut alice = Client::connect(&sim.relay_url, "alice").await.unwrap();
+    alice.join(&room_a.room_id, false).await.unwrap();
+    alice.select_deck_and_ready().await.unwrap();
+    let mut bob = Client::connect(&sim.relay_url, "bob").await.unwrap();
+    bob.join(&room_a.room_id, false).await.unwrap();
+    bob.select_deck_and_ready().await.unwrap();
+    alice.start_game(2).await.unwrap();
+    let game_id = alice.game_id.clone().unwrap();
+    host_a
+        .send_message(&ClientMessage::ReportCheckpoint {
+            game_id: game_id.clone(),
+            seq: 1,
+            turn: 2,
+            checkpoint: json!({ "version": 1, "turn": 2 }).to_string(),
+        })
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    host_a.vanish();
+
+    let (first, offered) = {
+        let (b, c) = pods.split_at_mut(1);
+        tokio::select! {
+            offer = b[0].expect_host_handoff(GRACE_DEADLINE) => (0, offer.unwrap()),
+            offer = c[0].expect_host_handoff(GRACE_DEADLINE) => (1, offer.unwrap()),
+        }
+    };
+    let declined = offered.0;
+    step("the first pod declines");
+    pods[first]
+        .send_message(&ClientMessage::DeclineHostHandoff {
+            room_id: declined.room_id.clone(),
+            resume_token: declined.resume_token.clone(),
+            reason: "engine artifact mismatch".into(),
+        })
+        .await
+        .unwrap();
+    let (request, _, _) = pods[1 - first]
+        .expect_host_handoff(Duration::from_secs(10))
+        .await
+        .unwrap();
+    assert_eq!(request.room_id, room_a.room_id);
+    assert_ne!(request.resume_token, declined.resume_token);
+
+    step("the declined token can no longer claim the room");
+    let mut late = Client::connect_service(&sim.relay_url, "node-late", handoff.clone())
+        .await
+        .unwrap();
+    late.send_message(&ClientMessage::ResumeRoom(declined))
+        .await
+        .unwrap();
+    assert!(late
+        .wait_room_resumed(Duration::from_secs(5))
+        .await
+        .is_err());
+
+    let mut taker = Client::connect_service(&sim.relay_url, "node-taker", handoff)
+        .await
+        .unwrap();
+    taker
+        .send_message(&ClientMessage::ResumeRoom(request))
+        .await
+        .unwrap();
+    taker
+        .wait_room_resumed(Duration::from_secs(10))
+        .await
+        .unwrap();
+    let (host, _) = alice
+        .expect_host_changed(Duration::from_secs(10))
+        .await
+        .unwrap();
+    assert_eq!(host, "node-taker");
+    assert_eq!(
+        sim.metric(r#"manabrew_relay_host_handoffs_total{result="declined"}"#)
+            .await,
+        1.0
+    );
+    assert_eq!(
+        sim.metric(r#"manabrew_relay_host_handoffs_total{result="offered"}"#)
+            .await,
+        2.0
+    );
+}
+
 async fn dead_host_game_is_handed_to_an_idle_pod() {
     scenario(
         "a hosted game whose host filed a turn-start checkpoint, and an idle pod that can take games over.",
@@ -927,6 +1032,10 @@ fn main() {
         case(
             "dead_host_game_is_handed_to_an_idle_pod",
             dead_host_game_is_handed_to_an_idle_pod,
+        ),
+        case(
+            "declined_handoff_moves_to_the_next_pod",
+            declined_handoff_moves_to_the_next_pod,
         ),
         case("empty_lobby_room_is_removed", empty_lobby_room_is_removed),
         case(

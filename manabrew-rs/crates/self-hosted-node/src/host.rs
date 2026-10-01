@@ -21,7 +21,8 @@ use manabrew_agent_interface::prompt::{AgentMessage, ClientToServerMessage, Prom
 use manabrew_agent_interface::protocol::{
     identity_token, ClientMessage, ClientPlatform, EngineGate, EngineKind, GameFormat,
     GameOutcomeReport, IdentityProof, PlayerDeckInfo, ResumeRoomRequest, RoomInfo, RoomStatus,
-    ServerMessage, StateEnvelope, FEATURE_DECISION_JOURNAL, FEATURE_HOST_HANDOFF, PROTOCOL_VERSION,
+    ServerMessage, StateEnvelope, FEATURE_DECISION_JOURNAL, FEATURE_HOST_HANDOFF,
+    FEATURE_JOURNAL_HANDOFF, PROTOCOL_VERSION,
 };
 use manabrew_protocol::deck_dto::Deck;
 use manabrew_protocol::game::{GameViewDto, PlayerStatus};
@@ -169,7 +170,7 @@ struct TakeoverHost {
 }
 
 impl TakeoverHost {
-    fn spawn(&self, config: Config, request: ResumeRoomRequest, turn: u32, checkpoint: String) {
+    fn spawn(&self, config: Config, request: ResumeRoomRequest, takeover: Takeover) {
         let cancel: RoomCancel = Arc::new(tokio::sync::Notify::new());
         if let Ok(mut cancels) = self.cancels.lock() {
             cancels.push(cancel.clone());
@@ -178,7 +179,7 @@ impl TakeoverHost {
         tokio::spawn(async move {
             let room_id = request.room_id.clone();
             if let Err(error) =
-                host_taken_over_room(config, request, turn, checkpoint, cancel, sessions).await
+                host_taken_over_room(config, request, takeover, cancel, sessions).await
             {
                 warn!(%error, room_id, "takeover ended with an error");
             }
@@ -742,14 +743,20 @@ async fn host_one_room(
     }
 }
 
+enum Takeover {
+    Checkpoint { turn: u32, checkpoint: String },
+    Journal,
+}
+
 /// Continues a game another host left behind: claims the room with the
 /// relay's fresh token, seats the bots the old host ran, boots the engine
-/// from the checkpoint, then serves the room until the game ends.
+/// from the checkpoint or the replayed journal, then serves the room until
+/// the game ends. A journal is replayed before the claim, so a takeover that
+/// cannot reproduce the history declines without ever becoming the host.
 async fn host_taken_over_room(
     mut config: Config,
     request: ResumeRoomRequest,
-    turn: u32,
-    checkpoint: String,
+    takeover: Takeover,
     cancel: RoomCancel,
     sessions: SessionRegistry,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -791,53 +798,96 @@ async fn host_taken_over_room(
         config.decision_journal,
     )
     .await?;
-    host.send(&ClientMessage::ResumeRoom(request.clone()))
-        .await?;
-    let Some(room) = wait_for_room_resumed(&mut host, &engine_session, &snapshot).await? else {
-        return Err("relay refused the takeover".into());
-    };
-    if room.status != RoomStatus::InGame {
-        return Err("the game ended before the takeover".into());
-    }
-    if let Ok(mut snap) = snapshot.lock() {
-        snap.room_info = Some(room);
-    }
-    info!(room_id, game_id = %request.game_id, turn, username = %config.username, "took over the room");
-
-    let bot_seats: Vec<(String, DeckSelection)> = request
-        .player_decks
-        .iter()
-        .filter(|deck| request.bot_players.contains(&deck.username))
-        .map(|deck| {
-            (
-                deck.username.clone(),
-                DeckSelection {
-                    name: deck.deck_name.clone(),
-                    deck: deck.deck.clone(),
-                    commander_name: deck.commander_name.clone(),
-                },
-            )
-        })
-        .collect();
-    if !bot_seats.is_empty() {
-        spawn_bot_seats(&config, &bot_seats, &room_id, &bot_state);
-    }
     let bot_usernames: HashSet<String> = request.bot_players.iter().cloned().collect();
-    maybe_start_hosted_engine(
-        &config,
-        &engine_session,
-        &snapshot,
-        &outbound_tx,
-        request.game_id.clone(),
-        request.player_order.clone(),
-        request.player_decks.clone(),
-        request.starting_life,
-        &bot_usernames,
-        config.forge_ai,
-        Some(checkpoint),
-        true,
-        host.relay_supports(FEATURE_DECISION_JOURNAL),
-    );
+    let start_engine = |restore: EngineRestore, journal_supported: bool| {
+        maybe_start_hosted_engine(
+            &config,
+            &engine_session,
+            &snapshot,
+            &outbound_tx,
+            request.game_id.clone(),
+            request.player_order.clone(),
+            request.player_decks.clone(),
+            request.starting_life,
+            &bot_usernames,
+            config.forge_ai,
+            Some(restore),
+            true,
+            journal_supported,
+        )
+    };
+    let live = match takeover {
+        Takeover::Checkpoint { turn, checkpoint } => {
+            claim_taken_over_room(&mut host, &request, &engine_session, &snapshot).await?;
+            info!(room_id, game_id = %request.game_id, turn, username = %config.username, "took over the room");
+            spawn_taken_over_bots(&config, &request, &bot_state);
+            start_engine(
+                EngineRestore::Checkpoint(checkpoint),
+                host.relay_supports(FEATURE_DECISION_JOURNAL),
+            );
+            None
+        }
+        Takeover::Journal => {
+            let replayed = match read_handoff_journal(&mut host, &request).await {
+                Ok(journal) => {
+                    let decisions = journal.sequence();
+                    let (replayed_tx, replayed_rx) = std_mpsc::channel();
+                    let (live_tx, live_rx) = std_mpsc::channel();
+                    start_engine(
+                        EngineRestore::Journal(crate::journal::JournalRecovery {
+                            journal,
+                            replayed: replayed_tx,
+                            live: live_rx,
+                        }),
+                        host.relay_supports(FEATURE_DECISION_JOURNAL),
+                    );
+                    let waited = tokio::task::spawn_blocking(move || {
+                        replayed_rx
+                            .recv_timeout(JOURNAL_REPLAY_TIMEOUT)
+                            .map_err(|_| "journal replay did not finish".to_string())
+                            .and_then(|replayed| replayed)
+                    });
+                    let result = tokio::select! {
+                        _ = cancel.notified() => Err("takeover cancelled".to_string()),
+                        waited = waited => waited.map_err(|error| error.to_string()).and_then(|result| result),
+                    };
+                    result.map(|()| (decisions, live_tx))
+                }
+                Err(error) => Err(error),
+            };
+            let (decisions, live_tx) = match replayed {
+                Ok(replayed) => replayed,
+                Err(reason) => {
+                    abort_engine_session(&engine_session);
+                    warn!(room_id, game_id = %request.game_id, reason, "declining journal takeover");
+                    crate::metrics::record_journal_takeover("declined");
+                    let _ = host
+                        .send(&ClientMessage::DeclineHostHandoff {
+                            room_id: room_id.clone(),
+                            resume_token: request.resume_token.clone(),
+                            reason: reason.clone(),
+                        })
+                        .await;
+                    host.close().await;
+                    return Err(reason.into());
+                }
+            };
+            if let Err(error) =
+                claim_taken_over_room(&mut host, &request, &engine_session, &snapshot).await
+            {
+                abort_engine_session(&engine_session);
+                crate::metrics::record_journal_takeover("unclaimed");
+                return Err(error);
+            }
+            info!(room_id, game_id = %request.game_id, decisions, username = %config.username, "took over the room from its journal");
+            crate::metrics::record_journal_takeover("claimed");
+            spawn_taken_over_bots(&config, &request, &bot_state);
+            Some(live_tx)
+        }
+    };
+    if let Some(live) = live {
+        let _ = live.send(());
+    }
 
     let (_idle_bridge_tx, mut bridge_rx) = tokio_mpsc::unbounded_channel::<ShellCommand>();
     loop {
@@ -895,6 +945,102 @@ async fn host_taken_over_room(
             }
         };
     }
+}
+
+const JOURNAL_REPLAY_TIMEOUT: Duration = Duration::from_secs(100);
+
+async fn claim_taken_over_room(
+    host: &mut RelayClient,
+    request: &ResumeRoomRequest,
+    engine_session: &SharedEngineSession,
+    snapshot: &SharedHostSnapshot,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    host.send(&ClientMessage::ResumeRoom(request.clone()))
+        .await?;
+    let Some(room) = wait_for_room_resumed(host, engine_session, snapshot).await? else {
+        return Err("relay refused the takeover".into());
+    };
+    if room.status != RoomStatus::InGame {
+        return Err("the game ended before the takeover".into());
+    }
+    if let Ok(mut snap) = snapshot.lock() {
+        snap.room_info = Some(room);
+    }
+    Ok(())
+}
+
+fn spawn_taken_over_bots(config: &Config, request: &ResumeRoomRequest, bot_state: &SharedBotState) {
+    let bot_seats: Vec<(String, DeckSelection)> = request
+        .player_decks
+        .iter()
+        .filter(|deck| request.bot_players.contains(&deck.username))
+        .map(|deck| {
+            (
+                deck.username.clone(),
+                DeckSelection {
+                    name: deck.deck_name.clone(),
+                    deck: deck.deck.clone(),
+                    commander_name: deck.commander_name.clone(),
+                },
+            )
+        })
+        .collect();
+    if !bot_seats.is_empty() {
+        spawn_bot_seats(config, &bot_seats, &request.room_id, bot_state);
+    }
+}
+
+/// Reads the whole durable prefix with the handoff token, before this session
+/// owns the room. Nothing here can extend or fence the journal.
+async fn read_handoff_journal(
+    host: &mut RelayClient,
+    request: &ResumeRoomRequest,
+) -> Result<crate::journal::RecoveredJournal, String> {
+    let official_key = request
+        .official_key
+        .clone()
+        .ok_or("journal takeover requires the official fleet key")?;
+    if !host.relay_supports(FEATURE_DECISION_JOURNAL) {
+        return Err("relay does not support decision journals".into());
+    }
+    let mut history = crate::journal::JournalHistory::default();
+    while !history.complete() {
+        let request_id = uuid::Uuid::new_v4().to_string();
+        host.send(&crate::journal::handoff_read(
+            &request.game_id,
+            &official_key,
+            manabrew_relay_protocol::JournalHandoff {
+                room_id: request.room_id.clone(),
+                resume_token: request.resume_token.clone(),
+            },
+            history.after(),
+            request_id.clone(),
+        ))
+        .await
+        .map_err(|error| error.to_string())?;
+        let result = time::timeout(Duration::from_secs(30), async {
+            loop {
+                match host.recv().await.map_err(|error| error.to_string())? {
+                    Some(ServerMessage::DecisionJournalResult {
+                        request_id: replied,
+                        result,
+                        ..
+                    }) if replied == request_id => return result,
+                    Some(_) => {}
+                    None => return Err("relay closed during the journal read".to_string()),
+                }
+            }
+        })
+        .await
+        .map_err(|_| "journal read timed out".to_string())??;
+        history.add_page(&result)?;
+    }
+    history.recover(&request.game_id)
+}
+
+pub(crate) enum EngineRestore {
+    Checkpoint(String),
+    Journal(crate::journal::JournalRecovery),
 }
 
 fn backend_cannot_restore(backend: EngineBackendKind) -> bool {
@@ -1614,13 +1760,26 @@ async fn handle_server_message(
             request,
             turn,
             checkpoint,
+            journal,
         } => match takeovers {
-            Some(takeovers) if !config.decision_journal => {
-                info!(room_id = %request.room_id, game_id = %request.game_id, turn, "taking over a game");
-                takeovers.spawn(config.clone(), request, turn, checkpoint);
+            Some(takeovers) if journal == config.decision_journal => {
+                info!(room_id = %request.room_id, game_id = %request.game_id, turn, journal, "taking over a game");
+                let takeover = if journal {
+                    Takeover::Journal
+                } else {
+                    Takeover::Checkpoint { turn, checkpoint }
+                };
+                takeovers.spawn(config.clone(), request, takeover);
             }
             _ => {
-                warn!(room_id = %request.room_id, "handoff offered to a host that cannot take games over")
+                warn!(room_id = %request.room_id, journal, "handoff offered to a host that cannot take this game over");
+                client
+                    .send(&ClientMessage::DeclineHostHandoff {
+                        room_id: request.room_id,
+                        resume_token: request.resume_token,
+                        reason: "this host cannot take this game over".into(),
+                    })
+                    .await?;
             }
         },
         ServerMessage::RoomUpdate { room } => {
@@ -1966,7 +2125,7 @@ fn maybe_start_hosted_engine(
     starting_life: i32,
     bot_usernames: &HashSet<String>,
     forge_ai: bool,
-    restore: Option<String>,
+    restore: Option<EngineRestore>,
     report_checkpoints: bool,
     journal_supported: bool,
 ) {
@@ -2209,15 +2368,16 @@ fn maybe_start_hosted_engine(
                 game_id.clone(),
                 Some(player_names.clone()),
             );
-            let (checkpoint_tx, checkpoint_rx) = std_mpsc::channel::<HostedCheckpoint>();
-            if report_checkpoints && !config.decision_journal {
+            let checkpoint_tx = (report_checkpoints && !config.decision_journal).then(|| {
+                let (checkpoint_tx, checkpoint_rx) = std_mpsc::channel::<HostedCheckpoint>();
                 spawn_checkpoint_forwarder(
                     outbound_tx.clone(),
                     checkpoint_rx,
                     engine_session.clone(),
                     game_id.clone(),
                 );
-            }
+                checkpoint_tx
+            });
             let outbound_tx = outbound_tx.clone();
             let snapshot = snapshot.clone();
             spawn_engine_thread(move || {
@@ -2235,6 +2395,11 @@ fn maybe_start_hosted_engine(
                     if let Some(error) = journal_error {
                         return Err(error);
                     }
+                    let (checkpoint, recovery) = match restore {
+                        Some(EngineRestore::Checkpoint(checkpoint)) => (Some(checkpoint), None),
+                        Some(EngineRestore::Journal(recovery)) => (None, Some(recovery)),
+                        None => (None, None),
+                    };
                     java_backend::run_hosted_engine_game(
                         game_id.clone(),
                         player_names,
@@ -2246,13 +2411,14 @@ fn maybe_start_hosted_engine(
                         ai_player_indices,
                         bot_player_indices,
                         starting_life,
-                        restore,
+                        checkpoint,
                         remote_prompt_tx,
                         remote_response_rxs,
                         game_over_tx,
                         checkpoint_tx,
                         cancel,
                         journal,
+                        recovery,
                     )
                 }));
                 finish_hosted_engine(
@@ -3124,7 +3290,10 @@ impl RelayClient {
                 client_version: None,
                 engine_gate: EngineGate::Unknown,
                 features: if decision_journal {
-                    vec![FEATURE_DECISION_JOURNAL.to_string()]
+                    vec![
+                        FEATURE_DECISION_JOURNAL.to_string(),
+                        FEATURE_JOURNAL_HANDOFF.to_string(),
+                    ]
                 } else {
                     vec![FEATURE_HOST_HANDOFF.to_string()]
                 },

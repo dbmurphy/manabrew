@@ -26,16 +26,23 @@ The relay is the single owner of the reconnect window: a disconnected in-game se
 
 ## Host handoff
 
-A hosted game need not die with its host. The host files `ReportCheckpoint` at the start of each
+A hosted game need not die with its host. Checkpoint handoff is opt-in: only with `MANABREW_HOST_HANDOFF=1` does the relay advertise `host_handoff`, keep checkpoints or offer a checkpoint game, because a checkpoint restore is lossy (see the harness AGENTS file). Journal handoff needs only `MANABREW_JOURNAL_DB`. The host files `ReportCheckpoint` at the start of each
 turn (`GameCheckpoint` in the harness: Forge's dev-mode state text plus commander tax and damage,
 monarch, initiative, day/night and eliminated seats), the relay keeps only the newest per game on
 the replay cache (`HostCheckpoint`, host-only, `game_id` must match, capped at
 `MAX_CHECKPOINT_BYTES`) and never forwards it to a seat: it is every library in order and every
 hand. When a non-playing host drops, `schedule_host_resume_abort` waits `HOST_HANDOFF_GRACE`
 for it to come back, then `offer_host_handoff` picks an idle pod (`handoff_candidate`: a
-connected service session hosting an empty lobby table that named `host_handoff` in
-`Authenticate.features`), mints a fresh `resume_token` on the room and sends that session
-`HostHandoff { request, turn, checkpoint }`. The token is the whole authorisation: the taker
+connected service session hosting an empty lobby table that named the right feature in
+`Authenticate.features` and has not been asked yet), mints a fresh `resume_token` on the room
+and sends that session `HostHandoff { request, turn, checkpoint, journal }`. A game with a
+durable decision journal is offered with `journal: true` and no checkpoint, only to sessions
+that named `journal_handoff`; an invalidated or unreadable journal is never offered and never
+falls back to a checkpoint. Other games need a checkpoint and a `host_handoff` session. A
+`DeclineHostHandoff` with the current token, or an unclaimed window (`HOST_HANDOFF_WINDOW`,
+`JOURNAL_HANDOFF_WINDOW` for journal replay), rotates the token so that session can never claim
+the room, and the relay offers the next pod, up to `HOST_HANDOFF_ATTEMPTS`, until the room's
+reconnect timeout. With no pod connected it keeps looking until then. The token is the whole authorisation: the taker
 claims the room with an ordinary `ResumeRoom` from a new session, `resume_room_sync` rotates the
 host, clears the old host's cached boards, pending prompts and queued inputs (`GameReplayCache::host_changed`),
 and the handler broadcasts `HostChanged { host, turn }` to the seats so they drop every engine id
@@ -108,6 +115,6 @@ This provides durability across process crashes on one storage volume, not repli
 
 Database work runs on a blocking worker with at most eight accepted operations across the relay; each connection waits for its reply before processing another request. `open` atomically claims the immutable matching manifest for a writer identified by relay boot, session ID, and connection generation. Repeated opens on one connection keep the epoch; reconnect, relay restart, or host change fences the old writer by incrementing the persisted epoch. Appends must name the resulting epoch. Superseded sockets stop dispatching new messages; authorization is checked again inside the storage worker.
 
-Only the requesting socket receives `DecisionJournalResult { game_id, request_id, result }`; Rust's serialized `Result` is `{ "Ok": "<JSON>" }` or `{ "Err": "<message>" }`. These replies bypass room broadcasts, resync caches, analytics, and game capture. An `open` position is storage status, never an engine acknowledgement. A `read` position describes the entire durable prefix; paginate from the last returned entry instead. A successful `append` with no `unavailable_reason` is the only response that may release the corresponding engine journal prefix. A permanent invalidation is not successful replay retention even though its status is durably stored. The current API allows only the active trusted host to read; shadow subscriptions require a separate authorization path.
+Only the requesting socket receives `DecisionJournalResult { game_id, request_id, result }`; Rust's serialized `Result` is `{ "Ok": "<JSON>" }` or `{ "Err": "<message>" }`. These replies bypass room broadcasts, resync caches, analytics, and game capture. An `open` position is storage status, never an engine acknowledgement. A `read` position describes the entire durable prefix; paginate from the last returned entry instead. A successful `append` with no `unavailable_reason` is the only response that may release the corresponding engine journal prefix, except during takeover replay, where the replayed engine must re-record exactly the entries read from the durable prefix. A permanent invalidation is not successful replay retention even though its status is durably stored. Reads are allowed to the active trusted host and, with `handoff { room_id, resume_token }`, to a connected service session holding the room's current resume token, which is how a takeover replays the history before it claims the room. A handoff read never opens a writer or changes the epoch; `open` and `append` with a handoff are refused. Shadow subscriptions require a separate authorization path.
 
 `yarn bench:relay-journal-wire` drives real relay subprocesses and WebSockets through disabled mode, credential/seat/game rejection, identical and conflicting retries, session replacement, process restart, and host change. It checks persisted epochs and seat privacy and runs in the Rust server CI job. This is delivery infrastructure, not automatic shadow promotion or full-state verification.

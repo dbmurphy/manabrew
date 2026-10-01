@@ -143,9 +143,16 @@ async function client(username, service = false, identity = randomUUID()) {
     history,
     send,
     next,
-    async journal(request, game = gameId, key = secret) {
+    async journal(request, game = gameId, key = secret, handoff = undefined) {
       const request_id = randomUUID();
-      send({ type: "DecisionJournal", game_id: game, request_id, official_key: key, request });
+      send({
+        type: "DecisionJournal",
+        game_id: game,
+        request_id,
+        official_key: key,
+        request,
+        ...(handoff ? { handoff } : {}),
+      });
       const reply = await next(
         (message) => message.type === "DecisionJournalResult" && message.request_id === request_id,
       );
@@ -203,6 +210,7 @@ try {
   await start(true);
   let host = await client("node-a", true, device);
   assert(host.auth.features.includes("decision_journal_v1"));
+  assert(!host.auth.features.includes("host_handoff"), "checkpoint handoff must stay opt-in");
   await assert.rejects(host.journal(open), /denied/);
   await resume(host);
   const alice = await client("alice");
@@ -217,6 +225,18 @@ try {
   assert.equal((await host.journal(append(1, 1))).sequence, 1);
   assert.deepEqual((await host.journal(read)).entries, [entry(1)]);
   await assert.rejects(alice.journal(read), /denied/);
+  const handoff = { room_id: roomId, resume_token: spec.resume_token };
+  const taker = await client("node-taker", true);
+  assert.deepEqual((await taker.journal(read, gameId, secret, handoff)).entries, [entry(1)]);
+  await assert.rejects(
+    taker.journal(read, gameId, secret, { ...handoff, resume_token: randomUUID() }),
+    /denied/,
+  );
+  await assert.rejects(taker.journal(read, randomUUID(), secret, handoff), /denied/);
+  await assert.rejects(taker.journal(open, gameId, secret, handoff), /denied/);
+  await assert.rejects(taker.journal(append(1, 2), gameId, secret, handoff), /denied/);
+  await assert.rejects(alice.journal(read, gameId, secret, handoff), /denied/);
+  assert.equal((await host.journal(read)).position.epoch, 1, "a handoff read must not fence");
   const changed = {
     ...append(1, 1),
     batch: JSON.stringify({ version: 1, nextSequence: 2, entries: [{ ...entry(1), action: {} }] }),
@@ -290,6 +310,7 @@ try {
         reconnect: "old epoch rejected",
         relayRestart: "durable history recovered",
         hostChange: "new writer fenced",
+        handoffRead: "resume token reads only, without fencing",
         privacy: "no journal data sent to seats",
         disabled: "feature not advertised",
       },

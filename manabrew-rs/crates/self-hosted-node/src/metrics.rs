@@ -13,6 +13,7 @@ const FORGE_CHECKPOINT_DECISION_SECONDS: &str = "manabrew_node_forge_checkpoint_
 const FORGE_DECISION_SECONDS: &str = "manabrew_node_forge_decision_seconds";
 const JOURNAL_COMMIT_SECONDS: &str = "manabrew_node_forge_journal_commit_seconds";
 const JOURNAL_RETRIES: &str = "manabrew_node_forge_journal_retries_total";
+const JOURNAL_TAKEOVERS: &str = "manabrew_node_journal_takeovers_total";
 const ENGINE_ERRORS: &str = "manabrew_node_engine_errors_total";
 const RELAY_RECONNECTS: &str = "manabrew_node_relay_reconnects_total";
 const BUILD_INFO: &str = "manabrew_node_build_info";
@@ -232,6 +233,10 @@ pub fn record_relay_reconnect() {
 pub(crate) fn record_journal_commit(startup: bool, elapsed: Duration) {
     histogram!(JOURNAL_COMMIT_SECONDS, LABEL_STAGE => if startup { "startup" } else { "decision" })
         .record(elapsed.as_secs_f64());
+}
+
+pub(crate) fn record_journal_takeover(result: &'static str) {
+    counter!(JOURNAL_TAKEOVERS, "result" => result).increment(1);
 }
 
 pub(crate) fn record_journal_retry() {

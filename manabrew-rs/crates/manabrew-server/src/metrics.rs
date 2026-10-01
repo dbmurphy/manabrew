@@ -58,6 +58,8 @@ pub const HANDOFF_NO_CANDIDATE: &str = "no_candidate";
 pub const HANDOFF_OFFERED: &str = "offered";
 pub const HANDOFF_CLAIMED: &str = "claimed";
 pub const HANDOFF_UNCLAIMED: &str = "unclaimed";
+pub const HANDOFF_DECLINED: &str = "declined";
+pub const HANDOFF_JOURNAL_UNAVAILABLE: &str = "journal_unavailable";
 
 pub const ENGINE_REPORT_ACCEPTED: &str = "accepted";
 /// Accepted, but the seat had already left the room it played in. Normal at

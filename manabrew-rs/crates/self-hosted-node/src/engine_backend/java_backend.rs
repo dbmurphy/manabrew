@@ -1557,9 +1557,10 @@ pub(crate) fn run_hosted_engine_game(
     remote_prompt_tx: std_mpsc::Sender<(usize, AgentMessage)>,
     remote_response_rxs: Vec<(usize, std_mpsc::Receiver<ClientToServerMessage>)>,
     game_over_tx: std_mpsc::Sender<HostedGameOver>,
-    checkpoint_tx: std_mpsc::Sender<HostedCheckpoint>,
+    checkpoint_tx: Option<std_mpsc::Sender<HostedCheckpoint>>,
     cancel: Arc<AtomicBool>,
     journal: Option<Arc<crate::journal::JournalDelivery>>,
+    recovery: Option<crate::journal::JournalRecovery>,
 ) -> Result<(), String> {
     run_hosted_engine_game_inner(
         game_id,
@@ -1579,6 +1580,7 @@ pub(crate) fn run_hosted_engine_game(
         checkpoint_tx,
         cancel,
         journal,
+        recovery,
     )
 }
 
@@ -1599,9 +1601,10 @@ pub(crate) fn run_hosted_engine_game(
     _remote_prompt_tx: std_mpsc::Sender<(usize, AgentMessage)>,
     _remote_response_rxs: Vec<(usize, std_mpsc::Receiver<ClientToServerMessage>)>,
     _game_over_tx: std_mpsc::Sender<HostedGameOver>,
-    _checkpoint_tx: std_mpsc::Sender<HostedCheckpoint>,
+    _checkpoint_tx: Option<std_mpsc::Sender<HostedCheckpoint>>,
     _cancel: Arc<AtomicBool>,
     _journal: Option<Arc<crate::journal::JournalDelivery>>,
+    _recovery: Option<crate::journal::JournalRecovery>,
 ) -> Result<(), String> {
     Err(unsupported_message().to_string())
 }
@@ -1693,9 +1696,10 @@ fn run_hosted_engine_game_inner(
     remote_prompt_tx: std_mpsc::Sender<(usize, AgentMessage)>,
     remote_response_rxs: Vec<(usize, std_mpsc::Receiver<ClientToServerMessage>)>,
     game_over_tx: std_mpsc::Sender<HostedGameOver>,
-    checkpoint_tx: std_mpsc::Sender<HostedCheckpoint>,
+    checkpoint_tx: Option<std_mpsc::Sender<HostedCheckpoint>>,
     cancel: Arc<AtomicBool>,
     journal: Option<Arc<crate::journal::JournalDelivery>>,
+    recovery: Option<crate::journal::JournalRecovery>,
 ) -> Result<(), String> {
     let engine = obtain_engine()?;
 
@@ -1723,20 +1727,29 @@ fn run_hosted_engine_game_inner(
             player.bot = true;
         }
     }
-    let restored = checkpoint.is_some();
-    let mut request = StartGameRequest::new(
-        game_id.clone(),
-        game_variant,
-        starting_life,
-        rand::random(),
-        players,
-    )
-    .with_checkpoint(checkpoint);
-    request.checkpoint_metrics = true;
-    request.decision_journal = journal.is_some();
-    request.decision_journal_commit_barrier = journal.is_some();
-    request.snapshot_recording = journal.as_ref().map(|_| false);
-    let start_request = request.to_json().map_err(|err| err.to_string())?;
+    let restored = checkpoint.is_some() || recovery.is_some();
+    if recovery.is_some() && (journal.is_none() || checkpoint.is_some()) {
+        return Err("journal recovery requires journal delivery and no checkpoint".into());
+    }
+    let start_request = match &recovery {
+        Some(recovery) => recovery.journal.start_request.clone(),
+        None => {
+            let mut request = StartGameRequest::new(
+                game_id.clone(),
+                game_variant,
+                starting_life,
+                rand::random(),
+                players,
+            )
+            .with_checkpoint(checkpoint);
+            request.checkpoint_metrics = true;
+            request.checkpoint_export = checkpoint_tx.is_some();
+            request.decision_journal = journal.is_some();
+            request.decision_journal_commit_barrier = journal.is_some();
+            request.snapshot_recording = journal.as_ref().map(|_| false);
+            request.to_json().map_err(|err| err.to_string())?
+        }
+    };
     let session_id = engine.start_game(&start_request)?;
     info!(
         game_id,
@@ -1763,24 +1776,77 @@ fn run_hosted_engine_game_inner(
         armed: std::cell::Cell::new(true),
     };
 
-    let mut journal = if let Some(delivery) = journal {
-        let batch = engine.read_decision_journal(&session_id)?;
-        let manifest: serde_json::Value = serde_json::from_str(&batch)
-            .map_err(|_| "engine did not retain its journal manifest".to_string())?;
-        let recorded_start = manifest
-            .get("startRequest")
-            .and_then(|value| value.as_str())
-            .ok_or("engine journal manifest is missing its start request")?;
-        let mut writer = crate::journal::JournalWriter::new(delivery, recorded_start)?;
-        let sequence = match writer.commit(batch, &cancel) {
-            Ok(sequence) => sequence,
-            Err(_) if cancel.load(std::sync::atomic::Ordering::Relaxed) => return Ok(()),
-            Err(error) => return Err(error),
-        };
-        engine.acknowledge_decision_journal(&session_id, sequence)?;
-        Some(writer)
-    } else {
-        None
+    let mut journal = match (journal, recovery) {
+        (Some(delivery), Some(recovery)) => {
+            let replayed = replay_journal(&engine, &session_id, &recovery.journal);
+            let failed = replayed.as_ref().err().cloned();
+            let _ = recovery.replayed.send(replayed);
+            if let Some(error) = failed {
+                return Err(error);
+            }
+            loop {
+                if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                    return Ok(());
+                }
+                match recovery.live.recv_timeout(Duration::from_millis(100)) {
+                    Ok(()) => break,
+                    Err(std_mpsc::RecvTimeoutError::Timeout) => {}
+                    Err(std_mpsc::RecvTimeoutError::Disconnected) => {
+                        return Err("journal takeover was abandoned".into())
+                    }
+                }
+            }
+            let mut writer =
+                crate::journal::JournalWriter::new(delivery, &recovery.journal.start_request)?;
+            let replayed = recovery.journal.sequence();
+            let durable = match writer.claim(&cancel) {
+                Ok(sequence) => sequence,
+                Err(_) if cancel.load(std::sync::atomic::Ordering::Relaxed) => return Ok(()),
+                Err(error) => return Err(error),
+            };
+            if durable < replayed {
+                return Err("durable journal is shorter than the replayed prefix".into());
+            }
+            if durable > replayed {
+                let mut history = crate::journal::JournalHistory::default();
+                while !history.complete() {
+                    history.add_page(&writer.read_after(history.after(), &cancel)?)?;
+                }
+                let suffix = history.recover(&game_id)?;
+                if suffix.start_request != recovery.journal.start_request
+                    || suffix.entries[..replayed as usize] != recovery.journal.entries[..]
+                {
+                    return Err("durable journal changed under the takeover".into());
+                }
+                replay_entries(&engine, &session_id, &suffix.entries[replayed as usize..])?;
+                info!(
+                    game_id,
+                    replayed,
+                    suffix = durable - replayed,
+                    "replayed decisions committed after the takeover read"
+                );
+            }
+            info!(game_id, decisions = durable, "journal takeover is live");
+            Some(writer)
+        }
+        (Some(delivery), None) => {
+            let batch = engine.read_decision_journal(&session_id)?;
+            let manifest: serde_json::Value = serde_json::from_str(&batch)
+                .map_err(|_| "engine did not retain its journal manifest".to_string())?;
+            let recorded_start = manifest
+                .get("startRequest")
+                .and_then(|value| value.as_str())
+                .ok_or("engine journal manifest is missing its start request")?;
+            let mut writer = crate::journal::JournalWriter::new(delivery, recorded_start)?;
+            let sequence = match writer.commit(batch, &cancel) {
+                Ok(sequence) => sequence,
+                Err(_) if cancel.load(std::sync::atomic::Ordering::Relaxed) => return Ok(()),
+                Err(error) => return Err(error),
+            };
+            engine.acknowledge_decision_journal(&session_id, sequence)?;
+            Some(writer)
+        }
+        (None, _) => None,
     };
 
     let mut remote_response_rxs: HashMap<usize, std_mpsc::Receiver<ClientToServerMessage>> =
@@ -1998,13 +2064,15 @@ fn run_hosted_engine_game_inner(
                     report_engine_gc(&engine);
                 }
                 last_prompt = Some(prompt.clone());
-                forward_checkpoint(
-                    &engine,
-                    &session_id,
-                    &game_id,
-                    &mut last_checkpoint_seq,
-                    &checkpoint_tx,
-                );
+                if let Some(checkpoint_tx) = &checkpoint_tx {
+                    forward_checkpoint(
+                        &engine,
+                        &session_id,
+                        &game_id,
+                        &mut last_checkpoint_seq,
+                        checkpoint_tx,
+                    );
+                }
                 let player = player_index(&prompt.deciding_player_id);
                 debug!(player, "forwarding java prompt to remote");
                 if matches!(prompt.input, PromptInput::DiceRolled(_)) {
@@ -2103,6 +2171,106 @@ fn run_hosted_engine_game_inner(
             POLL_IDLE
         });
     }
+}
+
+/// Starts from the exact recorded start request and feeds every consumed
+/// decision back through the commit barrier. Each one must find the engine at
+/// the recorded prompt and come back out of the engine as the recorded entry;
+/// the entries are already durable, so the barrier is released locally.
+#[cfg(forge_backend)]
+fn replay_journal(
+    engine: &ForgeEngine,
+    session_id: &str,
+    journal: &crate::journal::RecoveredJournal,
+) -> Result<(), String> {
+    let manifest: serde_json::Value =
+        serde_json::from_str(&engine.read_decision_journal(session_id)?)
+            .map_err(|_| "replay engine did not journal its start".to_string())?;
+    if manifest
+        .get("startRequest")
+        .and_then(|value| value.as_str())
+        != Some(journal.start_request.as_str())
+        || manifest
+            .get("nextSequence")
+            .and_then(|value| value.as_i64())
+            != Some(1)
+        || manifest
+            .get("commitBarrier")
+            .and_then(|value| value.as_bool())
+            != Some(true)
+        || manifest.get("unavailableReason").is_some()
+    {
+        return Err("replay engine start does not match the journal manifest".into());
+    }
+    engine.acknowledge_decision_journal(session_id, 0)?;
+    replay_entries(engine, session_id, &journal.entries)
+}
+
+#[cfg(forge_backend)]
+fn replay_entries(
+    engine: &ForgeEngine,
+    session_id: &str,
+    entries: &[serde_json::Value],
+) -> Result<(), String> {
+    const REPLAY_STEP: Duration = Duration::from_secs(30);
+    for entry in entries {
+        let sequence = entry
+            .get("sequence")
+            .and_then(|value| value.as_i64())
+            .ok_or("journal entry has no sequence")?;
+        let expected = entry.get("prompt").unwrap_or(&serde_json::Value::Null);
+        if !expected.is_null() {
+            let started = Instant::now();
+            loop {
+                let current = engine
+                    .get_prompt(session_id, 0)?
+                    .map(|raw| serde_json::from_str::<serde_json::Value>(&raw))
+                    .transpose()
+                    .map_err(|err| format!("replay prompt is not JSON: {err}"))?;
+                if current.as_ref() == Some(expected) {
+                    break;
+                }
+                if engine.is_game_over(session_id)? {
+                    return Err(format!("replay ended before decision {sequence}"));
+                }
+                if started.elapsed() >= REPLAY_STEP {
+                    return Err(format!("prompt divergence at decision {sequence}"));
+                }
+                std::thread::sleep(Duration::from_millis(2));
+            }
+        }
+        let action = entry.get("action").ok_or("journal entry has no action")?;
+        engine.submit_action(session_id, &action.to_string())?;
+        let started = Instant::now();
+        let batch = loop {
+            let raw = engine.read_decision_journal(session_id)?;
+            if !raw.is_empty() {
+                let batch: serde_json::Value = serde_json::from_str(&raw)
+                    .map_err(|_| "replay journal batch is not JSON".to_string())?;
+                if batch.get("unavailableReason").is_some()
+                    || batch
+                        .get("entries")
+                        .and_then(|entries| entries.as_array())
+                        .is_some_and(|entries| !entries.is_empty())
+                {
+                    break batch;
+                }
+            }
+            if started.elapsed() >= REPLAY_STEP {
+                return Err(format!("decision {sequence} was not consumed in replay"));
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        if batch.get("unavailableReason").is_some()
+            || batch.get("nextSequence").and_then(|value| value.as_i64()) != Some(sequence + 1)
+            || batch.get("entries").and_then(|entries| entries.as_array())
+                != Some(&vec![entry.clone()])
+        {
+            return Err(format!("consumption divergence at decision {sequence}"));
+        }
+        engine.acknowledge_decision_journal(session_id, sequence)?;
+    }
+    Ok(())
 }
 
 #[cfg(feature = "java-forge")]
@@ -3347,6 +3515,8 @@ pub struct StartGameRequest {
     seed: u64,
     players: Vec<PlayerConfig>,
     checkpoint_metrics: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    checkpoint_export: bool,
     decision_journal: bool,
     decision_journal_commit_barrier: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -3397,6 +3567,7 @@ impl StartGameRequest {
             seed,
             players,
             checkpoint_metrics: false,
+            checkpoint_export: false,
             decision_journal: false,
             decision_journal_commit_barrier: false,
             snapshot_recording: None,
@@ -3677,20 +3848,21 @@ mod checkpoint_tests {
             })
             .collect();
 
-        let source = StartGameRequest::new(
+        let mut source = StartGameRequest::new(
             "checkpoint-source".to_string(),
             String::new(),
             20,
             7,
             players.clone(),
         );
+        source.checkpoint_export = true;
         session.start_game(&source).expect("source game");
         let checkpoint =
             play_until_checkpoint(&mut session, 3, 600).expect("a checkpoint at turn 3");
         session.end_game().expect("end source game");
         let header: CheckpointHeader = serde_json::from_str(&checkpoint).unwrap();
 
-        let restored = StartGameRequest::new(
+        let mut restored = StartGameRequest::new(
             "checkpoint-restored".to_string(),
             String::new(),
             20,
@@ -3698,6 +3870,7 @@ mod checkpoint_tests {
             players,
         )
         .with_checkpoint(Some(checkpoint));
+        restored.checkpoint_export = true;
         session.start_game(&restored).expect("restored game");
         let continued = play_until_checkpoint(&mut session, header.turn + 1, 600)
             .expect("play past the restored turn");

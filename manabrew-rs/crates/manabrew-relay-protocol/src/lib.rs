@@ -337,6 +337,18 @@ pub enum ClientMessage {
         request_id: String,
         official_key: String,
         request: DecisionJournalRequest,
+        /// Lets the session offered a [`ServerMessage::HostHandoff`] read the
+        /// durable journal before it claims the room. Reads only.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        handoff: Option<JournalHandoff>,
+    },
+
+    /// The offered session cannot continue the game. The relay offers it to
+    /// another session, or ends it as `host_lost`.
+    DeclineHostHandoff {
+        room_id: String,
+        resume_token: String,
+        reason: String,
     },
 
     /// The host's latest turn-start checkpoint. Hidden information for every
@@ -443,6 +455,10 @@ pub enum ServerMessage {
         request: ResumeRoomRequest,
         turn: u32,
         checkpoint: String,
+        /// The game is recovered from its durable decision journal, not from
+        /// `checkpoint`, which is empty.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        journal: bool,
     },
     DecisionJournalResult {
         game_id: String,
@@ -756,7 +772,17 @@ pub enum DecisionJournalRequest {
     Read { after: i64, limit: u32 },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JournalHandoff {
+    pub room_id: String,
+    pub resume_token: String,
+}
+
 pub const FEATURE_DECISION_JOURNAL: &str = "decision_journal_v1";
+
+/// Named in `Authenticate::features` by a session that can continue a game by
+/// replaying its durable decision journal.
+pub const FEATURE_JOURNAL_HANDOFF: &str = "journal_handoff";
 
 pub const FEATURES: &[&str] = &[
     FEATURE_LOCAL_GAME,

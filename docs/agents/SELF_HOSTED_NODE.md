@@ -20,8 +20,9 @@ A background `updater` monitor (`updater.rs`) polls the version manifest (defaul
 
 ## Checkpoints and takeovers
 
-Under Forge the harness exports a `GameCheckpoint` at the first empty-stack priority window of
-each turn's first main phase (`ManaBrewInteractiveSession.maybeCheckpoint`, called from
+Only when the relay advertises `host_handoff` (`MANABREW_HOST_HANDOFF=1`) and the node is not
+journaling does it start games with `checkpointExport: true`. The harness then exports a
+`GameCheckpoint` at the first empty-stack priority window of each turn's first main phase (`ManaBrewInteractiveSession.maybeCheckpoint`, called from
 `chooseSpellAbilityToPlay`, so it runs on the game thread and never in combat or under a
 stack). The node reads it through `forge_get_checkpoint` after each new prompt, forwards a new
 `seq` as `ReportCheckpoint`, and only when the relay advertised `host_handoff`. The node names
@@ -62,6 +63,17 @@ Journal-enabled starts require an explicit `commitBarrier: true` in every harnes
 
 Before advertising rooms, opt-in hosts hash the actual harness jar (JVM) or loaded Forge shared library (`dladdr`, Unix Graal) and a sorted, length-framed list of relative `res/` paths with each file's SHA-256. These identities are cached per process; engine and rules files must remain immutable for that process's lifetime. Symlinks below `res/` are rejected. JVM extra classpath/extra options and Windows native artifact discovery are not supported in this mode. The hashes identify artifacts, not full hidden-state equality or universal cross-runtime determinism. Internal Forge AI and checkpoint starts remain gated by the harness pending deterministic validation.
 
-Journal hosts disable UI snapshot recording (restore is unsupported in this mode), and do not advertise checkpoint takeover or forward lossy checkpoints: recovery must eventually replay the retained journal. No deployment enables this yet. Automatic journal recovery, shadow read authorization, shadow verification/scheduling, retention expiry, and fleet admission remain unfinished.
+Journal hosts disable UI snapshot recording (restore is unsupported in this mode), export no turn checkpoints, and never forward lossy ones. They name `journal_handoff` instead of `host_handoff` and take over only journal games; a mismatched offer is declined.
 
-`manabrew_node_forge_journal_commit_seconds{stage="startup"|"decision"}` measures successful batch retention wall time including relay queueing, storage, retries, and reconnect waits; `manabrew_node_forge_journal_retries_total` counts retries. Opt-in decision elapsed metrics include that commit wait, so they no longer represent rules work alone. Journal contents and artifact manifests never enter metrics. `yarn bench:hosted-journal --node <node> --relay <relay> --jar <jar> --forge-home <forge-gui>` runs a real local node/relay through withheld receipts, a lost reply on a live socket, connection replacement, relay restart, duplicate seat answers, and permanent invalidation. For a Graal node, supply `--engine-artifact <loaded-library>` for the identity assertion.
+A journal takeover (`host_taken_over_room` with `Takeover::Journal`) runs in this order, and the order is the safety argument:
+
+1. Read the whole durable prefix with the handoff token (`read_handoff_journal`). This cannot extend or fence the journal.
+2. `JournalHistory::recover` refuses a gap, a prefix that shrinks or changes manifest between pages, an invalidated journal, a different engine or rules-asset hash, or a start request that is not a gated journal game with this game id.
+3. Start a fresh engine from the exact recorded start request and `replay_journal`: every entry must find the engine at the recorded prompt and come back out as the identical consumed entry; the barrier is released locally because those entries are already durable.
+4. Any failure above sends `DeclineHostHandoff`, aborts the engine and never sends `ResumeRoom`, so seats see nothing and the relay tries another pod.
+5. Only now `ResumeRoom` makes this session the host (seats get `HostChanged`), then the engine `claim`s a new writer epoch, which fences every older writer. If the old host committed more after step 1, the suffix is read as the host, must extend the replayed prefix unchanged, and is replayed before any output.
+6. The engine goes live; its next decision is appended at the next sequence under the new epoch.
+
+`manabrew_node_journal_takeovers_total{result="declined"|"unclaimed"|"claimed"}` counts outcomes. The replay base is the start of the game: `GameCheckpoint` carries no RNG state and drops effects that outlive a turn, so it cannot yet serve as a replay base for a journal suffix. A future base must record the journal sequence it was taken at and restore every state the next decision depends on; `replay_entries` already replays any contiguous suffix. No deployment enables journals yet. Shadow read authorization, shadow verification/scheduling, retention expiry, and fleet admission remain unfinished.
+
+`manabrew_node_forge_journal_commit_seconds{stage="startup"|"decision"}` measures successful batch retention wall time including relay queueing, storage, retries, and reconnect waits; `manabrew_node_forge_journal_retries_total` counts retries. Opt-in decision elapsed metrics include that commit wait, so they no longer represent rules work alone. Journal contents and artifact manifests never enter metrics. `yarn bench:hosted-journal --node <node> --relay <relay> --jar <jar> --forge-home <forge-gui>` runs a real local node/relay through withheld receipts, a lost reply on a live socket, connection replacement, relay restart, duplicate seat answers, a frozen host offered first to a pod with a different engine jar and to a pod reading a tampered entry (both must decline without touching the journal or the seats) and then to a matching pod (which must reach the identical pending prompt, fence the old writer, keep the stale host's output off every seat and extend the same journal), and permanent invalidation. For a Graal node, supply `--engine-artifact <loaded-library>` for the identity assertion.

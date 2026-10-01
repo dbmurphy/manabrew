@@ -66,6 +66,7 @@ public final class ManaBrewInteractiveSession {
     private volatile int promptedPlayerIndex = -1;
     private long promptSeq;
     private volatile boolean closed;
+    private boolean checkpointExport;
     private volatile String latestCheckpointJson;
     private int lastCheckpointTurn = -1;
     private int checkpointSeq;
@@ -205,7 +206,7 @@ public final class ManaBrewInteractiveSession {
     }
 
     void maybeCheckpoint() {
-        if (!GameCheckpoint.atCleanPoint(game)) {
+        if (!checkpointExport || !GameCheckpoint.atCleanPoint(game)) {
             return;
         }
         final int turn = game.getPhaseHandler().getTurn();
@@ -2130,6 +2131,10 @@ public final class ManaBrewInteractiveSession {
         }
         restoreVote.awaiting.removeIf(seat -> game.getRegisteredPlayers().get(seat).hasLost());
         return restoreVote.awaiting.isEmpty();
+    }
+
+    void enableCheckpointExport() {
+        checkpointExport = true;
     }
 
     void enableCheckpointMetrics() {

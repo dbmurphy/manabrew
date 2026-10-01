@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -46,7 +46,8 @@ let failure,
   through = -1;
 let logs = "",
   allowAnswers = true,
-  restartPrompt = false;
+  restartPrompt = false,
+  handedOff = false;
 const sockets = new Set(),
   pending = new Map(),
   attempts = new Map(),
@@ -57,11 +58,14 @@ const seats = [0, 1].map((index) => ({
   identity: randomUUID(),
   answered: new Set(),
   messages: [],
+  afterChange: [],
 }));
 function capture(child) {
+  child.output = "";
   for (const stream of [child.stdout, child.stderr])
     stream?.on("data", (bytes) => {
       logs = (logs + bytes).slice(-16000);
+      child.output = (child.output + bytes).slice(-64000);
     });
   child.on("error", (error) => {
     failure = error;
@@ -115,7 +119,36 @@ async function startRelay() {
   }
   assert(ready, logs);
 }
+function spawnNode(relayUrl, jar) {
+  return capture(
+    spawn(resolve(values.node), [], {
+      env: {
+        ...cleanEnv,
+        SELF_HOSTED_NODE_ENGINE_BACKEND: "forge",
+        SELF_HOSTED_NODE_RELAY_URL: relayUrl,
+        SELF_HOSTED_NODE_SERVER_KEY: password,
+        SELF_HOSTED_NODE_OFFICIAL_KEY: secret,
+        SELF_HOSTED_NODE_DECISION_JOURNAL: "1",
+        SELF_HOSTED_NODE_BOT_ENABLED: "0",
+        SELF_HOSTED_NODE_AUTO_START: "0",
+        SELF_HOSTED_NODE_MAX_PLAYERS: "2",
+        SELF_HOSTED_NODE_FORMAT: "standard",
+        SELF_HOSTED_NODE_STATE_DELTA: "0",
+        SELF_HOSTED_NODE_RECONNECT_TIMEOUT_S: "300",
+        SELF_HOSTED_NODE_FORGE_HARNESS_JAR: jar,
+        SELF_HOSTED_NODE_FORGE_ASSETS_DIR: resolve(values["forge-home"]),
+        ...(values["java-home"]
+          ? { SELF_HOSTED_NODE_JAVA_HOME: resolve(values["java-home"]) }
+          : {}),
+        RUST_LOG: "self_hosted_node=info",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    }),
+  );
+}
+const takeovers = [];
 async function stop(child, signal = "SIGKILL") {
+  if (child?.signalCode === "SIGSTOP" || child?.stopped) child.kill("SIGCONT");
   if (child && child.exitCode === null && child.signalCode === null) {
     const exited = once(child, "exit");
     child.kill(signal);
@@ -134,6 +167,21 @@ function position() {
 }
 function send(socket, value) {
   socket.send(JSON.stringify(value));
+}
+function answer(seat, prompt) {
+  if (seat.answered.has(prompt.promptId)) return;
+  seat.answered.add(prompt.promptId);
+  for (let duplicate = 0; duplicate < 2; duplicate++) {
+    send(seat.socket, {
+      type: "BroadcastState",
+      state: {
+        kind: "response",
+        fromPlayer: seat.slot,
+        promptId: prompt.promptId,
+        action: scriptedAnswer({ prompt }),
+      },
+    });
+  }
 }
 async function joinSeat(seat, initial = false) {
   const socket = new WebSocket(`ws://127.0.0.1:${relayPort}`);
@@ -162,25 +210,12 @@ async function joinSeat(seat, initial = false) {
         gameId = message.game_id;
         seat.slot = `player-${message.player_order.indexOf(seat.name)}`;
       }
+      if (message.type === "HostChanged") seat.hostChanged = message;
       const state = message.type === "StateUpdate" ? message.state : null;
-      if (
-        state?.kind === "prompt" &&
-        state.forPlayer === seat.slot &&
-        allowAnswers &&
-        !seat.answered.has(state.prompt.promptId)
-      ) {
-        seat.answered.add(state.prompt.promptId);
-        for (let duplicate = 0; duplicate < 2; duplicate++) {
-          send(socket, {
-            type: "BroadcastState",
-            state: {
-              kind: "response",
-              fromPlayer: seat.slot,
-              promptId: state.prompt.promptId,
-              action: scriptedAnswer({ prompt: state.prompt }),
-            },
-          });
-        }
+      if (state && seat.hostChanged) seat.afterChange.push(message);
+      if (state?.kind === "prompt" && state.forPlayer === seat.slot) {
+        seat.prompt = state.prompt;
+        if (allowAnswers) answer(seat, state.prompt);
       }
     } catch (error) {
       failure = error;
@@ -275,6 +310,11 @@ proxy.on("connection", (downstream) => {
       if (message.type === "DecisionJournalResult") {
         const request = pending.get(message.request_id);
         pending.delete(message.request_id);
+        if (handedOff) {
+          if (message.result.Ok !== undefined)
+            assert.notEqual(request?.operation, "append", "a fenced host appended");
+          return;
+        }
         assert.equal(message.result.Err, undefined, message.result.Err);
         const receipt = JSON.parse(message.result.Ok);
         epochs.add(receipt.epoch);
@@ -324,30 +364,7 @@ proxy.on("connection", (downstream) => {
 });
 try {
   await startRelay();
-  node = capture(
-    spawn(resolve(values.node), [], {
-      env: {
-        ...cleanEnv,
-        SELF_HOSTED_NODE_ENGINE_BACKEND: "forge",
-        SELF_HOSTED_NODE_RELAY_URL: `ws://127.0.0.1:${proxy.address().port}`,
-        SELF_HOSTED_NODE_SERVER_KEY: password,
-        SELF_HOSTED_NODE_OFFICIAL_KEY: secret,
-        SELF_HOSTED_NODE_DECISION_JOURNAL: "1",
-        SELF_HOSTED_NODE_BOT_ENABLED: "0",
-        SELF_HOSTED_NODE_AUTO_START: "0",
-        SELF_HOSTED_NODE_MAX_PLAYERS: "2",
-        SELF_HOSTED_NODE_FORMAT: "standard",
-        SELF_HOSTED_NODE_STATE_DELTA: "0",
-        SELF_HOSTED_NODE_FORGE_HARNESS_JAR: resolve(values.jar),
-        SELF_HOSTED_NODE_FORGE_ASSETS_DIR: resolve(values["forge-home"]),
-        ...(values["java-home"]
-          ? { SELF_HOSTED_NODE_JAVA_HOME: resolve(values["java-home"]) }
-          : {}),
-        RUST_LOG: "self_hosted_node=info",
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-    }),
-  );
+  node = spawnNode(`ws://127.0.0.1:${proxy.address().port}`, resolve(values.jar));
   await until(() => roomId, "node room");
   for (const seat of seats) await joinSeat(seat, true);
   await until(
@@ -436,6 +453,104 @@ try {
     ),
     "journal receipt leaked to a seat",
   );
+  let handoff;
+  if (!values["engine-artifact"]) {
+    const before = position();
+    const waiting = seats.find((seat) => seat.prompt && !seat.answered.has(seat.prompt.promptId));
+    assert(waiting, "a seat must hold an unanswered prompt when the host dies");
+    const pendingPrompt = structuredClone(waiting.prompt);
+    const marker = join(directory, "artifact-marker.txt");
+    await writeFile(marker, "different engine artifact");
+    const badJar = join(directory, "different-harness.jar");
+    await copyFile(resolve(values.jar), badJar);
+    const jarTool = values["java-home"] ? join(values["java-home"], "bin", "jar") : "jar";
+    const packed = spawn(jarTool, ["uf", badJar, "-C", directory, "artifact-marker.txt"]);
+    assert.equal((await once(packed, "exit"))[0], 0, "jar update failed");
+    const declining = spawnNode(`ws://127.0.0.1:${relayPort}`, badJar);
+    takeovers.push(declining);
+    const writable = new DatabaseSync(database);
+    const original = writable
+      .prepare("SELECT entry FROM engine_decisions WHERE sequence = 1")
+      .get().entry;
+    const tampered = JSON.parse(original);
+    tampered.prompt.promptId += 1000;
+    writable
+      .prepare("UPDATE engine_decisions SET entry = ? WHERE sequence = 1")
+      .run(JSON.stringify(tampered));
+    const diverging = spawnNode(`ws://127.0.0.1:${relayPort}`, resolve(values.jar));
+    takeovers.push(diverging);
+    await until(
+      () => [declining, diverging].every((pod) => pod.output.includes("room created")),
+      "declining pod lobbies",
+      120_000,
+    );
+    node.stopped = true;
+    node.kill("SIGSTOP");
+    for (const socket of [...sockets])
+      if (!seats.some((seat) => seat.socket === socket)) socket.terminate();
+    await until(
+      () =>
+        [declining, diverging].every((pod) => pod.output.includes("declining journal takeover")),
+      "mismatched and divergent pods decline",
+      90_000,
+    );
+    assert.match(declining.output, /engine artifact mismatch/);
+    assert.match(diverging.output, /prompt divergence at decision 1/);
+    for (const pod of [declining, diverging])
+      assert(!pod.output.includes("took over the room"), "a declining pod claimed the room");
+    assert(
+      seats.every((seat) => !seat.hostChanged),
+      "a declined takeover became visible",
+    );
+    assert.deepEqual(
+      { epoch: position().epoch, sequence: position().sequence },
+      { epoch: before.epoch, sequence: before.sequence },
+      "a declined takeover touched the journal",
+    );
+    writable.prepare("UPDATE engine_decisions SET entry = ? WHERE sequence = 1").run(original);
+    writable.close();
+    handedOff = true;
+    const taker = spawnNode(`ws://127.0.0.1:${relayPort}`, resolve(values.jar));
+    takeovers.push(taker);
+    await until(() => seats.every((seat) => seat.hostChanged), "host changed", 240_000);
+    const newHost = waiting.hostChanged.host;
+    assert(taker.output.includes("took over the room from its journal"), taker.output);
+    await until(() => position().epoch > before.epoch, "takeover claims a new writer epoch");
+    await until(
+      () => waiting.afterChange.some((message) => message.state?.kind === "prompt"),
+      "first prompt from the new host",
+    );
+    const resumed = waiting.afterChange.find((message) => message.state?.kind === "prompt");
+    assert.equal(resumed.from_player, newHost);
+    assert.deepEqual(resumed.state.prompt, pendingPrompt, "replay must reach the identical prompt");
+    node.kill("SIGCONT");
+    node.stopped = false;
+    allowAnswers = true;
+    answer(waiting, resumed.state.prompt);
+    await until(
+      () => position().sequence >= before.sequence + 4,
+      "decisions committed by the new host",
+      90_000,
+    );
+    allowAnswers = false;
+    await pause(2000);
+    for (const seat of seats)
+      for (const message of seat.afterChange)
+        assert.equal(message.from_player, newHost, "stale host output reached a seat");
+    const continued = position();
+    assert(continued.epoch > before.epoch);
+    const replayed = await verifyRelayJournal(verificationOptions);
+    assert.equal(replayed.decisions, continued.sequence);
+    handoff = {
+      declined: "artifact mismatch and replay divergence, journal and visibility untouched",
+      claimedAfter: before.sequence,
+      continuedTo: continued.sequence,
+      epochs: [before.epoch, continued.epoch],
+      firstPrompt: "identical to the prompt pending at host death",
+      staleHost: "no output after the takeover",
+      verification: replayed.verification,
+    };
+  }
   send(seats[0].socket, {
     type: "BroadcastState",
     state: {
@@ -462,6 +577,7 @@ try {
         invalidation: "durable failure, no restore",
         artifactIdentity: "actual harness and rules assets",
         replay: verification ?? "JVM verifier requires a JVM journal",
+        handoff: handoff ?? "JVM takeover requires a JVM journal",
         privacy: "no seat journal traffic",
       },
       null,
@@ -469,6 +585,7 @@ try {
     ),
   );
 } finally {
+  for (const child of takeovers) await stop(child, "SIGTERM");
   await stop(node, "SIGTERM");
   await stop(relay);
   for (const socket of sockets) socket.terminate();

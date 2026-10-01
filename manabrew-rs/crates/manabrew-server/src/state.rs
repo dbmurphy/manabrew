@@ -86,6 +86,7 @@ pub struct ServerState {
     pub identity: IdentityVerifier,
     /// See `ServerConfig::direct_transport`. Fails closed.
     pub direct_transport: bool,
+    pub host_handoff: bool,
     /// See `ServerConfig::ice_servers`.
     pub ice_servers: Vec<crate::protocol::IceServer>,
     pub lobby_chat: Mutex<ChatHistory>,
@@ -113,6 +114,7 @@ impl ServerState {
             journal: None,
             identity: IdentityVerifier::new(hub_jwks_url),
             direct_transport: false,
+            host_handoff: false,
             ice_servers: Vec::new(),
             lobby_chat: Mutex::new(ChatHistory::default()),
             seal,
@@ -130,6 +132,11 @@ impl ServerState {
             )?));
         }
         Ok(self)
+    }
+
+    pub fn with_host_handoff(mut self, enabled: bool) -> Self {
+        self.host_handoff = enabled;
+        self
     }
 
     pub fn with_direct_transport(

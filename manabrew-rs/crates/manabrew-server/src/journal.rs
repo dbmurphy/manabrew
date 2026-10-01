@@ -314,6 +314,12 @@ impl JournalStore {
         Ok(durable)
     }
 
+    pub fn status(&mut self, game_id: &str) -> Result<Option<JournalPosition>, String> {
+        query_position(&self.connection, game_id)
+            .optional()
+            .map_err(failure)
+    }
+
     pub fn read(&mut self, game_id: &str, after: i64, limit: usize) -> Result<JournalPage, String> {
         if after < 0 || limit == 0 || limit > MAX_ENTRIES {
             return Err("invalid journal read window".into());
@@ -358,19 +364,21 @@ impl JournalStore {
 }
 
 fn position(connection: &Connection, game_id: &str) -> Result<JournalPosition, String> {
-    connection
-        .query_row(
-            "SELECT epoch, sequence, unavailable_reason FROM engine_journals WHERE game_id=?1",
-            [game_id],
-            |row| {
-                Ok(JournalPosition {
-                    epoch: row.get(0)?,
-                    sequence: row.get(1)?,
-                    unavailable_reason: row.get(2)?,
-                })
-            },
-        )
-        .map_err(failure)
+    query_position(connection, game_id).map_err(failure)
+}
+
+fn query_position(connection: &Connection, game_id: &str) -> rusqlite::Result<JournalPosition> {
+    connection.query_row(
+        "SELECT epoch, sequence, unavailable_reason FROM engine_journals WHERE game_id=?1",
+        [game_id],
+        |row| {
+            Ok(JournalPosition {
+                epoch: row.get(0)?,
+                sequence: row.get(1)?,
+                unavailable_reason: row.get(2)?,
+            })
+        },
+    )
 }
 
 fn validate_identity(game_id: &str, writer: &str) -> Result<(), String> {
