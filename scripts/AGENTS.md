@@ -74,3 +74,5 @@ Never use `--no-verify` to bypass the commit-msg or pre-commit hooks. If a hook 
 The replay profiler can capture real Manabot decisions with `--record-trace` and compare them with `--trace`; see the package README for Commander commands. Only its cross-mode comparison normalizes transient casting display IDs. Do not weaken production replay digests or real stack target IDs to accommodate snapshot allocation differences.
 
 `parity-repair-agent.py` requires `PARITY_AUTH` in the environment as `username:password`. Supply it through local secrets or CI secrets. The previously committed dashboard credential must be rotated because it remains in Git history.
+
+`yarn bench:relay-journal` builds and drives the relay's `journal_store` example against a temporary SQLite database. It exercises crash/reopen and competing writers in separate processes; `--binary <path>` skips the build. The Rust server CI job runs it. It checks durable storage semantics, not relay authorization or hosted end-to-end delivery.

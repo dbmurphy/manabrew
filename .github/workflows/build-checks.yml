@@ -442,6 +442,15 @@ jobs:
       - name: Build manabrew-server (release)
         run: cargo build --release -p manabrew-server
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Verify durable journal recovery
+        run: |
+          cargo build --release -p manabrew-server --example journal_store
+          node scripts/engine-bench/relay-journal.mjs --binary target/release/examples/journal_store
+
   multiplayer-regression:
     name: Multiplayer zombie regression
     runs-on: ubuntu-latest
