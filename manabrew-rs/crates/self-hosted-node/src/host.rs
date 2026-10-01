@@ -160,9 +160,8 @@ struct SpawnBotDeckPayload {
 type SharedEngineSession = Arc<Mutex<Option<EngineSession>>>;
 type SessionRegistry = Arc<Mutex<Vec<SharedEngineSession>>>;
 
-/// Lets a room host accept games the relay hands over from a dead host. Each
-/// takeover is one more room on this process, outside the pool it was sized
-/// for, and it leaves the relay when its game ends.
+/// Games handed over from dead hosts. Each is a room outside the sized pool
+/// that leaves the relay when its game ends.
 #[derive(Clone)]
 struct TakeoverHost {
     sessions: SessionRegistry,
@@ -748,11 +747,8 @@ enum Takeover {
     Journal,
 }
 
-/// Continues a game another host left behind: claims the room with the
-/// relay's fresh token, seats the bots the old host ran, boots the engine
-/// from the checkpoint or the replayed journal, then serves the room until
-/// the game ends. A journal is replayed before the claim, so a takeover that
-/// cannot reproduce the history declines without ever becoming the host.
+/// Continues a game another host left behind. A journal is replayed before the
+/// claim, so a takeover that cannot reproduce it declines unseen.
 async fn host_taken_over_room(
     mut config: Config,
     request: ResumeRoomRequest,

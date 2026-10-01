@@ -20,27 +20,7 @@ A background `updater` monitor (`updater.rs`) polls the version manifest (defaul
 
 ## Checkpoints and takeovers
 
-Only when the relay advertises `host_handoff` (`MANABREW_HOST_HANDOFF=1`) and the node is not
-journaling does it start games with `checkpointExport: true`. The harness then exports a
-`GameCheckpoint` at the first empty-stack priority window of each turn's first main phase (`ManaBrewInteractiveSession.maybeCheckpoint`, called from
-`chooseSpellAbilityToPlay`, so it runs on the game thread and never in combat or under a
-stack). The node reads it through `forge_get_checkpoint` after each new prompt, forwards a new
-`seq` as `ReportCheckpoint`, and only when the relay advertised `host_handoff`. The node names
-the same feature in `Authenticate`, which is what makes it a takeover candidate.
-
-A `HostHandoff` from the relay spawns `host_taken_over_room`: a fresh relay session named
-`<node>-h<room>`, `ResumeRoom` with the relay's token first (engine output from a session that
-is not the host is dropped silently), then the bots the old host ran, seated by name from
-`bot_players`, then `maybe_start_hosted_engine` with the checkpoint. The harness restores from a
-`startGameHook` before the first priority window: eliminated seats are conceded first so the
-in-game player count matches the dump, then `applyGameOnThread` (never `applyToGame`, whose
-deferred form runs off-thread here), then commander stats, monarch, initiative and day/night from
-the sidecar. Mulligans are skipped and starting hands are empty because the dump replaces every
-zone. The takeover counts in `manabrew_node_rooms_hosted{pool="takeover"}`, sits outside
-`max_games`, and leaves the relay when its game ends. The Rust engine cannot restore and refuses
-the checkpoint. `checkpoint_round_trip` in `java_backend.rs` plays a game to turn 3 on the
-subprocess JVM, restores it into a second session and plays on; the relay side is
-`dead_host_game_is_handed_to_an_idle_pod` in `networking-tests`.
+Only when the relay advertises `host_handoff` (`MANABREW_HOST_HANDOFF=1`) does a non-journal node start games with `checkpointExport: true` and forward each turn-start `GameCheckpoint` as `ReportCheckpoint`. A `HostHandoff` spawns `host_taken_over_room` on a fresh `<node>-h<room>` session, which claims the room, reseats the old host's bots and restores the checkpoint from a `startGameHook`. The restore is lossy and the Rust engine refuses it; `checkpoint_round_trip` and `dead_host_game_is_handed_to_an_idle_pod` cover it.
 
 ## The direct data plane
 
@@ -55,25 +35,10 @@ Hosted Forge sessions opt into `checkpointMetrics` in the internal start request
 
 `manabrew_node_forge_checkpoint_seconds{stage,seats}` is a histogram with `copy`, `bookkeeping`, and `total` stages, in seconds. Each stage has one observation per successful checkpoint; use `stage="total"` for checkpoint counts and total cost, rather than summing stages. `manabrew_node_forge_checkpoint_decision_seconds{seats}` records the accumulated checkpoint time for each measured decision, including zero-cost decisions. Startup and terminal checkpoint samples enter the creation histogram only. A killed or aborted session can lose unreported samples. Decision elapsed time is sampled before draining telemetry so that the metrics round trip does not inflate that observation. The Live Ops dashboard charts means, p95/p99, time per decision and its fraction of decision time. These timers measure synchronous wall time, including pauses during copying, but cannot attribute later GC to retained checkpoints.
 
-The JVM/native engine handles expose `read_decision_journal` and cumulative `acknowledge_decision_journal` (or destructive `drain_decision_journal`) for opt-in internal starts with `decisionJournal: true`. Official non-playing Forge hosts can enable acknowledged delivery with `SELF_HOSTED_NODE_DECISION_JOURNAL=1`; it is off by default. This is separate from checkpoint metrics: batches include hidden game inputs and belong in a trusted, acknowledged retention path, never Prometheus or analytics. See the harness AGENTS file for the sequence, overflow, and consumed-attempt contract.
+## Decision journal
 
-The relay's opt-in `decision_journal_v1` feature now accepts trusted-host `DecisionJournal` open/append/read requests, gated by its database configuration and the fleet secret. The opt-in hosted loop drives it through `journal.rs`, using one pending request per game and matching replies by game/session/request identity. When adding delivery, release engine entries only after a matching successful append response, never from an open/read status or a batch with `unavailable_reason`; reconnect must open a new writer epoch and retry the retained prefix. See `RELAY.md` for the authorization and durable-position contract.
+`SELF_HOSTED_NODE_DECISION_JOURNAL=1` (official non-playing Forge hosts only, off by default) starts games with `decisionJournal` and `decisionJournalCommitBarrier`. The node hashes the harness jar or loaded native library and the `res/` tree at boot, commits each harness batch through the relay with one pending request per game, and acknowledges the engine only on a matching append receipt. Missing replies retry, a reconnect opens a new writer epoch, and 60 seconds without delivery ends the session. Journal hosts record no UI snapshots and export no checkpoints; batches never enter metrics or analytics.
 
-Journal-enabled starts require an explicit `commitBarrier: true` in every harness batch. The node persists the harness's exact manifest batch and acknowledges sequence 0 before polling initial output. Each subsequent consumed decision stays blocked on the game thread until its matching append receipt confirms that exact sequence and writer epoch. Open/read positions never release decisions. Only one request is retained; a five-second missing reply or a busy response retries, reconnect discards the old connection's pending reply and opens a fresh writer epoch, and a sixty-second delivery failure ends the session. Cancellation wakes the engine through its session guard. Duplicate seat responses for the already-submitted prompt and repeated dice acknowledgements are ignored in journal mode, including input replay after reconnect.
+A journal takeover reads the whole durable prefix with the handoff token, checks it (`JournalHistory::recover`), and replays it in a fresh engine (`replay_journal`), requiring each recorded prompt and entry. Any failure declines without `ResumeRoom`, so seats see nothing. Only then does it claim the room and a new writer epoch, replay anything the old host committed meanwhile, and go live. `GameCheckpoint` has no RNG state, so it cannot serve as a replay base yet.
 
-Before advertising rooms, opt-in hosts hash the actual harness jar (JVM) or loaded Forge shared library (`dladdr`, Unix Graal) and a sorted, length-framed list of relative `res/` paths with each file's SHA-256. These identities are cached per process; engine and rules files must remain immutable for that process's lifetime. Symlinks below `res/` are rejected. JVM extra classpath/extra options and Windows native artifact discovery are not supported in this mode. The hashes identify artifacts, not full hidden-state equality or universal cross-runtime determinism. Internal Forge AI and checkpoint starts remain gated by the harness pending deterministic validation.
-
-Journal hosts disable UI snapshot recording (restore is unsupported in this mode), export no turn checkpoints, and never forward lossy ones. They name `journal_handoff` instead of `host_handoff` and take over only journal games; a mismatched offer is declined.
-
-A journal takeover (`host_taken_over_room` with `Takeover::Journal`) runs in this order, and the order is the safety argument:
-
-1. Read the whole durable prefix with the handoff token (`read_handoff_journal`). This cannot extend or fence the journal.
-2. `JournalHistory::recover` refuses a gap, a prefix that shrinks or changes manifest between pages, an invalidated journal, a different engine or rules-asset hash, or a start request that is not a gated journal game with this game id.
-3. Start a fresh engine from the exact recorded start request and `replay_journal`: every entry must find the engine at the recorded prompt and come back out as the identical consumed entry; the barrier is released locally because those entries are already durable.
-4. Any failure above sends `DeclineHostHandoff`, aborts the engine and never sends `ResumeRoom`, so seats see nothing and the relay tries another pod.
-5. Only now `ResumeRoom` makes this session the host (seats get `HostChanged`), then the engine `claim`s a new writer epoch, which fences every older writer. If the old host committed more after step 1, the suffix is read as the host, must extend the replayed prefix unchanged, and is replayed before any output.
-6. The engine goes live; its next decision is appended at the next sequence under the new epoch.
-
-`manabrew_node_journal_takeovers_total{result="declined"|"unclaimed"|"claimed"}` counts outcomes. The replay base is the start of the game: `GameCheckpoint` carries no RNG state and drops effects that outlive a turn, so it cannot yet serve as a replay base for a journal suffix. A future base must record the journal sequence it was taken at and restore every state the next decision depends on; `replay_entries` already replays any contiguous suffix. No deployment enables journals yet. Shadow read authorization, shadow verification/scheduling, retention expiry, and fleet admission remain unfinished.
-
-`manabrew_node_forge_journal_commit_seconds{stage="startup"|"decision"}` measures successful batch retention wall time including relay queueing, storage, retries, and reconnect waits; `manabrew_node_forge_journal_retries_total` counts retries. Opt-in decision elapsed metrics include that commit wait, so they no longer represent rules work alone. Journal contents and artifact manifests never enter metrics. `yarn bench:hosted-journal --node <node> --relay <relay> --jar <jar> --forge-home <forge-gui>` runs a real local node/relay through withheld receipts, a lost reply on a live socket, connection replacement, relay restart, duplicate seat answers, a frozen host offered first to a pod with a different engine jar and to a pod reading a tampered entry (both must decline without touching the journal or the seats) and then to a matching pod (which must reach the identical pending prompt, fence the old writer, keep the stale host's output off every seat and extend the same journal), and permanent invalidation. For a Graal node, supply `--engine-artifact <loaded-library>` for the identity assertion and `--jvm-node <jvm-node>`: the mismatched pod is then a JVM node, and the native takeover replay stands in for the JVM verifier, which cannot load a native journal.
+`yarn bench:hosted-journal` covers delivery faults, relay restart, declined and successful takeovers, and invalidation; add `--engine-artifact <library> --jvm-node <jvm-node>` for a Graal node.

@@ -2173,10 +2173,8 @@ fn run_hosted_engine_game_inner(
     }
 }
 
-/// Starts from the exact recorded start request and feeds every consumed
-/// decision back through the commit barrier. Each one must find the engine at
-/// the recorded prompt and come back out of the engine as the recorded entry;
-/// the entries are already durable, so the barrier is released locally.
+/// Each entry must meet the recorded prompt and be re-recorded identically; it
+/// is already durable, so the commit barrier is released locally.
 #[cfg(forge_backend)]
 fn replay_journal(
     engine: &ForgeEngine,

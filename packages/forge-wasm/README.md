@@ -93,9 +93,7 @@ Call `dispose()` to terminate the worker. A running Forge game is synchronous in
 
 ## Experimental engine decision journal
 
-Pass `decisionJournal: true` to an ordinary engine's start options to receive `forge:journal` batches through `onEvent`. `ForgeDecisionJournalBatch` describes the payload. The initial batch carries `startRequest` as a JSON string; retain that string intact to preserve 64-bit seeds. Entries contain a monotonically increasing `sequence`, the deciding `playerIndex`, the current `prompt`, and the canonical `action` dequeued by the game thread. Directives are included. A consumed attempt can still be rejected by the game's subsequent validation.
-
-This is an opt-in foundation for retained relay history and shadow verification. It does not enable either service. Batches contain hidden information and must stay with trusted engine hosts. Consumers must pin the engine and assets, retain every batch, and require contiguous sequences. The pending buffer is capped at 4096 entries and 8 MiB of serialized data; `unavailableReason` permanently invalidates the history if it overflows or encounters snapshot restore. Internal Forge AI and starting from a checkpoint are unsupported. Older artifacts can ignore the option: require the initial manifest before claiming that journaling is active.
+`decisionJournal: true` emits `forge:journal` batches (`ForgeDecisionJournalBatch`) through `onEvent`: the exact start request as a string, then each consumed input with its sequence, seat and prompt. Batches hold hidden information, so keep them with trusted hosts. Overflow or a snapshot restore sets a permanent `unavailableReason`.
 
 ## Types
 

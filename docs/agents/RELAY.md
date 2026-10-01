@@ -26,32 +26,7 @@ The relay is the single owner of the reconnect window: a disconnected in-game se
 
 ## Host handoff
 
-A hosted game need not die with its host. Checkpoint handoff is opt-in: only with `MANABREW_HOST_HANDOFF=1` does the relay advertise `host_handoff`, keep checkpoints or offer a checkpoint game, because a checkpoint restore is lossy (see the harness AGENTS file). Journal handoff needs only `MANABREW_JOURNAL_DB`. The host files `ReportCheckpoint` at the start of each
-turn (`GameCheckpoint` in the harness: Forge's dev-mode state text plus commander tax and damage,
-monarch, initiative, day/night and eliminated seats), the relay keeps only the newest per game on
-the replay cache (`HostCheckpoint`, host-only, `game_id` must match, capped at
-`MAX_CHECKPOINT_BYTES`) and never forwards it to a seat: it is every library in order and every
-hand. When a non-playing host drops, `schedule_host_resume_abort` waits `HOST_HANDOFF_GRACE`
-for it to come back, then `offer_host_handoff` picks an idle pod (`handoff_candidate`: a
-connected service session hosting an empty lobby table that named the right feature in
-`Authenticate.features` and has not been asked yet), mints a fresh `resume_token` on the room
-and sends that session `HostHandoff { request, turn, checkpoint, journal }`. A game with a
-durable decision journal is offered with `journal: true` and no checkpoint, only to sessions
-that named `journal_handoff`; an invalidated or unreadable journal is never offered and never
-falls back to a checkpoint. Other games need a checkpoint and a `host_handoff` session. A
-`DeclineHostHandoff` with the current token, or an unclaimed window (`HOST_HANDOFF_WINDOW`,
-`JOURNAL_HANDOFF_WINDOW` for journal replay), rotates the token so that session can never claim
-the room, and the relay offers the next pod, up to `HOST_HANDOFF_ATTEMPTS`, until the room's
-reconnect timeout. With no pod connected it keeps looking until then. The token is the whole authorisation: the taker
-claims the room with an ordinary `ResumeRoom` from a new session, `resume_room_sync` rotates the
-host, clears the old host's cached boards, pending prompts and queued inputs (`GameReplayCache::host_changed`),
-and the handler broadcasts `HostChanged { host, turn }` to the seats so they drop every engine id
-they hold and wait for a whole board. The same node reconnecting after a socket blip goes through
-the same rotation with the same username and is not a host change. Nothing claims the room
-within `HOST_HANDOFF_WINDOW` and it dies as `host_lost` as before.
-`manabrew_relay_host_handoffs_total{result}` counts every step; `manabrew_relay_checkpoints_total`
-what the host filed. Playing hosts (browser, desktop) file no checkpoint yet and are not offered
-a handoff.
+When a non-playing host stays gone for `HOST_HANDOFF_GRACE`, `offer_host_handoff` sends an idle pod `HostHandoff` with a fresh `resume_token`; the taker claims the room with an ordinary `ResumeRoom` and seats get `HostChanged`, which voids every engine id they hold. A game with a durable journal is offered with `journal: true` to `journal_handoff` sessions; otherwise the relay needs `MANABREW_HOST_HANDOFF=1` and a turn-start checkpoint, which is lossy and never forwarded to seats. A decline or unclaimed window rotates the token and moves to the next pod, up to `HOST_HANDOFF_ATTEMPTS`; then the game ends as `host_lost`.
 
 ## Identity and usernames
 
@@ -99,22 +74,8 @@ An unknown `ClientMessage` is answered with a parse error rather than a disconne
 
 The inline `data:image/webp;base64,` encoding these fields used to carry is gone, not deprecated — the fields are URLs and nothing accepts a blob any more.
 
-## Durable decision journal foundation
+## Durable decision journal
 
-`journal.rs` provides the SQLite store; `journal_transport.rs` exposes it over the opt-in `decision_journal_v1` relay feature. Official hosted Forge engines can opt into it with `SELF_HOSTED_NODE_DECISION_JOURNAL=1`; see `SELF_HOSTED_NODE.md`. `JournalStore` opens a dedicated local database with WAL, `synchronous=FULL`, and transactional schema versioning. Call it on a blocking worker. Keep its hidden inputs out of seat broadcasts and analytics. It does not authenticate callers: its caller must authorize the current room/game host before beginning or claiming a journal, serialize that authorization with ownership changes, and give each ownership claim a unique writer ID that is reused only when retrying that claim. Store epochs fence old appends after a claim commits; they do not elect a host or verify a shadow engine.
+`MANABREW_JOURNAL_DB` opts the relay into a SQLite journal (`journal.rs`, served by `journal_transport.rs` as `decision_journal_v1`); it requires `SECRET_MANABREW_KEY` and no deployment sets it. The manifest pins engine and asset hashes and the exact start request. Appends are atomic, contiguous and idempotent, conflicting retries fail, and an invalidation is permanent. Each `open` from a new session, reconnect or relay restart raises the writer epoch, which fences older writers. Durability covers process crashes on one volume only.
 
-The immutable manifest pins engine and asset SHA-256 identities and preserves the exact start-request string. Appends atomically compare overlapping decisions, reject conflicting retries/gaps, and store the new contiguous prefix before returning an acknowledgement. For usable batches, the returned acknowledgement never exceeds the submitted prefix, even when storage already has more decisions. A result with `unavailable_reason` is a permanent failure status, not an acknowledgement or evidence that replay is possible. A claim compares the expected persisted epoch, increments it on a new writer, and is retryable by the same writer. Reads take a consistent transaction snapshot and paginate by sequence, at most 4096 entries/9 MiB of entry data plus the manifest. Batches may include `commitBarrier: true`, which the hosted node requires as confirmation of the harness gate; storage accepts both gated and legacy batches. Batch input is capped at 9 MiB, the start request at 8 MiB, and each game's serialized manifest/entries at 256 MiB. These are payload bounds, not total database or heap quotas. Invalidation permanently blocks continuation but preserves the stored prefix for diagnosis; retrying the same invalidation is safe.
-
-This provides durability across process crashes on one storage volume, not replicated durability across machine/disk loss. There is no retention expiry, aggregate disk quota, or promotion yet. Hosted delivery has an opt-in game-thread commit barrier; production configuration remains disabled while storage lifecycle and shadow recovery are unfinished. Run `yarn bench:relay-journal` for the real SQLite subprocess probe (crash/reopen, retry conflicts, rollback, competing writers, epoch persistence, pagination, and permanent invalidation); CI runs it in the Rust server job.
-
-### Journal relay access
-
-`MANABREW_JOURNAL_DB` opts the relay into a dedicated SQLite database on a persistent local volume. Its parent directory must exist. Startup fails if the database cannot open or `SECRET_MANABREW_KEY` is absent. With no database configured, the relay omits `decision_journal_v1` from `AuthResult.features`. Nothing in deployment configuration enables this yet.
-
-`ClientMessage::DecisionJournal` carries `game_id`, `request_id` (1–128 bytes), `official_key`, and a tagged request: `open { manifest }`, `append { epoch, batch }`, or `read { after, limit }`. The manifest and batch are JSON strings using the store's schema. The fleet secret is checked for every request; the service flag or an inherited official-room flag alone is insufficient. Under the room/session guards the handler also requires a connected current-generation service session that owns that exact active official hosted game. The storage key hashes an unambiguous length-prefixed room/game pair, so a different room cannot recover or claim this history even if it presents the same game ID. Room and session read guards remain held through the storage transaction to serialize it with host/session changes. A nonblocking player-map lookup avoids inversion against room mutations; a busy authorization or storage queue is retryable. Disk stalls can delay room/session mutations, so measure this before production activation.
-
-Database work runs on a blocking worker with at most eight accepted operations across the relay; each connection waits for its reply before processing another request. `open` atomically claims the immutable matching manifest for a writer identified by relay boot, session ID, and connection generation. Repeated opens on one connection keep the epoch; reconnect, relay restart, or host change fences the old writer by incrementing the persisted epoch. Appends must name the resulting epoch. Superseded sockets stop dispatching new messages; authorization is checked again inside the storage worker.
-
-Only the requesting socket receives `DecisionJournalResult { game_id, request_id, result }`; Rust's serialized `Result` is `{ "Ok": "<JSON>" }` or `{ "Err": "<message>" }`. These replies bypass room broadcasts, resync caches, analytics, and game capture. An `open` position is storage status, never an engine acknowledgement. A `read` position describes the entire durable prefix; paginate from the last returned entry instead. A successful `append` with no `unavailable_reason` is the only response that may release the corresponding engine journal prefix, except during takeover replay, where the replayed engine must re-record exactly the entries read from the durable prefix. A permanent invalidation is not successful replay retention even though its status is durably stored. Reads are allowed to the active trusted host and, with `handoff { room_id, resume_token }`, to a connected service session holding the room's current resume token, which is how a takeover replays the history before it claims the room. A handoff read never opens a writer or changes the epoch; `open` and `append` with a handoff are refused. Shadow subscriptions require a separate authorization path.
-
-`yarn bench:relay-journal-wire` drives real relay subprocesses and WebSockets through disabled mode, credential/seat/game rejection, identical and conflicting retries, session replacement, process restart, and host change. It checks persisted epochs and seat privacy and runs in the Rust server CI job. This is delivery infrastructure, not automatic shadow promotion or full-state verification.
+Only the connected service session hosting that official game may open, append or read; a `handoff` read with the room's current resume token lets a taker replay before it claims, without changing the epoch. Replies go to the requesting socket only and never reach seats, caches or analytics. Release an engine prefix only on a matching `append` receipt. Storage holds room guards across the transaction, so disk stalls delay room changes. `yarn bench:relay-journal` and `yarn bench:relay-journal-wire` cover the store and the wire.

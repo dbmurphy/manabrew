@@ -351,9 +351,8 @@ pub enum ClientMessage {
         reason: String,
     },
 
-    /// The host's latest turn-start checkpoint. Hidden information for every
-    /// seat: the relay keeps the newest one per game for a host handoff and
-    /// never forwards it to a player.
+    /// The host's latest turn-start checkpoint. Hidden information: the relay
+    /// keeps the newest per game for a handoff and never forwards it.
     ReportCheckpoint {
         game_id: String,
         seq: u64,
@@ -448,9 +447,8 @@ pub enum ServerMessage {
     RoomResumed {
         room: RoomInfo,
     },
-    /// The relay asks this session to continue a game whose host is gone.
-    /// `request` is the `ResumeRoom` it must send once its engine holds the
-    /// checkpoint; the token in it is the only authorisation.
+    /// Asks this session to continue a game whose host is gone. The token in
+    /// `request` is the only authorisation.
     HostHandoff {
         request: ResumeRoomRequest,
         turn: u32,
@@ -759,9 +757,8 @@ pub const FEATURE_PEER_SIGNAL: &str = "peer_signal";
 /// Names [`ClientMessage::ReportPlaneQuality`] in `AuthResult::features`.
 pub const FEATURE_PLANE_QUALITY: &str = "plane_quality";
 
-/// Names [`ClientMessage::ReportCheckpoint`] and [`ServerMessage::HostHandoff`]
-/// in both directions: a relay that keeps checkpoints, a session that can
-/// take a game over.
+/// A relay that keeps checkpoints, or a session that can take a checkpoint
+/// game over.
 pub const FEATURE_HOST_HANDOFF: &str = "host_handoff";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

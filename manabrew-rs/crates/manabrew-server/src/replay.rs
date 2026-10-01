@@ -22,9 +22,8 @@ pub struct ReportedOutcome {
     pub turns: Option<u32>,
 }
 
-/// The host's newest turn-start checkpoint, kept for a handoff. Hidden
-/// information: never leaves the relay except to the session that takes the
-/// game over.
+/// The host's newest turn-start checkpoint. Hidden information: it reaches
+/// only the session that takes the game over.
 #[derive(Debug)]
 pub struct HostCheckpoint {
     pub host_player_id: String,

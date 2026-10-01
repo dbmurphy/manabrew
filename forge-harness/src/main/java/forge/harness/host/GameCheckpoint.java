@@ -16,25 +16,16 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
-/**
- * A running game as text that another host can continue from. Forge's dev-mode
- * {@link GameState} carries the board; the sidecar carries what it does not:
- * eliminated seats, commander tax and damage, the monarch, the initiative and
- * day/night. Taken only at a clean point, so the stack and combat never need
- * carrying. Everything in it is hidden information: libraries in order, every
- * hand. It travels host to host only.
- */
+// A running game as GameState text plus a sidecar, taken only at a clean point.
+// Hidden information: it travels host to host only.
 final class GameCheckpoint {
     static final int VERSION = 1;
 
     private GameCheckpoint() {
     }
 
-    /**
-     * GameState.applyToGame defers through GameAction.invoke, which only runs
-     * inline on a thread named {@code Game*}. The harness game thread is not,
-     * so the deferred form races the engine. Apply directly, on the game thread.
-     */
+    // applyToGame defers through GameAction.invoke, which runs inline only on
+    // threads named Game*; the harness thread is not, so apply directly.
     private static final class DirectGameState extends GameState {
         void applyNow(final Game game) {
             applyGameOnThread(game);

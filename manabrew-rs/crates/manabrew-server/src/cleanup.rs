@@ -15,10 +15,8 @@ const CLEANUP_INTERVAL: Duration = Duration::from_secs(60);
 const STALE_CONNECTED_TIMEOUT: Duration = Duration::from_secs(180);
 const IN_GAME_DISCONNECTED_GRACE: Duration = Duration::from_secs(3600);
 const RECONNECT_ABORT_MARGIN: Duration = Duration::from_secs(5);
-/// How long a hosted room waits for its own host before another session is
-/// asked to continue the game. A node that only lost its socket is back well
-/// inside this; one that died never is, and every seat's own reconnect timer
-/// is still running.
+/// How long a hosted room waits for its own host before offering the game to
+/// another session. A node that only lost its socket is back well inside it.
 const HOST_HANDOFF_GRACE: Duration = Duration::from_secs(20);
 /// Time for the asked session to load the checkpoint and claim the room.
 const HOST_HANDOFF_WINDOW: Duration = Duration::from_secs(45);
@@ -286,9 +284,8 @@ fn offer_open(state: &Arc<ServerState>, room_id: &str, token: &str) -> bool {
         .is_some_and(|room| room.resume_token == token)
 }
 
-/// Asks an idle pod to continue the game, from its durable decision journal
-/// when it has one and from the host's last checkpoint otherwise. The fresh
-/// resume token in the request is the only authorisation it gets.
+/// Offers the game to an idle pod, from its journal if it has one, else from a
+/// checkpoint. The fresh resume token is the only authorisation.
 async fn offer_host_handoff(
     state: &Arc<ServerState>,
     room_id: &str,
