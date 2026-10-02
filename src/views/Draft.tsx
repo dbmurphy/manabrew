@@ -62,8 +62,6 @@ export default function Draft() {
     setPicking(true);
     try {
       await pick(draftId, card);
-    } catch {
-      /* surfaced via lastError */
     } finally {
       pickingRef.current = false;
       setPicking(false);

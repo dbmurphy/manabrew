@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from "react";
+import { cmcBucketIndex, scryfallToDeckCard } from "@/components/editor/deckBuilder.utils";
 import type { BuildFilters } from "@/components/limited/LimitedBuildFilters";
 import type { BuildGroup } from "@/components/limited/useLimitedBuildStore";
 import { peekCard, useScryfallStore } from "@/stores/useScryfallStore";
@@ -27,11 +28,17 @@ export function useLimitedBuildCards(
           return (
             (!search || card.name.toLocaleLowerCase().includes(search)) &&
             !filters.colors.length &&
-            filters.type === "all"
+            filters.type === "all" &&
+            filters.manaValue == null
           );
         const faces = info.card_faces ?? [];
         const type = info.type_line ?? faces[0]?.type_line ?? "";
         const colors = info.colors ?? faces[0]?.colors ?? [];
+        if (
+          filters.manaValue != null &&
+          cmcBucketIndex(scryfallToDeckCard(info)) !== filters.manaValue
+        )
+          return false;
         if (filters.type !== "all" && !type.includes(filters.type)) return false;
         if (
           filters.colors.length &&

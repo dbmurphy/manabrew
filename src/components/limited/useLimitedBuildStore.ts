@@ -1,16 +1,13 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import {
-  BASIC_LAND_NAMES,
-  isSynthBasic,
-  resolveBasicLand,
-  type BasicLandName,
-} from "@/lib/limited.utils";
+import { BASIC_LAND_NAMES, isSynthBasic } from "@/lib/limited.utils";
 import type { DraftCard } from "@/types/limited";
 
 export type BuildGroup = "none" | "color" | "cmc" | "type" | "rarity";
+export type BuildZone = "pool" | "main" | "sideboard" | "maybe";
 export interface BuildAllocation {
   mainIds: string[];
+  sideboardIds: string[];
   maybeIds: string[];
   basics: DraftCard[];
 }
@@ -28,8 +25,15 @@ export interface BuildSession {
   cardSize: number;
   mode: "gallery" | "list";
 }
+interface PendingPick {
+  id: string;
+  zone: BuildZone;
+}
 interface BuildStore {
   sessions: Record<string, BuildSession>;
+  pendingPicks: Record<string, PendingPick>;
+  queuePick: (key: string, id: string, zone: PendingPick["zone"]) => void;
+  cancelPick: (key: string, id: string) => void;
   suggest: (key: string, main: DraftCard[], sideboard: DraftCard[]) => void;
   quickPick: boolean;
   setQuickPick: (value: boolean) => void;
@@ -41,8 +45,7 @@ interface BuildStore {
   ) => void;
   reconcilePool: (key: string, pool: DraftCard[]) => void;
   edit: (key: string, change: (allocation: BuildAllocation) => BuildAllocation) => void;
-  move: (key: string, ids: readonly string[], zone: "main" | "pool" | "maybe") => void;
-  addBasic: (key: string, name: BasicLandName) => Promise<void>;
+  move: (key: string, ids: readonly string[], zone: BuildZone) => void;
   undo: (key: string) => void;
   redo: (key: string) => void;
   preferences: (
@@ -61,6 +64,7 @@ function initialAllocation(
   const used = new Set<string>();
   const basics: DraftCard[] = [];
   const mainIds: string[] = [];
+  const sideboardIds: string[] = [];
   for (const [cards, inMain] of [
     [main, true],
     [sideboard, false],
@@ -74,9 +78,10 @@ function initialAllocation(
       if (!match) continue;
       used.add(match.id);
       if (inMain) mainIds.push(match.id);
+      else sideboardIds.push(match.id);
     }
   }
-  return { mainIds, maybeIds: [], basics };
+  return { mainIds, sideboardIds, maybeIds: [], basics };
 }
 export function buildDeck(session: Pick<BuildSession, "pool" | "allocation">) {
   const mainIds = new Set(session.allocation.mainIds);
@@ -90,9 +95,19 @@ export const useLimitedBuildStore = create<BuildStore>()(
   persist(
     (set, get) => ({
       sessions: {},
+      pendingPicks: {},
+      queuePick: (key, id, zone) =>
+        set((state) => ({ pendingPicks: { ...state.pendingPicks, [key]: { id, zone } } })),
+      cancelPick: (key, id) =>
+        set((state) => {
+          if (state.pendingPicks[key]?.id !== id) return state;
+          const pendingPicks = { ...state.pendingPicks };
+          delete pendingPicks[key];
+          return { pendingPicks };
+        }),
       quickPick: false,
       setQuickPick: (quickPick) => set({ quickPick }),
-      sync: (key, pool, main = [], sideboard = []) =>
+      sync: (key, pool, main = [], sideboard = []) => {
         set((state) => {
           const session = state.sessions[key];
           const knownBasics = new Set(
@@ -120,13 +135,18 @@ export const useLimitedBuildStore = create<BuildStore>()(
                     undo: [],
                     redo: [],
                     builds: [],
-                    group: "color",
+                    group: "none",
                     cardSize: 130,
                     mode: "gallery",
                   },
             },
           };
-        }),
+        });
+        const pending = get().pendingPicks[key];
+        if (!pending || !pool.some((card) => card.id === pending.id)) return;
+        get().cancelPick(key, pending.id);
+        get().move(key, [pending.id], pending.zone);
+      },
       reconcilePool: (key, pool) =>
         set((state) => {
           const session = state.sessions[key];
@@ -162,19 +182,13 @@ export const useLimitedBuildStore = create<BuildStore>()(
         get().edit(key, (allocation) => {
           const moved = new Set(ids);
           const mainIds = allocation.mainIds.filter((id) => !moved.has(id));
+          const sideboardIds = allocation.sideboardIds.filter((id) => !moved.has(id));
           const maybeIds = allocation.maybeIds.filter((id) => !moved.has(id));
           if (zone === "main") mainIds.push(...new Set(ids));
+          if (zone === "sideboard") sideboardIds.push(...new Set(ids));
           if (zone === "maybe") maybeIds.push(...new Set(ids));
-          return { ...allocation, mainIds, maybeIds };
+          return { ...allocation, mainIds, sideboardIds, maybeIds };
         }),
-      addBasic: async (key, name) => {
-        const card = await resolveBasicLand(name);
-        get().edit(key, (allocation) => ({
-          ...allocation,
-          basics: [...allocation.basics, card],
-          mainIds: [...allocation.mainIds, card.id],
-        }));
-      },
       undo: (key) =>
         set((state) => {
           const session = state.sessions[key];
@@ -229,6 +243,7 @@ export const useLimitedBuildStore = create<BuildStore>()(
         if (build)
           get().edit(key, () => ({
             mainIds: build.mainIds,
+            sideboardIds: build.sideboardIds,
             maybeIds: build.maybeIds,
             basics: build.basics,
           }));
@@ -244,6 +259,22 @@ export const useLimitedBuildStore = create<BuildStore>()(
           };
         }),
     }),
-    { name: "manabrew-limited-builds" },
+    {
+      name: "manabrew-limited-builds",
+      version: 1,
+      migrate: (persistedState, version) => {
+        const state = persistedState as Pick<BuildStore, "sessions" | "quickPick">;
+        if (version < 1) {
+          for (const session of Object.values(state.sessions)) {
+            session.allocation.sideboardIds = [];
+            for (const allocation of session.undo) allocation.sideboardIds = [];
+            for (const allocation of session.redo) allocation.sideboardIds = [];
+            for (const build of session.builds) build.sideboardIds = [];
+          }
+        }
+        return state;
+      },
+      partialize: (state) => ({ sessions: state.sessions, quickPick: state.quickPick }),
+    },
   ),
 );

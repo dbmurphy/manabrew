@@ -5,7 +5,6 @@ import { CardHoverPreview } from "@/components/game/CardHoverPreview";
 import { useCardPreview } from "@/hooks/useCardPreview";
 import { refToDeckCard } from "@/lib/limited.utils";
 import { deckCardToPreviewDto } from "@/lib/scryfall.utils";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { LimitedCardScene } from "@/pixi/limited/LimitedCardScene";
 import {
@@ -20,6 +19,7 @@ export interface LimitedCardCanvasProps {
   cards: DraftCard[];
   selectedIds?: readonly string[];
   onSelect?: (card: DraftCard, additive: boolean) => void;
+  onSelectMany?: (ids: string[]) => void;
   onActivate?: (card: DraftCard) => void;
   onDrop?: (card: DraftCard, clientX: number, clientY: number) => void;
   disabled?: boolean;
@@ -39,6 +39,7 @@ export function LimitedCardCanvas({
   cards,
   selectedIds = NO_SELECTION,
   onSelect,
+  onSelectMany,
   onActivate,
   onDrop,
   disabled = false,
@@ -135,6 +136,7 @@ export function LimitedCardCanvas({
     acquiredIds,
     departureTarget,
     onSelect,
+    onSelectMany,
     onActivate,
     onDrop,
     onInspect: inspect,
@@ -239,26 +241,12 @@ export function LimitedCardCanvas({
       dismiss();
     }
   };
-  const focused =
-    cards.find((card) => card.id === focusedId) ??
-    cards.find((card) => selectedIds.includes(card.id));
   return (
     <div className={cn("relative flex min-h-0 flex-col", className)}>
       <p id={instructionsId} className="sr-only">
         Select a card. Enter to activate. Hover or hold to preview. I to pin. Use arrow keys to move
         between cards.
       </p>
-      <div className="absolute bottom-2 right-2 z-10 rounded-md bg-card/80">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="shrink-0"
-          disabled={!focused}
-          onClick={() => focused && inspect(focused, true)}
-        >
-          Preview
-        </Button>
-      </div>
       {error && (
         <p role="status" className="px-3 text-sm text-muted-foreground">
           Card canvas unavailable. Use the card controls below. {error}
@@ -266,12 +254,20 @@ export function LimitedCardCanvas({
       )}
       <div
         ref={scrollHost}
+        onPointerDown={(event) => {
+          if (event.target instanceof Element && event.target.closest("button")) return;
+          dismiss();
+          scene.current?.pressMarquee(event.nativeEvent);
+        }}
         onScroll={(event) => {
           setScrollTop(event.currentTarget.scrollTop);
           inspectionRequest.current += 1;
           if (!preview.getSnapshot().sticky) preview.dismiss();
         }}
-        className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain"
+        className={cn(
+          "relative min-h-0 flex-1 overflow-y-auto overscroll-contain",
+          onSelectMany && "cursor-crosshair",
+        )}
       >
         <div className="relative" style={{ height: Math.max(viewport.height, layout.height) }}>
           <div
@@ -287,6 +283,7 @@ export function LimitedCardCanvas({
                 else buttons.current.delete(cell.card.id);
               }}
               type="button"
+              data-limited-card-id={cell.card.id}
               disabled={disabled}
               aria-label={`${cell.card.name}, ${cell.card.setCode}, ${cell.card.cardNumber}, copy ${index + 1}`}
               aria-describedby={instructionsId}
@@ -313,6 +310,7 @@ export function LimitedCardCanvas({
               }}
               className={cn(
                 "absolute z-[2] cursor-pointer rounded-md p-2 text-sm opacity-0 focus-visible:opacity-100 focus-visible:bg-card focus-visible:text-card-foreground focus-visible:outline-2 focus-visible:outline-primary",
+                onDrop && "cursor-grab active:cursor-grabbing",
                 error && "bg-card opacity-100",
                 selectedIds.includes(cell.card.id) && "ring-2 ring-selection",
               )}
@@ -321,7 +319,7 @@ export function LimitedCardCanvas({
                 top: cell.y,
                 width: cell.width,
                 height: cell.height,
-                touchAction: "pan-y",
+                touchAction: onDrop ? "none" : "pan-y",
               }}
             >
               {cell.card.name}

@@ -11,7 +11,6 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { exportToArena } from "@/components/editor/deckExport";
 import { resolveDeckCards } from "@/lib/limited.utils";
 import { useDeckStore } from "@/stores/useDeckStore";
 import type { DraftCard } from "@/types/limited";
@@ -68,26 +67,6 @@ export function LimitedBuildSaveActions({
       setBusy(false);
     }
   };
-  const copy = async () => {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    setBusy(true);
-    try {
-      const [cards, sideboard] = await Promise.all([
-        resolveDeckCards(deck.main),
-        resolveDeckCards(deck.sideboard),
-      ]);
-      await navigator.clipboard.writeText(
-        exportToArena({ name: defaultDeckName, cards, sideboard }),
-      );
-      toast.success("Deck copied to clipboard.");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Couldn't copy the deck.");
-    } finally {
-      busyRef.current = false;
-      setBusy(false);
-    }
-  };
   return (
     <>
       <Button
@@ -101,14 +80,6 @@ export function LimitedBuildSaveActions({
       >
         Save to My Decks
       </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={busy || (!deck.main.length && !deck.sideboard.length)}
-        onClick={() => void copy()}
-      >
-        Copy decklist
-      </Button>
       <Dialog
         open={open}
         onOpenChange={(value) => {
@@ -119,7 +90,8 @@ export function LimitedBuildSaveActions({
           <DialogHeader>
             <DialogTitle>Save to My Decks</DialogTitle>
             <DialogDescription>
-              Every acquired card outside the main deck is saved in the sideboard, including Maybe.
+              Every acquired card outside the Mainboard is saved in the complete sideboard,
+              including Pool and Maybeboard.
             </DialogDescription>
           </DialogHeader>
           <form
@@ -138,11 +110,11 @@ export function LimitedBuildSaveActions({
               disabled={busy}
             />
             <p className="text-sm text-muted-foreground">
-              Main {deck.main.length} · Sideboard {deck.sideboard.length}
+              Mainboard {deck.main.length} · Complete sideboard {deck.sideboard.length}
             </p>
             {deck.main.length < targetMainSize && (
               <p className="text-sm text-warning">
-                {targetMainSize - deck.main.length} more main cards needed.{" "}
+                {targetMainSize - deck.main.length} more Mainboard cards needed.{" "}
                 {requireCompleteToSave
                   ? "Complete the deck before saving."
                   : "Saved as an unfinished deck."}

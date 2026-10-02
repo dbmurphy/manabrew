@@ -2,9 +2,16 @@ import { Container, Graphics, Sprite, Text } from "pixi.js";
 import { getTheme, subscribeTheme } from "@/hooks/useTheme";
 import { scryfallToDeckCard } from "@/lib/scryfall.utils";
 import { hexToNum } from "@/pixi/colorUtils";
+import {
+  DRAG_LIFT_SCALE,
+  dragPositionBlend,
+  dragTransformBlend,
+  dragTiltForMovement,
+} from "@/pixi/dragMotion";
 import { animationsEnabled } from "@/pixi/effects/enabled";
 import { gsap } from "@/pixi/effects/gsap";
 import { LongPressGesture } from "@/pixi/LongPressGesture";
+import { MarqueeHandler, type MarqueeCardPosition } from "@/pixi/MarqueeHandler";
 import {
   acquireLimitedRenderer,
   type LimitedPane,
@@ -32,6 +39,7 @@ export interface LimitedSceneProps {
   departureTarget?: () => HTMLElement | null;
   opening: boolean;
   onSelect?: (card: DraftCard, additive: boolean) => void;
+  onSelectMany?: (ids: string[]) => void;
   onActivate?: (card: DraftCard) => void;
   onDrop?: (card: DraftCard, clientX: number, clientY: number) => void;
   onInspect: (card: DraftCard | null, sticky: boolean) => void;
@@ -62,6 +70,18 @@ interface Drag {
   pointerType: string;
   additive: boolean;
   target: EventTarget | null;
+  table: Element | null;
+  inspected: boolean;
+  targetX: number;
+  targetY: number;
+  lastX: number;
+  lastY: number;
+  targetRotation: number;
+  restRotation: number;
+  restScaleX: number;
+  restScaleY: number;
+  dropZone: Element | null;
+  settleTimeline: gsap.core.Timeline | null;
 }
 const DEAL_DURATION = 0.38;
 const DEAL_STAGGER = 0.025;
@@ -95,6 +115,9 @@ export class LimitedCardScene implements LimitedPane {
   private hoveredId: string | null = null;
   private revealing = false;
   private drag: Drag | null = null;
+  private readonly marquee = new MarqueeHandler();
+  private marqueePointerId: number | null = null;
+  private settling: Drag | null = null;
   private lastTap: { id: string; time: number } | null = null;
   readonly host: HTMLElement;
   private props: LimitedSceneProps;
@@ -122,13 +145,26 @@ export class LimitedCardScene implements LimitedPane {
       window.addEventListener("pointerup", this.release);
       window.addEventListener("pointercancel", this.cancelPointer);
       window.addEventListener("blur", this.abort);
+      window.addEventListener("scroll", this.abort, true);
+      window.addEventListener("resize", this.abort);
+      window.visualViewport?.addEventListener("scroll", this.abort);
+      document.addEventListener("visibilitychange", this.visibilityChanged);
       this.update(this.props);
     } catch (error) {
       if (!this.disposed) this.onError(error instanceof Error ? error.message : String(error));
     }
   }
-  readonly frame = (): boolean => {
+  readonly frame = (deltaMs: number): boolean => {
+    const drag = this.drag ?? this.settling;
+    if (
+      drag &&
+      (!this.host.isConnected ||
+        !drag.table?.isConnected ||
+        drag.table !== this.host.closest("[data-limited-table]"))
+    )
+      this.abort();
     if (!animationsEnabled()) this.finishAnimations();
+    this.updateDragMotion(deltaMs);
     if (this.revealing && !this.reveal.active) {
       for (const entry of this.entries.values()) this.updatePose(entry);
     }
@@ -137,6 +173,7 @@ export class LimitedCardScene implements LimitedPane {
     for (const entry of this.entries.values()) {
       if (entry.layoutTimeline || entry.motionTimeline || entry.poseTimeline) return true;
     }
+    if (this.settling || (this.drag?.active && animationsEnabled())) return true;
     return false;
   };
   update(props: LimitedSceneProps): void {
@@ -172,7 +209,14 @@ export class LimitedCardScene implements LimitedPane {
       return previous && this.cellChanged(previous, cell);
     });
     if (newArrival || scrollChanged || !props.opening || layoutChanged) this.reveal.finish();
-    if (props.disabled || scrollChanged) this.abort();
+    if (
+      props.disabled ||
+      scrollChanged ||
+      newArrival ||
+      (!props.onDrop && this.drag?.active) ||
+      (!props.onSelectMany && this.marquee.isActive)
+    )
+      this.abort();
     if (!animationsEnabled()) this.finishAnimations();
     for (const [id, entry] of this.entries) {
       if (visibleIds.has(id)) continue;
@@ -183,10 +227,11 @@ export class LimitedCardScene implements LimitedPane {
         props.departureTarget
       )
         this.renderer.flyCard(this, entry.image, props.departureTarget);
-      if (this.drag?.entry === entry) this.abort();
+      if (this.drag?.entry === entry || this.settling?.entry === entry) this.abort();
+      else if (this.renderer.isLifted(entry.root)) this.renderer.restoreCard(this, entry.root);
       this.killEntry(entry);
       entry.root.removeFromParent();
-      entry.root.destroy({ children: true });
+      entry.root.destroy({ children: true, texture: false, textureSource: false });
       this.entries.delete(id);
       if (this.hoveredId === id) this.hoveredId = null;
     }
@@ -194,45 +239,16 @@ export class LimitedCardScene implements LimitedPane {
     for (const [index, cell] of visible.entries()) {
       let entry = this.entries.get(cell.card.id);
       const created = !entry;
-      if (!entry) {
-        const root = new Container();
-        const motion = new Container();
-        const pose = new Container();
-        const image = new Sprite();
-        const frame = new Graphics();
-        const label = new Text({
-          text: cell.card.name,
-          style: {
-            fontFamily: "Alegreya Sans",
-            fontSize: 13,
-            fill: theme.appTheme.foreground,
-            wordWrap: true,
-            wordWrapWidth: cell.width - 12,
-          },
-        });
-        root.addChild(motion);
-        motion.addChild(pose);
-        pose.addChild(frame, image, label);
-        this.root.addChild(root);
-        entry = {
-          cell,
-          root,
-          motion,
-          pose,
-          image,
-          frame,
-          label,
-          locale: "",
-          loading: false,
-          layoutTimeline: null,
-          motionTimeline: null,
-          poseTimeline: null,
-          poseLift: 0,
-          poseRotation: 0,
-          poseScale: 1,
-        };
-        this.entries.set(cell.card.id, entry);
-      }
+      if (!entry) entry = this.createEntry(cell);
+      if (
+        (this.drag?.entry === entry ||
+          this.settling?.entry === entry ||
+          this.renderer.isLifted(entry.root)) &&
+        this.cellChanged(entry.cell, cell)
+      )
+        this.abort();
+      if (this.renderer.isLifted(entry.root) && this.cellChanged(entry.cell, cell))
+        this.renderer.restoreCard(this, entry.root);
       if (newArrival || scrollChanged) this.finishEntry(entry);
       this.placeEntry(
         entry,
@@ -301,6 +317,54 @@ export class LimitedCardScene implements LimitedPane {
     this.hasLayout = true;
     this.request();
   }
+  private createEntry(cell: LimitedCell): CardEntry {
+    const theme = getTheme();
+    const root = new Container();
+    const motion = new Container();
+    const pose = new Container();
+    const image = new Sprite();
+    const frame = new Graphics()
+      .roundRect(0, 0, cell.width, cell.height, 6)
+      .fill(hexToNum(theme.appTheme.muted))
+      .stroke({ color: hexToNum(theme.gameTheme.cardSelection), width: 4 });
+    const label = new Text({
+      text: cell.card.name,
+      style: {
+        fontFamily: "Alegreya Sans",
+        fontSize: 13,
+        fill: theme.appTheme.foreground,
+        wordWrap: true,
+        wordWrapWidth: cell.width - 12,
+      },
+    });
+    root.addChild(motion);
+    motion.addChild(pose);
+    pose.addChild(frame, image, label);
+    this.root.addChild(root);
+    image.width = cell.width;
+    image.height = cell.height;
+    label.position.set(6, cell.height / 2 - label.height / 2);
+    const entry: CardEntry = {
+      cell,
+      root,
+      motion,
+      pose,
+      image,
+      frame,
+      label,
+      locale: "",
+      loading: false,
+      layoutTimeline: null,
+      motionTimeline: null,
+      poseTimeline: null,
+      poseLift: 0,
+      poseRotation: 0,
+      poseScale: 1,
+    };
+    this.entries.set(cell.card.id, entry);
+    this.placeEntry(entry, cell, true);
+    return entry;
+  }
   private cellChanged(previous: LimitedCell, cell: LimitedCell): boolean {
     return (
       previous.x !== cell.x ||
@@ -313,6 +377,7 @@ export class LimitedCardScene implements LimitedPane {
     const previous = entry.cell;
     const changed = this.cellChanged(previous, cell);
     entry.cell = cell;
+    if (this.renderer.isLifted(entry.root)) return;
     if (changed || snap) {
       entry.pose.pivot.set(cell.width / 2, cell.height / 2);
       entry.pose.x = cell.width / 2;
@@ -388,7 +453,12 @@ export class LimitedCardScene implements LimitedPane {
     timeline.to(entry.motion.scale, { x: 1, y: 1, duration, ease: "power3.out" }, delay);
   }
   private updatePose(entry: CardEntry, animate = true): void {
-    const interactive = !this.props.disabled && !this.reveal.active && this.drag?.entry !== entry;
+    const interactive =
+      !this.props.disabled &&
+      !this.reveal.active &&
+      this.drag?.entry !== entry &&
+      this.settling?.entry !== entry &&
+      !this.renderer.isLifted(entry.root);
     const hovered = interactive && this.hoveredId === entry.cell.card.id;
     const selected = interactive && this.props.selectedIds.includes(entry.cell.card.id);
     const lift = hovered ? HOVER_LIFT : selected ? SELECTED_LIFT : 0;
@@ -441,6 +511,10 @@ export class LimitedCardScene implements LimitedPane {
   }
   private finishEntry(entry: CardEntry): void {
     this.killEntry(entry);
+    if (this.renderer.isLifted(entry.root)) return;
+    entry.root.pivot.set(0);
+    entry.root.rotation = 0;
+    entry.root.skew.set(0);
     entry.root.position.set(entry.cell.x, entry.cell.y - this.props.scrollTop);
     entry.root.scale.set(1);
     if (this.drag?.entry !== entry || !this.drag.active) {
@@ -453,6 +527,7 @@ export class LimitedCardScene implements LimitedPane {
   }
   private finishAnimations(): void {
     if (this.reveal.active) this.reveal.finish();
+    this.finishSettling();
     for (const entry of this.entries.values()) {
       if (entry.layoutTimeline || entry.motionTimeline || entry.poseTimeline)
         this.finishEntry(entry);
@@ -487,10 +562,77 @@ export class LimitedCardScene implements LimitedPane {
         void this.load(entry);
     }
   }
+  pressMarquee(event: PointerEvent): void {
+    if (
+      !this.props.onSelectMany ||
+      this.props.disabled ||
+      this.drag ||
+      this.reveal.active ||
+      event.button !== 0 ||
+      event.pointerType === "touch"
+    )
+      return;
+    this.finishSettling();
+    this.marqueePointerId = event.pointerId;
+    this.marquee.setColor(hexToNum(getTheme().gameTheme.cardSelection));
+    this.marquee.start(
+      event.clientX,
+      event.clientY,
+      event.ctrlKey || event.metaKey || event.shiftKey,
+    );
+    this.renderer.addOverlay(this.marquee.graphics);
+    this.props.onInspect(null, false);
+  }
+  cardPositions(): Map<string, MarqueeCardPosition> {
+    const positions = new Map<string, MarqueeCardPosition>();
+    if (!this.props.onSelectMany || this.props.disabled) return positions;
+    for (const [id, entry] of this.entries) {
+      const transform = entry.root.getGlobalTransform();
+      const center = transform.apply({ x: entry.cell.width / 2, y: entry.cell.height / 2 });
+      positions.set(id, {
+        x: center.x,
+        y: center.y,
+        width: entry.cell.width * Math.hypot(transform.a, transform.b),
+        height: entry.cell.height * Math.hypot(transform.c, transform.d),
+      });
+    }
+    return positions;
+  }
+  dragCards(ids: readonly string[]): Container[] {
+    if (this.props.disabled || this.reveal.active) return [];
+    const roots: Container[] = [];
+    for (const id of ids) {
+      let entry = this.entries.get(id);
+      if (!entry) {
+        const cell = this.props.layout.cells.find((candidate) => candidate.card.id === id);
+        if (!cell) continue;
+        entry = this.createEntry(cell);
+        void this.load(entry);
+      }
+      if (this.renderer.isLifted(entry.root)) continue;
+      this.finishEntry(entry);
+      entry.root.pivot.set(entry.cell.width / 2, entry.cell.height / 2);
+      entry.root.position.set(
+        entry.cell.x + entry.cell.width / 2,
+        entry.cell.y - this.props.scrollTop + entry.cell.height / 2,
+      );
+      roots.push(entry.root);
+    }
+    return roots;
+  }
+  restoreDragCard(root: Container): void {
+    for (const entry of this.entries.values()) {
+      if (entry.root === root) {
+        this.finishEntry(entry);
+        break;
+      }
+    }
+  }
   pressCard(id: string, event: PointerEvent): void {
     const entry = this.entries.get(id);
     if (!entry || this.props.disabled || this.drag || event.button !== 0 || this.reveal.active)
       return;
+    this.finishSettling();
     this.longPress.reset();
     this.drag = {
       pointerId: event.pointerId,
@@ -501,12 +643,30 @@ export class LimitedCardScene implements LimitedPane {
       pointerType: event.pointerType,
       additive: event.ctrlKey || event.metaKey || event.shiftKey,
       target: event.target,
+      table: this.host.closest("[data-limited-table]"),
+      inspected: false,
+      targetX: 0,
+      targetY: 0,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      targetRotation: 0,
+      restRotation: 0,
+      restScaleX: 1,
+      restScaleY: 1,
+      dropZone: null,
+      settleTimeline: null,
     };
     this.finishEntry(entry);
     this.longPress.start(
       { pointerType: event.pointerType, global: { x: event.clientX, y: event.clientY } },
       entry.cell.card.id,
-      () => this.props.onInspect(entry.cell.card, true),
+      () => {
+        const drag = this.drag;
+        if (!drag || drag.entry !== entry || drag.active) return;
+        drag.inspected = true;
+        this.lastTap = null;
+        this.props.onInspect(entry.cell.card, true);
+      },
     );
   }
   hoverCard(id: string | null, pointerType: string): void {
@@ -527,13 +687,20 @@ export class LimitedCardScene implements LimitedPane {
     }
   }
   private readonly move = (event: PointerEvent): void => {
+    if (this.marqueePointerId === event.pointerId) {
+      this.marquee.move(event.clientX, event.clientY);
+      if (event.cancelable) event.preventDefault();
+      this.request();
+      return;
+    }
     const drag = this.drag;
-    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (!drag || drag.pointerId !== event.pointerId || drag.inspected) return;
     this.longPress.move(event.clientX, event.clientY);
     const dx = event.clientX - drag.startX;
     const dy = event.clientY - drag.startY;
     if (
       drag.pointerType === "touch" &&
+      !this.props.onDrop &&
       !drag.active &&
       Math.abs(dy) > Math.abs(dx) &&
       Math.abs(dy) > LIMITED_DRAG_THRESHOLD
@@ -542,34 +709,73 @@ export class LimitedCardScene implements LimitedPane {
       return;
     }
     if (!drag.active && this.props.onDrop && Math.hypot(dx, dy) > LIMITED_DRAG_THRESHOLD) {
-      drag.active = true;
+      const { entry } = drag;
       this.longPress.cancel();
-      this.finishEntry(drag.entry);
-      drag.entry.root.zIndex = 3;
+      this.finishEntry(entry);
+      entry.root.pivot.set(entry.cell.width / 2, entry.cell.height / 2);
+      entry.root.position.set(
+        entry.cell.x + entry.cell.width / 2,
+        entry.cell.y - this.props.scrollTop + entry.cell.height / 2,
+      );
+      if (!drag.table?.isConnected || !this.renderer.liftCard(this, entry.root)) {
+        this.abort();
+        return;
+      }
+      drag.active = true;
+      drag.targetX = entry.root.x;
+      drag.targetY = entry.root.y;
+      drag.restRotation = entry.root.rotation;
+      drag.targetRotation = drag.restRotation;
+      drag.restScaleX = entry.root.scale.x;
+      drag.restScaleY = entry.root.scale.y;
+      if (this.props.selectedIds.includes(entry.cell.card.id))
+        this.renderer.liftSelection(this, entry.root, this.props.selectedIds);
+      this.hoveredId = null;
+      this.lastTap = null;
+      this.props.onInspect(null, false);
     }
     if (!drag.active) return;
-    drag.entry.motion.position.set(dx / this.root.scale.x, dy / this.root.scale.y);
-    drag.entry.motion.alpha = 0.85;
+    if (event.cancelable) event.preventDefault();
+    drag.targetX += event.clientX - drag.lastX;
+    drag.targetY += event.clientY - drag.lastY;
+    drag.targetRotation = drag.restRotation + dragTiltForMovement(event.clientX - drag.lastX);
+    drag.lastX = event.clientX;
+    drag.lastY = event.clientY;
+    if (!animationsEnabled()) this.updateDragMotion(0);
+    this.setDropZone(drag, this.findDropZone(drag, event.clientX, event.clientY));
     this.request();
   };
   private readonly release = (event: PointerEvent): void => {
+    if (this.marqueePointerId === event.pointerId) {
+      this.marqueePointerId = null;
+      this.marquee.move(event.clientX, event.clientY);
+      const ids = this.marquee.end(
+        this.renderer.marqueePositions(this),
+        new Set(this.props.selectedIds),
+      );
+      this.props.onSelectMany?.([...ids]);
+      this.request();
+      return;
+    }
     const drag = this.drag;
     if (!drag || drag.pointerId !== event.pointerId) return;
     const held = this.longPress.consumeTap(drag.entry.cell.card.id);
-    this.abort();
-    if (held || this.props.disabled) return;
+    this.longPress.reset();
+    this.drag = null;
+    this.setDropZone(drag, null);
     if (drag.active) {
-      if (
-        event.clientX >= 0 &&
-        event.clientY >= 0 &&
-        event.clientX < window.innerWidth &&
-        event.clientY < window.innerHeight &&
-        document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-limited-zone]")
-      )
-        this.props.onDrop?.(drag.entry.cell.card, event.clientX, event.clientY);
+      this.lastTap = null;
+      const zone =
+        !held && !this.props.disabled && this.props.onDrop
+          ? this.findDropZone(drag, event.clientX, event.clientY)
+          : null;
+      this.settleDrag(drag);
+      if (zone) this.props.onDrop?.(drag.entry.cell.card, event.clientX, event.clientY);
       return;
     }
-    if (event.target !== drag.target) return;
+    this.finishEntry(drag.entry);
+    this.request();
+    if (held || drag.inspected || this.props.disabled || event.target !== drag.target) return;
     const now = performance.now();
     if (
       this.lastTap?.id === drag.entry.cell.card.id &&
@@ -583,15 +789,128 @@ export class LimitedCardScene implements LimitedPane {
       this.lastTap = { id: drag.entry.cell.card.id, time: now };
     }
   };
+  private updateDragMotion(deltaMs: number): void {
+    const drag = this.drag;
+    if (!drag?.active) return;
+    const root = drag.entry.root;
+    if (!animationsEnabled()) {
+      root.position.set(drag.targetX, drag.targetY);
+      root.rotation = drag.restRotation;
+      root.scale.set(drag.restScaleX, drag.restScaleY);
+      this.renderer.updateSelection(root, deltaMs);
+      return;
+    }
+    const positionBlend = dragPositionBlend(deltaMs);
+    const transformBlend = dragTransformBlend(deltaMs);
+    root.position.set(
+      root.x + (drag.targetX - root.x) * positionBlend,
+      root.y + (drag.targetY - root.y) * positionBlend,
+    );
+    root.scale.set(
+      root.scale.x + (drag.restScaleX * DRAG_LIFT_SCALE - root.scale.x) * transformBlend,
+      root.scale.y + (drag.restScaleY * DRAG_LIFT_SCALE - root.scale.y) * transformBlend,
+    );
+    root.rotation += (drag.targetRotation - root.rotation) * transformBlend;
+    drag.targetRotation =
+      drag.restRotation + (drag.targetRotation - drag.restRotation) * (1 - transformBlend);
+    this.renderer.updateSelection(root, deltaMs);
+  }
+  private findDropZone(drag: Drag, x: number, y: number): Element | null {
+    if (
+      !drag.table?.isConnected ||
+      !drag.table.contains(this.host) ||
+      drag.table !== this.host.closest("[data-limited-table]") ||
+      x < 0 ||
+      y < 0 ||
+      x >= window.innerWidth ||
+      y >= window.innerHeight
+    )
+      return null;
+    const zone = document.elementFromPoint(x, y)?.closest("[data-limited-zone]");
+    if (!zone || !drag.table.contains(zone)) return null;
+    const id = zone.getAttribute("data-limited-zone");
+    return id === "pool" || id === "main" || id === "sideboard" || id === "maybe" ? zone : null;
+  }
+  private setDropZone(drag: Drag, zone: Element | null): void {
+    if (drag.dropZone === zone) return;
+    drag.dropZone?.removeAttribute("data-limited-drop-active");
+    drag.dropZone = zone;
+    zone?.setAttribute("data-limited-drop-active", "true");
+  }
+  private settleDrag(drag: Drag): void {
+    this.settling = drag;
+    if (!animationsEnabled()) {
+      this.finishSettling();
+      return;
+    }
+    const { entry } = drag;
+    const center = this.root.toGlobal({
+      x: entry.cell.x + entry.cell.width / 2,
+      y: entry.cell.y - this.props.scrollTop + entry.cell.height / 2,
+    });
+    const timeline = gsap.timeline({
+      onUpdate: this.request,
+      onComplete: () => {
+        if (this.settling === drag) this.finishSettling();
+      },
+    });
+    drag.settleTimeline = timeline;
+    this.renderer.settleSelection(entry.root, timeline, REFLOW_DURATION);
+    timeline.to(
+      entry.root,
+      {
+        x: center.x,
+        y: center.y,
+        rotation: drag.restRotation,
+        duration: REFLOW_DURATION,
+        ease: "power3.out",
+      },
+      0,
+    );
+    timeline.to(
+      entry.root.scale,
+      {
+        x: drag.restScaleX,
+        y: drag.restScaleY,
+        duration: REFLOW_DURATION,
+        ease: "power3.out",
+      },
+      0,
+    );
+    this.request();
+  }
+  private finishSettling(): void {
+    const drag = this.settling;
+    if (!drag) return;
+    this.settling = null;
+    drag.settleTimeline?.kill();
+    drag.settleTimeline = null;
+    this.renderer.restoreCard(this, drag.entry.root);
+    if (!drag.entry.root.destroyed) this.finishEntry(drag.entry);
+    this.request();
+  }
   private readonly cancelPointer = (event: PointerEvent): void => {
-    if (event.pointerId === this.drag?.pointerId) this.abort();
+    if (event.pointerId === this.marqueePointerId) this.abort();
+    if (event.pointerId === this.drag?.pointerId || event.pointerId === this.settling?.pointerId)
+      this.abort();
   };
   readonly abort = (): void => {
+    this.marqueePointerId = null;
+    this.marquee.cancel();
     this.longPress.reset();
-    const entry = this.drag?.entry;
+    const drag = this.drag;
     this.drag = null;
-    if (entry && !entry.root.destroyed) this.finishEntry(entry);
+    this.lastTap = null;
+    if (drag) {
+      this.setDropZone(drag, null);
+      this.renderer.restoreCard(this, drag.entry.root);
+      if (!drag.entry.root.destroyed) this.finishEntry(drag.entry);
+    }
+    this.finishSettling();
     this.request();
+  };
+  private readonly visibilityChanged = (): void => {
+    if (document.hidden) this.abort();
   };
   private readonly request = (): void => {
     this.renderer?.request();
@@ -601,6 +920,7 @@ export class LimitedCardScene implements LimitedPane {
     this.disposed = true;
     this.abort();
     this.reveal.finish();
+    this.marquee.destroy();
     for (const entry of this.entries.values()) this.killEntry(entry);
     this.unsubscribeTheme?.();
     this.unsubscribeStore?.();
@@ -608,8 +928,12 @@ export class LimitedCardScene implements LimitedPane {
     window.removeEventListener("pointerup", this.release);
     window.removeEventListener("pointercancel", this.cancelPointer);
     window.removeEventListener("blur", this.abort);
+    window.removeEventListener("scroll", this.abort, true);
+    window.removeEventListener("resize", this.abort);
+    window.visualViewport?.removeEventListener("scroll", this.abort);
+    document.removeEventListener("visibilitychange", this.visibilityChanged);
     this.renderer.release(this);
-    this.root.destroy({ children: true });
+    this.root.destroy({ children: true, texture: false, textureSource: false });
     this.entries.clear();
     this.knownIds.clear();
     this.acquiredIds.clear();

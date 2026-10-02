@@ -1,17 +1,16 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { LimitedBuildZone } from "@/components/limited/LimitedBuildZone";
+import { LimitedBuildBoard } from "@/components/limited/LimitedBuildBoard";
 import { LimitedBuildFilters, type BuildFilters } from "@/components/limited/LimitedBuildFilters";
-import { LimitedDeckStats } from "@/components/limited/LimitedDeckStats";
 import { buildDeck, useLimitedBuildStore } from "@/components/limited/useLimitedBuildStore";
+import type { BuildZone } from "@/components/limited/useLimitedBuildStore";
 import { LimitedBuildActions } from "@/components/limited/LimitedBuildActions";
 import { LimitedBuildSelection } from "@/components/limited/LimitedBuildSelection";
 import { useLimitedBuildCards } from "@/components/limited/useLimitedBuildCards";
-import { useIsShortScreen, useIsTouch } from "@/hooks/useBreakpoints";
-import { cn } from "@/lib/utils";
+import { useLimitedBoardLayout } from "@/components/limited/useLimitedBoardLayout";
+import { LimitedBuildUtilities } from "@/components/limited/LimitedBuildUtilities";
+import { useIsDesktop, useIsShortScreen, useIsTouch } from "@/hooks/useBreakpoints";
 import type { DraftCard } from "@/types/limited";
 import type { DeckFormat } from "@/protocol/deck";
-import type { CSSProperties } from "react";
 export interface LimitedDeckBuilderProps {
   sessionKey: string;
   pool: DraftCard[];
@@ -22,6 +21,7 @@ export interface LimitedDeckBuilderProps {
   defaultDeckName?: string;
   format?: DeckFormat;
   requireCompleteToSave?: boolean;
+  showUtilities?: boolean;
   onChange?: (deck: { main: DraftCard[]; sideboard: DraftCard[] }) => void;
   confirmLabel?: string;
   onConfirm?: (deck: { main: DraftCard[]; sideboard: DraftCard[] }) => void;
@@ -37,6 +37,7 @@ export default function LimitedDeckBuilder({
   defaultDeckName = "Limited Deck",
   format = "draft",
   requireCompleteToSave = false,
+  showUtilities = true,
   onChange,
   confirmLabel = "Save Deck",
   onConfirm,
@@ -45,9 +46,10 @@ export default function LimitedDeckBuilder({
   const session = useLimitedBuildStore((state) => state.sessions[sessionKey]);
   const [filters, setFilters] = useState<BuildFilters>({ search: "", colors: [], type: "all" });
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [mobileZone, setMobileZone] = useState<"pool" | "main" | "maybe">("pool");
+  const { mobileZone, visibleZones, expandedZone, showZone, toggleZone } = useLimitedBoardLayout();
   const shortScreen = useIsShortScreen();
   const isTouch = useIsTouch();
+  const isDesktop = useIsDesktop();
   const shortTouch = shortScreen && isTouch;
   const acquired = session?.pool;
   const allocation = session?.allocation;
@@ -55,6 +57,7 @@ export default function LimitedDeckBuilder({
   const group = session?.group;
   const initialized = !!session;
   const changeRef = useRef(onChange);
+  const builderRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     changeRef.current = onChange;
   }, [onChange]);
@@ -87,19 +90,32 @@ export default function LimitedDeckBuilder({
     );
   }, []);
   const move = useCallback(
-    (ids: string[], zone: "main" | "pool" | "maybe") => {
+    (ids: string[], zone: BuildZone) => {
       useLimitedBuildStore.getState().move(sessionKey, ids, zone);
     },
     [sessionKey],
   );
   const drop = useCallback(
     (card: DraftCard, x: number, y: number) => {
-      const zone = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-limited-zone]")
-        ?.dataset.limitedZone;
-      if (zone === "main" || zone === "pool" || zone === "maybe")
+      const root = builderRef.current;
+      const destination = document
+        .elementFromPoint(x, y)
+        ?.closest<HTMLElement>("[data-limited-zone]");
+      if (
+        !root ||
+        !destination ||
+        !root.contains(destination) ||
+        destination.closest("[data-limited-builder]") !== root ||
+        root.dataset.limitedBuilder !== sessionKey
+      )
+        return;
+      const zone = destination.dataset.limitedZone;
+      if (zone === "main" || zone === "pool" || zone === "sideboard" || zone === "maybe") {
         move(selectedIds.includes(card.id) ? selectedIds : [card.id], zone);
+        if (!isDesktop || shortTouch) showZone(zone);
+      }
     },
-    [move, selectedIds],
+    [move, selectedIds, sessionKey, showZone, isDesktop, shortTouch],
   );
   if (!session)
     return (
@@ -108,31 +124,68 @@ export default function LimitedDeckBuilder({
       </p>
     );
   const mainIds = new Set(session.allocation.mainIds);
+  const sideboardIds = new Set(session.allocation.sideboardIds);
   const maybeIds = new Set(session.allocation.maybeIds);
   const availableSelection = selectedIds.filter((id) => cards.some((card) => card.id === id));
   const zones = [
     {
       id: "pool",
       title: "Pool",
-      cards: filtered.filter((card) => !mainIds.has(card.id) && !maybeIds.has(card.id)),
-      total: cards.filter((card) => !mainIds.has(card.id) && !maybeIds.has(card.id)).length,
+      cards: filtered.filter(
+        (card) => !mainIds.has(card.id) && !sideboardIds.has(card.id) && !maybeIds.has(card.id),
+      ),
+      total: cards.filter(
+        (card) => !mainIds.has(card.id) && !sideboardIds.has(card.id) && !maybeIds.has(card.id),
+      ).length,
     },
     {
       id: "main",
-      title: "Main",
+      title: "Mainboard",
       cards: filtered.filter((card) => mainIds.has(card.id)),
       total: deck.main.length,
     },
     {
+      id: "sideboard",
+      title: "Sideboard",
+      cards: filtered.filter((card) => sideboardIds.has(card.id)),
+      total: cards.filter((card) => sideboardIds.has(card.id)).length,
+    },
+    {
       id: "maybe",
-      title: "Maybe",
+      title: "Maybeboard",
       cards: filtered.filter((card) => maybeIds.has(card.id)),
       total: cards.filter((card) => maybeIds.has(card.id)).length,
     },
   ] as const;
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
-      <div className="flex max-h-[40%] shrink-0 flex-wrap items-start gap-1 overflow-y-auto">
+    <div
+      ref={builderRef}
+      data-limited-table
+      data-limited-builder={sessionKey}
+      className="flex h-full min-h-0 flex-col gap-2 overflow-hidden"
+      onKeyDown={(event) => {
+        if (
+          !builderRef.current?.contains(event.target as Node) ||
+          (event.target instanceof HTMLElement &&
+            event.target.closest("input, textarea, [contenteditable=true]"))
+        )
+          return;
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+          event.preventDefault();
+          setSelectedIds(
+            zones
+              .filter((zone) =>
+                isDesktop && !shortTouch
+                  ? visibleZones.includes(zone.id) && (!expandedZone || expandedZone === zone.id)
+                  : zone.id === mobileZone,
+              )
+              .flatMap((zone) => zone.cards.map((card) => card.id)),
+          );
+        }
+        if (event.key === "Escape") setSelectedIds([]);
+      }}
+    >
+      <div className="flex shrink-0 flex-wrap items-center gap-1">
         <LimitedBuildActions
           sessionKey={sessionKey}
           session={session}
@@ -148,91 +201,48 @@ export default function LimitedDeckBuilder({
           onConfirm={onConfirm}
           confirmLabel={confirmLabel}
         />
-        <details className="min-w-0 flex-1 basis-56 rounded-md bg-card/75 px-2 [&[open]]:basis-full">
-          <summary className="min-h-8 cursor-pointer py-2 text-xs text-muted-foreground">
-            Filters, view & stats
-            {(filters.search || filters.colors.length > 0 || filters.type !== "all") &&
-              " · Filtered"}
-          </summary>
-          <div className="space-y-2 pb-2">
-            <LimitedBuildFilters
-              filters={filters}
-              onChange={setFilters}
-              session={session}
-              onPreferences={(prefs) =>
-                useLimitedBuildStore.getState().preferences(sessionKey, prefs)
-              }
-            />
-            <details>
-              <summary className="cursor-pointer py-2 text-xs text-muted-foreground">
-                Deck statistics · Main {deck.main.length}/{targetMainSize}+ · Sideboard{" "}
-                {deck.sideboard.length}
-                {deck.main.length < targetMainSize
-                  ? ` · ${targetMainSize - deck.main.length} more needed`
-                  : " · Ready to play"}
-              </summary>
-              <LimitedDeckStats cards={deck.main} />
-            </details>
-          </div>
-        </details>
-      </div>
-      {availableSelection.length > 0 && (
-        <LimitedBuildSelection
-          availableSelection={availableSelection}
-          move={move}
-          setSelectedIds={setSelectedIds}
+        <LimitedBuildFilters
+          filters={filters}
+          onChange={setFilters}
+          session={session}
+          presentation={showUtilities ? "toolbar" : "dialog"}
+          onPreferences={(prefs) => useLimitedBuildStore.getState().preferences(sessionKey, prefs)}
         />
-      )}
-      <div
-        className={cn("flex shrink-0 gap-1 md:hidden", shortTouch && "md:flex")}
-        role="tablist"
-        aria-label="Build zones"
-      >
-        {zones.map((zone) => (
-          <Button
-            key={zone.id}
-            role="tab"
-            aria-selected={mobileZone === zone.id}
-            variant={mobileZone === zone.id ? "selected" : "ghost"}
-            size="sm"
-            onClick={() => setMobileZone(zone.id)}
-          >
-            {zone.id === "pool" ? "Pool" : zone.id === "main" ? "Main" : "Maybe"} {zone.total}
-          </Button>
-        ))}
-      </div>
-      <div
-        className={cn(
-          "grid min-h-0 flex-1 grid-cols-1 gap-2 overflow-hidden md:grid-cols-[var(--limited-build-columns)]",
-          shortTouch && "md:grid-cols-1",
-        )}
-        style={
-          {
-            "--limited-build-columns": `minmax(0,${Math.max(zones[0].total, 12)}fr) minmax(8rem,${zones[1].total}fr) minmax(8rem,${zones[2].total}fr)`,
-          } as CSSProperties
-        }
-      >
-        {zones.map((zone) => (
-          <LimitedBuildZone
-            key={zone.id}
-            title={zone.title}
-            zone={zone.id}
-            cards={zone.cards}
-            acquiredIds={acquiredIds}
-            total={zone.total}
-            selectedIds={availableSelection}
-            onSelect={select}
-            onMove={move}
-            onDrop={drop}
-            group={session.group}
-            cardSize={session.cardSize}
-            mode={session.mode}
-            className={cn(
-              mobileZone !== zone.id && "hidden md:flex",
-              shortTouch && mobileZone !== zone.id && "md:hidden",
-            )}
+        {availableSelection.length > 0 && (
+          <LimitedBuildSelection
+            availableSelection={availableSelection}
+            move={move}
+            setSelectedIds={setSelectedIds}
           />
-        ))}
+        )}
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <LimitedBuildBoard
+          zones={zones}
+          mobileZone={mobileZone}
+          onZoneChange={showZone}
+          compact={!isDesktop || shortTouch}
+          visibleZones={visibleZones}
+          expandedZone={expandedZone}
+          onToggleZone={toggleZone}
+          acquiredIds={acquiredIds}
+          selectedIds={availableSelection}
+          onSelect={select}
+          onSelectMany={setSelectedIds}
+          onMove={move}
+          onDrop={drop}
+          group={session.group}
+          cardSize={session.cardSize}
+          mode={session.mode}
+        />
+        {showUtilities && (
+          <LimitedBuildUtilities
+            deck={deck}
+            cardSize={session.cardSize}
+            activeManaValue={filters.manaValue ?? null}
+            onManaValueChange={(manaValue) => setFilters((current) => ({ ...current, manaValue }))}
+          />
+        )}
       </div>
     </div>
   );

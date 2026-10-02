@@ -107,6 +107,7 @@ export function WinstonWorkspace({
             pool={activeWinston.pickedPile}
             defaultDeckName="Winston Draft Deck"
             format="draft"
+            showUtilities={false}
           />
         )}
       </div>

@@ -59,8 +59,8 @@ export function LimitedBuildConfigurations({ sessionKey, session, onClose }: Pro
         <DialogHeader>
           <DialogTitle>Build configurations</DialogTitle>
           <DialogDescription>
-            Keep different builds of this pool, each with its own basics, printings and Maybe flags.
-            Loading a build can be undone.
+            Keep different builds of this pool, each with its own basics, printings and zone
+            assignments. Loading a build can be undone.
           </DialogDescription>
         </DialogHeader>
         <form

@@ -112,6 +112,9 @@ export function LimitedManaDialog({ sessionKey, session, main, targetMainSize, o
         ...current,
         basics,
         mainIds: [...preview.retained.map((card) => card.id), ...basics.map((card) => card.id)],
+        sideboardIds: current.sideboardIds.filter(
+          (id) => !current.basics.some((card) => card.id === id),
+        ),
         maybeIds: current.maybeIds.filter((id) => !current.basics.some((card) => card.id === id)),
       }));
       onClose();

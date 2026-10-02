@@ -1,48 +1,42 @@
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import type { BuildZone } from "@/components/limited/useLimitedBuildStore";
 
 interface Props {
   availableSelection: string[];
-  move: (ids: string[], zone: "main" | "pool" | "maybe") => void;
+  move: (ids: string[], zone: BuildZone) => void;
   setSelectedIds: (ids: string[]) => void;
 }
 export function LimitedBuildSelection({ availableSelection, move, setSelectedIds }: Props) {
   return (
-    <div className="flex shrink-0 items-center gap-1 overflow-x-auto rounded-md bg-card/70 px-2 text-xs [&>button]:shrink-0">
-      <span className="whitespace-nowrap tabular-nums text-muted-foreground">
-        {availableSelection.length} selected
-      </span>
-      <Button
-        variant="secondary"
-        size="sm"
-        disabled={!availableSelection.length}
-        onClick={() => move(availableSelection, "main")}
-      >
-        Add to main
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={!availableSelection.length}
-        onClick={() => move(availableSelection, "pool")}
-      >
-        Return to pool
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={!availableSelection.length}
-        onClick={() => move(availableSelection, "maybe")}
-      >
-        Maybe
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        disabled={!availableSelection.length}
-        onClick={() => setSelectedIds([])}
-      >
-        Clear selection
-      </Button>
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm" className="shrink-0 text-xs tabular-nums">
+          Move {availableSelection.length} selected
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuItem onSelect={() => move(availableSelection, "main")}>
+          To Mainboard
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => move(availableSelection, "pool")}>
+          To Pool
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => move(availableSelection, "sideboard")}>
+          To Sideboard
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => move(availableSelection, "maybe")}>
+          To Maybeboard
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => setSelectedIds([])}>Clear selection</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

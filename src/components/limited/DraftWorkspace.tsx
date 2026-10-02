@@ -1,17 +1,14 @@
-import { useCallback, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { LimitedCardCanvas } from "@/components/limited/LimitedCardCanvas";
 import LimitedDeckBuilder from "@/components/limited/LimitedDeckBuilder";
 import { useLimitedBuildStore } from "@/components/limited/useLimitedBuildStore";
+import { useDraftPick, type DraftPickOptions } from "@/components/limited/useDraftPick";
 import { useIsShortScreen, useIsTouch } from "@/hooks/useBreakpoints";
 import { cn } from "@/lib/utils";
-import type { ConspiracyHook, DraftCard, DraftState } from "@/types/limited";
+import type { ConspiracyHook } from "@/types/limited";
 
-interface DraftWorkspaceProps {
-  draft: DraftState;
-  onPick: (card: DraftCard) => void | Promise<void>;
-  pickPending?: boolean;
+interface DraftWorkspaceProps extends DraftPickOptions {
   conspiracyHooks?: ConspiracyHook[];
 }
 export function DraftWorkspace({
@@ -21,42 +18,28 @@ export function DraftWorkspace({
   conspiracyHooks = [],
 }: DraftWorkspaceProps) {
   const [mobileTab, setMobileTab] = useState<"pack" | "build">("pack");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const submittingRef = useRef(false);
-  const builderRef = useRef<HTMLElement>(null);
+  const {
+    selected,
+    submitting,
+    disabled,
+    quickPick,
+    workspaceRef,
+    builderRef,
+    pickTarget,
+    select,
+    submit,
+    dropPick,
+  } = useDraftPick({ draft, onPick, pickPending });
   const acquiredIds = useMemo(() => draft.pickedPile.map((card) => card.id), [draft.pickedPile]);
-  const poolTarget = useCallback(
-    () => builderRef.current?.querySelector<HTMLElement>('[data-limited-zone="pool"]') ?? null,
-    [],
-  );
-  const quickPick = useLimitedBuildStore((state) => state.quickPick);
   const shortScreen = useIsShortScreen();
   const isTouch = useIsTouch();
   const shortTouch = shortScreen && isTouch;
-  const selected = draft.currentPack.find((card) => card.id === selectedId);
-  const disabled = !draft.awaitingHuman || pickPending || submitting;
-  const submit = async (card: DraftCard) => {
-    if (disabled || submittingRef.current) return;
-    submittingRef.current = true;
-    setSubmitting(true);
-    try {
-      await onPick(card);
-      setSelectedId(null);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "The pick wasn't accepted. Try again.");
-    } finally {
-      submittingRef.current = false;
-      setSubmitting(false);
-    }
-  };
-  const select = (card: DraftCard) => {
-    if (disabled) return;
-    setSelectedId(card.id);
-    if (quickPick) void submit(card);
-  };
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+    <div
+      ref={workspaceRef}
+      data-limited-table
+      className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden"
+    >
       <div
         role="tablist"
         aria-label="Draft workspace"
@@ -117,15 +100,13 @@ export function DraftWorkspace({
             cards={draft.currentPack}
             selectedIds={selected ? [selected.id] : []}
             onSelect={select}
-            onActivate={(card) => {
-              setSelectedId(card.id);
-              void submit(card);
-            }}
+            onActivate={(card) => void submit(card)}
+            onDrop={dropPick}
             disabled={disabled}
             presentation="spread"
             arrivalDirection={draft.passDirection === "left" ? "right" : "left"}
             acquiredIds={acquiredIds}
-            departureTarget={poolTarget}
+            departureTarget={pickTarget}
             arrivalKey={`${draft.sessionId}:${draft.round}:${draft.pickNumber}`}
             emptyMessage={
               draft.isComplete
@@ -134,24 +115,30 @@ export function DraftWorkspace({
             }
             className="min-h-0 flex-1"
           />
-          <footer className="flex shrink-0 items-center justify-center gap-3 px-3 py-1">
-            <p aria-live="polite" className="min-w-0 truncate rounded bg-card/70 px-2 py-1 text-sm">
-              {selected
-                ? selected.name
-                : draft.awaitingHuman
-                  ? "Choose a card"
-                  : "Waiting for the table."}
-            </p>
+          <footer className="flex shrink-0 flex-wrap items-center justify-center gap-2 px-3 py-1">
             <Button
+              data-limited-zone="pool"
               variant="primary"
               size="sm"
               disabled={!selected || disabled}
-              className="shrink-0"
+              className="shrink-0 data-[limited-drop-active=true]:ring-2 data-[limited-drop-active=true]:ring-card-ring"
               onClick={() => {
                 if (selected) void submit(selected);
               }}
             >
-              {pickPending || submitting ? "Picking..." : "Confirm pick"}
+              {pickPending || submitting ? "Picking..." : "Pick to Pool"}
+            </Button>
+            <Button
+              data-limited-zone="main"
+              variant="secondary"
+              size="sm"
+              disabled={!selected || disabled}
+              className="shrink-0 data-[limited-drop-active=true]:ring-2 data-[limited-drop-active=true]:ring-card-ring"
+              onClick={() => {
+                if (selected) void submit(selected, "main");
+              }}
+            >
+              Pick to Mainboard
             </Button>
           </footer>
         </section>
@@ -191,6 +178,7 @@ export function DraftWorkspace({
               pool={draft.pickedPile}
               defaultDeckName="Booster Draft Deck"
               format="draft"
+              showUtilities={false}
             />
           </div>
         </section>
