@@ -22,18 +22,19 @@ export class LimitedBoosterReveal {
     this.request = request;
   }
   get active(): boolean {
-    return this.timeline?.isActive() ?? false;
+    return this.timeline !== null;
   }
   play(cards: RevealCard[], width: number, height: number): void {
     this.finish();
-    this.cards = cards;
     if (!cards.length || !animationsEnabled()) return;
+    this.cards = cards;
     const theme = getTheme();
     const centerX = width / 2;
     const centerY = Math.min(height / 2, cards[0].height / 2 + 40);
     const wrapper = new Container();
     wrapper.eventMode = "none";
     wrapper.position.set(centerX, centerY);
+    wrapper.zIndex = 4;
     const wrapperWidth = cards[0].width + 20;
     const wrapperHeight = cards[0].height + 24;
     const upper = new Container();

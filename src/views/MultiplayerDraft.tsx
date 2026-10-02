@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { useTopBarOverride } from "@/components/layout/TopBarOverride";
 import { DraftStatusBar } from "@/components/limited/DraftStatusBar";
 import { DraftWorkspace } from "@/components/limited/DraftWorkspace";
+import { LimitedTableSurface } from "@/components/limited/LimitedTableSurface";
 import MultiplayerLimitedBuild from "@/views/MultiplayerLimitedBuild";
 import { hasLiveDraftHost, submitHostPick, teardownHost } from "@/game/draftHost";
 import { requestDraftResync, submitPeerPick } from "@/game/draftPeer";
@@ -21,6 +22,7 @@ export default function MultiplayerDraft() {
   const kind = useMultiplayerLimitedStore((s) => s.kind);
   const conspiracyHooks = useLimitedStore((s) => s.conspiracyHooks);
   const fetchConspiracyHooks = useLimitedStore((s) => s.fetchConspiracyHooks);
+  const roomBackground = useServerStore((state) => state.currentRoom?.table_style);
   const { mode, amHost, setError } = draft;
   useEffect(() => {
     if (conspiracyHooks.length === 0) fetchConspiracyHooks();
@@ -52,17 +54,20 @@ export default function MultiplayerDraft() {
   if (draft.mode === "idle") return null;
   if (!draft.state)
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+      <LimitedTableSurface
+        backgroundId={roomBackground}
+        className="items-center justify-center gap-2 text-sm text-muted-foreground"
+      >
         <Loader2 className="h-4 w-4 animate-spin" />
         Waiting for the host to deal your pack…
-      </div>
+      </LimitedTableSurface>
     );
   const own = draft.seats.find((seat) => seat.seat === draft.mySeat);
   const room = useServerStore.getState().currentRoom;
   const hostDisconnected =
     room && !room.players.find((player) => player.username === room.host)?.connected;
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 px-3 py-4 sm:px-6">
+    <LimitedTableSurface backgroundId={roomBackground} className="gap-2 px-4 py-3 sm:px-6 lg:px-8">
       <DraftStatusBar
         draft={draft.state}
         seatLabel={own ? `Seat ${own.seat} · ${own.displayName}` : undefined}
@@ -87,6 +92,6 @@ export default function MultiplayerDraft() {
           {draft.lastError}
         </p>
       )}
-    </div>
+    </LimitedTableSurface>
   );
 }

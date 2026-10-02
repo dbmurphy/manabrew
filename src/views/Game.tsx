@@ -42,8 +42,7 @@ import type {
   BoardOverlayCommandPreviewSpec,
   BoardOverlayPreviewSpec,
 } from "@/pixi/BoardOverlayCanvas";
-import { DesktopBoardOverlayCanvas } from "@/pixi/DesktopBoardOverlayCanvas";
-import { MobileBoardOverlayCanvas } from "@/pixi/MobileBoardOverlayCanvas";
+import { CardPreviewOverlayCanvas } from "@/pixi/CardPreviewOverlayCanvas";
 import { buildArrowSpecs } from "@/components/game/arrowSpecs";
 import { getDisplayedManaAbilities } from "@/components/game/manaUtils";
 import { PlayModePicker } from "@/components/game/PlayModePicker";
@@ -53,11 +52,10 @@ import { useHandScale } from "@/hooks/useHandScale";
 import { useFlashQueue } from "@/hooks/useFlashQueue";
 import { useHandDrag, type HandDragStart } from "@/hooks/useHandDrag";
 import { useCardPreview } from "@/hooks/useCardPreview";
-import type { PreviewPointerInput } from "@/lib/cardPreview";
+import type { PreviewFlipOptions, PreviewPointerInput } from "@/lib/cardPreview";
 import { MODAL_OPEN_EVENT, topModal } from "@/lib/modalStack";
 import { useMulliganSelection } from "@/hooks/useMulliganSelection";
 import { HoverCardPreview } from "@/components/game/HoverCardPreview";
-import { useIsMobileGame } from "@/hooks/useBreakpoints";
 import { usePromptEffects } from "@/hooks/usePromptEffects";
 import { useCombatState } from "@/hooks/useCombatState";
 import { useGameEventListeners } from "@/hooks/useGameEventListeners";
@@ -103,13 +101,6 @@ import { peekCard, useScryfallStore } from "@/stores/useScryfallStore";
 import { scryfallToSampleGameCard } from "@/lib/sampleGameCard";
 import { haptic } from "@/lib/haptics";
 import type { GameRuntime, ManualTabletopApi } from "@/game";
-const EMPTY_PREVIEW_STACK: StackSpec = {
-  cards: [],
-  flash: null,
-  showPreStackFlash: false,
-  collapsed: true,
-};
-const NO_PREVIEW_ACTION = () => undefined;
 const HOVER_ALLOWED_PROMPTS = new Set<PromptType>([
   "chooseAction",
   "chooseAttackers",
@@ -325,7 +316,6 @@ export default function Game({ exitTo }: GameProps = {}) {
   const backgroundDarken = boardBackgroundDarken(backgroundId);
   const preloadCardImages = usePreferencesStore((s) => s.preloadCardImages);
   const vScale = useHandScale();
-  const isMobileGame = useIsMobileGame();
   const themeColors = useTheme().gameTheme;
   const location = useLocation();
   const devExtraOpponents =
@@ -1831,8 +1821,9 @@ export default function Game({ exitTo }: GameProps = {}) {
     previewFaceOverride && previewFaceOverride.cardId === livePreviewCard?.id
       ? previewFaceOverride.showBackFace
       : (livePreviewCard?.isTransformed ?? false);
-  const handleFlipPreview = () => {
+  const handleFlipPreview = (options?: PreviewFlipOptions) => {
     if (!livePreviewCard) return;
+    preview.flipCard(options);
     const showBackFace = !previewShowBackFace;
     setPreviewFaceOverride(
       showBackFace === livePreviewCard.isTransformed
@@ -2379,8 +2370,6 @@ export default function Game({ exitTo }: GameProps = {}) {
       ? gameView.restoreVote
       : null;
 
-  const ZonePreviewCanvas = isMobileGame ? MobileBoardOverlayCanvas : DesktopBoardOverlayCanvas;
-
   return (
     <div
       ref={containerRef}
@@ -2798,13 +2787,7 @@ export default function Game({ exitTo }: GameProps = {}) {
         rulesPreview &&
         createPortal(
           <div className="pointer-events-none fixed inset-0 z-[10001]">
-            <ZonePreviewCanvas
-              scene={null}
-              stackSpec={EMPTY_PREVIEW_STACK}
-              onTargetSpell={NO_PREVIEW_ACTION}
-              onHoverStack={NO_PREVIEW_ACTION}
-              onToggleStack={NO_PREVIEW_ACTION}
-              promptSpec={null}
+            <CardPreviewOverlayCanvas
               previewSpec={rulesPreview}
               externalPreviewActive={externalPreviewActive}
               onPreviewPointerEnter={preview.onMouseEnterPreview}

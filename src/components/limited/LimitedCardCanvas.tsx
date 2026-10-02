@@ -1,16 +1,19 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { GAME_CARD_SIZES } from "@/components/game/game.constants";
-import {
-  LimitedCardInspector,
-  type LimitedInspection,
-} from "@/components/limited/LimitedCardInspector";
+import { CardHoverPreview } from "@/components/game/CardHoverPreview";
+import { useCardPreview } from "@/hooks/useCardPreview";
+import { refToDeckCard } from "@/lib/limited.utils";
+import { deckCardToPreviewDto } from "@/lib/scryfall.utils";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { LimitedCardScene } from "@/pixi/limited/LimitedCardScene";
-import { limitedLayout, type LimitedGrouping } from "@/pixi/limited/limitedLayout";
+import {
+  limitedLayout,
+  type LimitedGrouping,
+  type LimitedLayoutOptions,
+} from "@/pixi/limited/limitedLayout";
 import { peekCard, useScryfallStore } from "@/stores/useScryfallStore";
-import { usePreferencesStore } from "@/stores/usePreferencesStore";
 import type { DraftCard } from "@/types/limited";
 
 export interface LimitedCardCanvasProps {
@@ -25,6 +28,11 @@ export interface LimitedCardCanvasProps {
   className?: string;
   arrivalKey?: string;
   opening?: boolean;
+  presentation?: LimitedLayoutOptions["presentation"];
+  arrivalDirection?: "left" | "right";
+  acquiredIds?: readonly string[];
+  departureTarget?: () => HTMLElement | null;
+  emptyMessage?: string;
 }
 const NO_SELECTION: readonly string[] = [];
 export function LimitedCardCanvas({
@@ -39,6 +47,11 @@ export function LimitedCardCanvas({
   className,
   arrivalKey,
   opening = false,
+  presentation = "grid",
+  arrivalDirection,
+  acquiredIds,
+  departureTarget,
+  emptyMessage = "No cards in this zone.",
 }: LimitedCardCanvasProps) {
   const scrollHost = useRef<HTMLDivElement>(null);
   const canvasHost = useRef<HTMLDivElement>(null);
@@ -48,49 +61,67 @@ export function LimitedCardCanvas({
   const [scrollTop, setScrollTop] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
-  const [inspection, setInspection] = useState<LimitedInspection | null>(null);
-  const visibleInspection =
-    inspection && cards.some((card) => card.id === inspection.card.id) ? inspection : null;
+  const instructionsId = useId();
   const activeFocusedId = cards.some((card) => card.id === focusedId) ? focusedId : null;
-  const inspectionRef = useRef<LimitedInspection | null>(null);
-  useLayoutEffect(() => {
-    inspectionRef.current = visibleInspection;
-  }, [visibleInspection]);
-  const hoverTimer = useRef<number | null>(null);
-  const leaveTimer = useRef<number | null>(null);
+  const inspectionRequest = useRef(0);
   const bucket = useScryfallStore((state) => state.cards);
   const locale = useScryfallStore((state) => state.locale);
-  const hoverDelay = usePreferencesStore((state) => state.cardHoverDelayMs);
+  const preview = useCardPreview([cards, locale]);
+  const {
+    dismiss: dismissPreview,
+    getSnapshot,
+    handleMouseEnter,
+    handleMouseLeave,
+    showSticky,
+  } = preview;
+  const dismiss = useCallback(() => {
+    inspectionRequest.current += 1;
+    dismissPreview();
+  }, [dismissPreview]);
+  useLayoutEffect(
+    () => () => {
+      inspectionRequest.current += 1;
+    },
+    [cards, locale],
+  );
   const layout = useMemo(
     () =>
-      limitedLayout(cards, viewport.width, cardSize, groupBy, (card) =>
-        peekCard(bucket, {
-          name: card.name,
-          setCode: card.setCode,
-          collectorNumber: card.cardNumber,
-        }),
+      limitedLayout(
+        cards,
+        viewport.width,
+        presentation === "spread" ? Math.max(cardSize, GAME_CARD_SIZES.prompt.width) : cardSize,
+        groupBy,
+        (card) =>
+          peekCard(bucket, {
+            name: card.name,
+            setCode: card.setCode,
+            collectorNumber: card.cardNumber,
+          }),
+        { presentation, height: viewport.height },
       ),
-    [cards, viewport.width, cardSize, groupBy, bucket],
+    [cards, viewport.width, viewport.height, cardSize, groupBy, bucket, presentation],
   );
-  const clearTimers = useCallback(() => {
-    if (hoverTimer.current !== null) window.clearTimeout(hoverTimer.current);
-    if (leaveTimer.current !== null) window.clearTimeout(leaveTimer.current);
-    hoverTimer.current = null;
-    leaveTimer.current = null;
-  }, []);
   const inspect = useCallback(
     (card: DraftCard | null, sticky: boolean) => {
-      if (inspectionRef.current?.sticky && !sticky) return;
-      clearTimers();
+      if (getSnapshot().sticky && !sticky) return;
+      const request = ++inspectionRequest.current;
       if (!card) {
-        leaveTimer.current = window.setTimeout(() => setInspection(null), 220);
+        handleMouseLeave();
         return;
       }
-      if (sticky) setInspection({ card, sticky });
-      else
-        hoverTimer.current = window.setTimeout(() => setInspection({ card, sticky }), hoverDelay);
+      const anchor = buttons.current.get(card.id)?.getBoundingClientRect();
+      void useScryfallStore
+        .getState()
+        .getCard({ name: card.name, setCode: card.setCode, collectorNumber: card.cardNumber })
+        .then((entry) => {
+          if (request !== inspectionRequest.current) return;
+          const dto = deckCardToPreviewDto(refToDeckCard(card, entry));
+          if (sticky) showSticky(dto, undefined, undefined, anchor);
+          else handleMouseEnter(dto, undefined, { anchorOverride: anchor, useDelay: true });
+        })
+        .catch(() => undefined);
     },
-    [clearTimers, hoverDelay, setInspection],
+    [getSnapshot, handleMouseEnter, handleMouseLeave, showSticky],
   );
   const props = {
     layout,
@@ -100,6 +131,9 @@ export function LimitedCardCanvas({
     disabled,
     arrivalKey,
     opening,
+    arrivalDirection,
+    acquiredIds,
+    departureTarget,
     onSelect,
     onActivate,
     onDrop,
@@ -128,9 +162,9 @@ export function LimitedCardCanvas({
     return () => {
       current.destroy();
       scene.current = null;
-      clearTimers();
+      dismiss();
     };
-  }, [clearTimers]);
+  }, [dismiss]);
   useEffect(() => {
     scene.current?.update(props);
   });
@@ -142,7 +176,6 @@ export function LimitedCardCanvas({
         .getCard({ name: card.name, setCode: card.setCode, collectorNumber: card.cardNumber })
         .catch(() => undefined);
   }, [cards, groupBy, locale]);
-  useEffect(clearTimers, [cards, clearTimers]);
   const focusCard = (index: number) => {
     const cell = layout.cells[Math.max(0, Math.min(layout.cells.length - 1, index))];
     if (!cell || !scrollHost.current) return;
@@ -153,15 +186,45 @@ export function LimitedCardCanvas({
     buttons.current.get(cell.card.id)?.focus({ preventScroll: true });
   };
   const keyboard = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
-    const offsets: Record<string, number> = {
-      ArrowLeft: -1,
-      ArrowRight: 1,
-      ArrowUp: -layout.columns,
-      ArrowDown: layout.columns,
-    };
-    if (event.key in offsets) {
+    if (
+      event.key === "ArrowLeft" ||
+      event.key === "ArrowRight" ||
+      event.key === "ArrowUp" ||
+      event.key === "ArrowDown"
+    ) {
       event.preventDefault();
-      focusCard(index + offsets[event.key]);
+      if (presentation === "grid") {
+        const offset =
+          event.key === "ArrowLeft"
+            ? -1
+            : event.key === "ArrowRight"
+              ? 1
+              : event.key === "ArrowUp"
+                ? -layout.columns
+                : layout.columns;
+        focusCard(index + offset);
+        return;
+      }
+      const current = layout.cells[index];
+      const horizontal = event.key === "ArrowLeft" || event.key === "ArrowRight";
+      const direction = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
+      let nextIndex = index;
+      let bestCross = Infinity;
+      let bestAlong = Infinity;
+      for (let candidateIndex = 0; candidateIndex < layout.cells.length; candidateIndex++) {
+        const candidate = layout.cells[candidateIndex];
+        const dx = candidate.x + candidate.width / 2 - current.x - current.width / 2;
+        const dy = candidate.y + candidate.height / 2 - current.y - current.height / 2;
+        const along = (horizontal ? dx : dy) * direction;
+        if (along <= 0) continue;
+        const cross = Math.abs(horizontal ? dy : dx);
+        if (cross < bestCross || (cross === bestCross && along < bestAlong)) {
+          nextIndex = candidateIndex;
+          bestCross = cross;
+          bestAlong = along;
+        }
+      }
+      focusCard(nextIndex);
     } else if (event.key === "Home" || event.key === "End") {
       event.preventDefault();
       focusCard(event.key === "Home" ? 0 : layout.cells.length - 1);
@@ -173,20 +236,19 @@ export function LimitedCardCanvas({
       inspect(layout.cells[index].card, true);
     } else if (event.key === "Escape") {
       scene.current?.abort();
-      clearTimers();
-      setInspection(null);
+      dismiss();
     }
   };
   const focused =
     cards.find((card) => card.id === focusedId) ??
     cards.find((card) => selectedIds.includes(card.id));
   return (
-    <div className={cn("flex min-h-0 flex-col", className)}>
-      <div className="flex min-h-11 shrink-0 items-center gap-2 px-3 text-xs text-muted-foreground">
-        <span className="shrink-0">{cards.length} cards</span>
-        <span className="min-w-0 flex-1 truncate">
-          Select to choose · Enter to activate · I to inspect
-        </span>
+    <div className={cn("relative flex min-h-0 flex-col", className)}>
+      <p id={instructionsId} className="sr-only">
+        Select a card. Enter to activate. Hover or hold to preview. I to pin. Use arrow keys to move
+        between cards.
+      </p>
+      <div className="absolute bottom-2 right-2 z-10 rounded-md bg-card/80">
         <Button
           variant="ghost"
           size="sm"
@@ -194,7 +256,7 @@ export function LimitedCardCanvas({
           disabled={!focused}
           onClick={() => focused && inspect(focused, true)}
         >
-          Inspect
+          Preview
         </Button>
       </div>
       {error && (
@@ -206,10 +268,10 @@ export function LimitedCardCanvas({
         ref={scrollHost}
         onScroll={(event) => {
           setScrollTop(event.currentTarget.scrollTop);
-          clearTimers();
-          if (!inspectionRef.current?.sticky) setInspection(null);
+          inspectionRequest.current += 1;
+          if (!preview.getSnapshot().sticky) preview.dismiss();
         }}
-        className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-lg bg-muted/30"
+        className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain"
       >
         <div className="relative" style={{ height: Math.max(viewport.height, layout.height) }}>
           <div
@@ -227,11 +289,15 @@ export function LimitedCardCanvas({
               type="button"
               disabled={disabled}
               aria-label={`${cell.card.name}, ${cell.card.setCode}, ${cell.card.cardNumber}, copy ${index + 1}`}
+              aria-describedby={instructionsId}
               aria-pressed={selectedIds.includes(cell.card.id)}
               tabIndex={cell.card.id === (activeFocusedId ?? layout.cells[0]?.card.id) ? 0 : -1}
               onFocus={() => setFocusedId(cell.card.id)}
               onKeyDown={(event) => keyboard(event, index)}
-              onPointerDown={(event) => scene.current?.pressCard(cell.card.id, event.nativeEvent)}
+              onPointerDown={(event) => {
+                dismiss();
+                scene.current?.pressCard(cell.card.id, event.nativeEvent);
+              }}
               onPointerEnter={(event) => scene.current?.hoverCard(cell.card.id, event.pointerType)}
               onPointerLeave={(event) => scene.current?.hoverCard(null, event.pointerType)}
               onContextMenu={(event) => {
@@ -262,26 +328,16 @@ export function LimitedCardCanvas({
             </button>
           ))}
           {!cards.length && (
-            <p className="absolute inset-x-0 top-8 text-center text-sm text-muted-foreground">
-              No cards in this zone.
+            <p
+              role="status"
+              className="absolute inset-x-0 top-8 text-center text-sm text-muted-foreground"
+            >
+              {emptyMessage}
             </p>
           )}
         </div>
       </div>
-      {visibleInspection && (
-        <LimitedCardInspector
-          key={visibleInspection.card.id}
-          inspection={visibleInspection}
-          onClose={() => {
-            clearTimers();
-            setInspection(null);
-          }}
-          onEnter={clearTimers}
-          onLeave={() => {
-            if (!visibleInspection.sticky) inspect(null, false);
-          }}
-        />
-      )}
+      <CardHoverPreview preview={{ ...preview, dismiss }} />
     </div>
   );
 }

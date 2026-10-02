@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import LimitedDeckBuilder from "@/components/limited/LimitedDeckBuilder";
 import { DraftStatusBar } from "@/components/limited/DraftStatusBar";
 import { DraftWorkspace } from "@/components/limited/DraftWorkspace";
+import { LimitedTableSurface } from "@/components/limited/LimitedTableSurface";
 import type { LimitedDraftMode } from "@/components/limited/LimitedModeToggle";
 import { useLimitedStore } from "@/stores/useLimitedStore";
 import { useLimitedBuildStore } from "@/components/limited/useLimitedBuildStore";
@@ -46,13 +47,13 @@ export default function Draft() {
   const mode: DraftMode = activeDraft?.isComplete ? "building" : userMode;
   if (!activeDraft || activeDraft.sessionId !== draftId) {
     return (
-      <div className="flex h-full items-center justify-center">
+      <LimitedTableSurface className="items-center justify-center">
         {lastError ? (
           <p className="text-destructive">{lastError}</p>
         ) : (
           <p className="text-muted-foreground">Loading draft…</p>
         )}
-      </div>
+      </LimitedTableSurface>
     );
   }
   const handlePick = async (card: DraftCard) => {
@@ -79,7 +80,7 @@ export default function Draft() {
   };
   const canBuild = activeDraft.pickedPile.length >= 1;
   return (
-    <div className="flex h-full flex-col gap-4 px-4 py-6 sm:px-6 lg:px-8">
+    <LimitedTableSurface className="gap-2 px-4 py-3 sm:px-6 lg:px-8">
       <DraftStatusBar
         draft={activeDraft}
         mode={mode}
@@ -122,7 +123,6 @@ export default function Draft() {
         <DraftWorkspace
           draft={activeDraft}
           onPick={handlePick}
-          onBuild={canBuild ? () => setUserMode("building") : undefined}
           conspiracyHooks={conspiracyHooks}
           pickPending={picking}
         />
@@ -133,6 +133,6 @@ export default function Draft() {
           {lastError}
         </p>
       )}
-    </div>
+    </LimitedTableSurface>
   );
 }

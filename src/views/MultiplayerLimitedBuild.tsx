@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import LimitedDeckBuilder from "@/components/limited/LimitedDeckBuilder";
 import { LimitedPackOpening } from "@/components/limited/LimitedPackOpening";
+import { LimitedTableSurface } from "@/components/limited/LimitedTableSurface";
 import { Button } from "@/components/ui/button";
 import { AppSelect, AppSelectOption } from "@/components/ui/AppSelect";
 import { useMultiplayerLimitedStore } from "@/stores/useMultiplayerLimitedStore";
@@ -140,24 +141,27 @@ export default function MultiplayerLimitedBuild() {
     );
   if (session.phase === "opening" && session.sealed)
     return (
-      <LimitedPackOpening
-        key={session.sessionId}
-        sessionKey={session.sessionId}
-        packs={session.sealed.packs}
-        onComplete={() => void completeLimitedOpening()}
-      />
+      <LimitedTableSurface
+        backgroundId={session.originalRoom.table_style}
+        className="px-4 py-3 sm:px-6 lg:px-8"
+      >
+        <LimitedPackOpening
+          key={session.sessionId}
+          sessionKey={session.sessionId}
+          packs={session.sealed.packs}
+          onComplete={() => void completeLimitedOpening()}
+        />
+      </LimitedTableSurface>
     );
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 px-3 py-4 sm:px-6">
-      <header className="flex flex-wrap items-end justify-between gap-3 border-b border-border pb-3">
-        <div>
-          <h1 className="font-display text-2xl">
-            {session.kind === "draft" ? "Draft" : "Sealed"} deck
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Your pool stays here after each game. Edit your deck, then ready for a casual pairing.
-          </p>
-        </div>
+    <LimitedTableSurface
+      backgroundId={session.originalRoom.table_style}
+      className="gap-2 px-4 py-3 sm:px-6 lg:px-8"
+    >
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-2">
+        <p className="rounded bg-card/70 px-2 py-1 text-xs text-muted-foreground">
+          Your pool stays here after each game. Edit your deck, then ready for a casual pairing.
+        </p>
         <div className="flex gap-2">
           <Button
             variant="outline"
@@ -205,8 +209,8 @@ export default function MultiplayerLimitedBuild() {
             <li
               key={seat.seat}
               className={cn(
-                "rounded-md border px-3 py-2",
-                status?.ready ? "border-selection bg-selection/10" : "border-border bg-muted/30",
+                "rounded-md bg-card/80 px-2 py-1",
+                status?.ready ? "text-selection" : "text-muted-foreground",
               )}
             >
               <span className="font-semibold">{seat.displayName}</span> ·{" "}
@@ -227,7 +231,7 @@ export default function MultiplayerLimitedBuild() {
           aria-label="Casual match scores"
         >
           {session.series.map((match) => (
-            <li key={match.seats.join("-")}>
+            <li key={match.seats.join("-")} className="rounded bg-card/70 px-2 py-1">
               {match.seats
                 .map((id) => session.seats.find((seat) => seat.seat === id)?.displayName)
                 .join(" / ")}{" "}
@@ -269,6 +273,6 @@ export default function MultiplayerLimitedBuild() {
           />
         </div>
       )}
-    </div>
+    </LimitedTableSurface>
   );
 }

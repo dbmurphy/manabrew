@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useTopBarOverride } from "@/components/layout/TopBarOverride";
 import LimitedDeckBuilder from "@/components/limited/LimitedDeckBuilder";
+import { LimitedTableSurface } from "@/components/limited/LimitedTableSurface";
 import { useGameStore } from "@/stores/useGameStore";
 import { useLimitedStore } from "@/stores/useLimitedStore";
 import { ROUTES } from "@/lib/constants";
@@ -150,15 +151,15 @@ export default function Gauntlet() {
 
   if (!gauntlet) {
     return (
-      <div className="flex h-full items-center justify-center text-muted-foreground">
+      <LimitedTableSurface className="items-center justify-center text-muted-foreground">
         {lastError ?? "Loading Limited session…"}
-      </div>
+      </LimitedTableSurface>
     );
   }
   const progress = gauntletProgress(gauntlet);
   const score = gauntletScore(gauntlet);
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 px-4 py-4 sm:px-6 lg:px-8">
+    <LimitedTableSurface className="gap-2 px-4 py-3 sm:px-6 lg:px-8">
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2">
         <div>
           <p className="text-sm font-semibold">
@@ -218,6 +219,6 @@ export default function Gauntlet() {
           {lastError}
         </p>
       )}
-    </div>
+    </LimitedTableSurface>
   );
 }

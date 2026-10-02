@@ -34,51 +34,21 @@ export function LimitedPackOpening({
     <section
       aria-label="Open sealed boosters"
       className={cn(
-        "flex h-full min-h-0 flex-1 flex-col rounded-xl border border-border bg-card text-card-foreground",
-        compact ? "gap-2 p-2" : "gap-4 p-4",
+        "flex h-full min-h-0 flex-1 flex-col overflow-hidden",
+        compact ? "gap-2 p-2" : "gap-3 p-3",
       )}
     >
-      <header className="flex shrink-0 flex-wrap items-start justify-between gap-3">
-        <div>
-          {!compact && (
-            <p className="text-xs uppercase tracking-wider text-muted-foreground">
-              Your sealed pool
-            </p>
-          )}
-          <h2 className={cn("font-serif", compact ? "text-xl" : "text-3xl")}>Open your boosters</h2>
-          <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
-            {preparing
-              ? "Preparing booster images…"
-              : `${openedCount} of ${packs.length} boosters opened`}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {nextPack ? (
-            <Button
-              variant="primary"
-              disabled={preparing || revealing || openAll}
-              onClick={() => void reveal(nextPack)}
-            >
-              Open next
-            </Button>
-          ) : (
-            <Button variant="primary" disabled={revealing || preparing} onClick={complete}>
-              Build deck
-            </Button>
-          )}
-          {nextPack && (
-            <Button
-              variant="outline"
-              disabled={openAll || preparing || revealing}
-              onClick={() => void openRemaining()}
-            >
-              Open all
-            </Button>
-          )}
-          <Button variant="ghost" onClick={complete}>
-            {nextPack || revealing ? "Skip opening" : "Continue"}
-          </Button>
-        </div>
+      <header className="flex shrink-0 flex-wrap items-center justify-center gap-x-3 gap-y-1">
+        <h2 className="rounded bg-card/70 px-2 py-1 font-serif text-lg">Open your boosters</h2>
+        <p
+          role="status"
+          aria-live="polite"
+          className="rounded bg-card/70 px-2 py-1 text-xs text-muted-foreground"
+        >
+          {preparing
+            ? "Preparing booster images…"
+            : `${openedCount} of ${packs.length} boosters opened`}
+        </p>
       </header>
       {imageError && (
         <p role="status" className="text-sm text-muted-foreground">
@@ -90,6 +60,7 @@ export function LimitedPackOpening({
           <Button
             key={pack.id}
             className="shrink-0"
+            size="sm"
             variant={activePack?.id === pack.id ? "selected" : "outline"}
             disabled={!openedIds.includes(pack.id) || preparing || revealing || openAll}
             onClick={() => review(pack.id)}
@@ -104,21 +75,50 @@ export function LimitedPackOpening({
       {activePack ? (
         <LimitedCardCanvas
           cards={activePack.cards}
+          presentation="spread"
           arrivalKey={`${sessionKey}:${activePack.id}:${arrival}`}
           opening={revealing}
-          className={cn("flex-1", compact ? "min-h-24" : "min-h-64")}
+          className="my-auto min-h-0 w-full flex-1 sm:max-h-[32rem]"
         />
       ) : (
-        <div
-          className={cn(
-            "flex flex-1 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-muted/30",
-            compact ? "min-h-24" : "min-h-64",
-          )}
-        >
-          <p className="font-serif text-2xl">{packs.length} boosters at your table</p>
-          <p className="text-sm text-muted-foreground">Open a booster to inspect its cards.</p>
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2">
+          <p className="rounded bg-card/70 px-2 py-1 font-serif text-2xl">
+            {packs.length} boosters at your table
+          </p>
+          <p className="rounded bg-card/70 px-2 py-1 text-sm text-muted-foreground">
+            Open a booster to inspect its cards.
+          </p>
         </div>
       )}
+      <div className="flex shrink-0 flex-wrap justify-center gap-2">
+        {nextPack ? (
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={preparing || revealing || openAll}
+            onClick={() => void reveal(nextPack)}
+          >
+            Open next
+          </Button>
+        ) : (
+          <Button variant="primary" size="sm" disabled={revealing || preparing} onClick={complete}>
+            Build deck
+          </Button>
+        )}
+        {nextPack && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={openAll || preparing || revealing}
+            onClick={() => void openRemaining()}
+          >
+            Open all
+          </Button>
+        )}
+        <Button variant="ghost" size="sm" onClick={complete}>
+          {nextPack || revealing ? "Skip opening" : "Continue"}
+        </Button>
+      </div>
     </section>
   );
 }

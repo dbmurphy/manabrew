@@ -11,6 +11,7 @@ import { useIsShortScreen, useIsTouch } from "@/hooks/useBreakpoints";
 import { cn } from "@/lib/utils";
 import type { DraftCard } from "@/types/limited";
 import type { DeckFormat } from "@/protocol/deck";
+import type { CSSProperties } from "react";
 export interface LimitedDeckBuilderProps {
   sessionKey: string;
   pool: DraftCard[];
@@ -64,6 +65,7 @@ export default function LimitedDeckBuilder({
     () => (acquired && basics ? [...acquired, ...basics] : []),
     [acquired, basics],
   );
+  const acquiredIds = useMemo(() => cards.map((card) => card.id), [cards]);
   const deck = useMemo(
     () =>
       acquired && allocation
@@ -111,61 +113,76 @@ export default function LimitedDeckBuilder({
   const zones = [
     {
       id: "pool",
-      title: "Pool / sideboard",
+      title: "Pool",
       cards: filtered.filter((card) => !mainIds.has(card.id) && !maybeIds.has(card.id)),
       total: cards.filter((card) => !mainIds.has(card.id) && !maybeIds.has(card.id)).length,
     },
     {
       id: "main",
-      title: `Main · ${deck.main.length}/${targetMainSize}+`,
+      title: "Main",
       cards: filtered.filter((card) => mainIds.has(card.id)),
       total: deck.main.length,
     },
     {
       id: "maybe",
-      title: "Maybe / sideboard",
+      title: "Maybe",
       cards: filtered.filter((card) => maybeIds.has(card.id)),
       total: cards.filter((card) => maybeIds.has(card.id)).length,
     },
   ] as const;
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
-      <LimitedBuildActions
-        sessionKey={sessionKey}
-        session={session}
-        deck={deck}
-        shortTouch={shortTouch}
-        suggestedMain={suggestedMain ?? initialMain}
-        suggestedSideboard={suggestedMain ? undefined : initialSideboard}
-        defaultDeckName={defaultDeckName}
-        targetMainSize={targetMainSize}
-        requireCompleteToSave={requireCompleteToSave}
-        format={format}
-        onSaved={onSaved}
-        onConfirm={onConfirm}
-        confirmLabel={confirmLabel}
-      />
-      <details className="shrink-0 rounded-lg border border-border bg-card p-2" open={!shortTouch}>
-        <summary className="cursor-pointer text-xs text-muted-foreground">
-          Search, filters and display
-        </summary>
-        <div className="pt-2">
-          <LimitedBuildFilters
-            filters={filters}
-            onChange={setFilters}
-            session={session}
-            onPreferences={(prefs) =>
-              useLimitedBuildStore.getState().preferences(sessionKey, prefs)
-            }
-          />
-        </div>
-      </details>
-      <LimitedBuildSelection
-        availableSelection={availableSelection}
-        move={move}
-        setSelectedIds={setSelectedIds}
-        deck={deck}
-      />
+      <div className="flex max-h-[40%] shrink-0 flex-wrap items-start gap-1 overflow-y-auto">
+        <LimitedBuildActions
+          sessionKey={sessionKey}
+          session={session}
+          deck={deck}
+          shortTouch={shortTouch}
+          suggestedMain={suggestedMain ?? initialMain}
+          suggestedSideboard={suggestedMain ? undefined : initialSideboard}
+          defaultDeckName={defaultDeckName}
+          targetMainSize={targetMainSize}
+          requireCompleteToSave={requireCompleteToSave}
+          format={format}
+          onSaved={onSaved}
+          onConfirm={onConfirm}
+          confirmLabel={confirmLabel}
+        />
+        <details className="min-w-0 flex-1 basis-56 rounded-md bg-card/75 px-2 [&[open]]:basis-full">
+          <summary className="min-h-8 cursor-pointer py-2 text-xs text-muted-foreground">
+            Filters, view & stats
+            {(filters.search || filters.colors.length > 0 || filters.type !== "all") &&
+              " · Filtered"}
+          </summary>
+          <div className="space-y-2 pb-2">
+            <LimitedBuildFilters
+              filters={filters}
+              onChange={setFilters}
+              session={session}
+              onPreferences={(prefs) =>
+                useLimitedBuildStore.getState().preferences(sessionKey, prefs)
+              }
+            />
+            <details>
+              <summary className="cursor-pointer py-2 text-xs text-muted-foreground">
+                Deck statistics · Main {deck.main.length}/{targetMainSize}+ · Sideboard{" "}
+                {deck.sideboard.length}
+                {deck.main.length < targetMainSize
+                  ? ` · ${targetMainSize - deck.main.length} more needed`
+                  : " · Ready to play"}
+              </summary>
+              <LimitedDeckStats cards={deck.main} />
+            </details>
+          </div>
+        </details>
+      </div>
+      {availableSelection.length > 0 && (
+        <LimitedBuildSelection
+          availableSelection={availableSelection}
+          move={move}
+          setSelectedIds={setSelectedIds}
+        />
+      )}
       <div
         className={cn("flex shrink-0 gap-1 md:hidden", shortTouch && "md:flex")}
         role="tablist"
@@ -186,9 +203,14 @@ export default function LimitedDeckBuilder({
       </div>
       <div
         className={cn(
-          "grid min-h-0 flex-1 grid-cols-1 gap-2 overflow-hidden md:grid-cols-[1.1fr_1.1fr_.7fr]",
+          "grid min-h-0 flex-1 grid-cols-1 gap-2 overflow-hidden md:grid-cols-[var(--limited-build-columns)]",
           shortTouch && "md:grid-cols-1",
         )}
+        style={
+          {
+            "--limited-build-columns": `minmax(0,${Math.max(zones[0].total, 12)}fr) minmax(8rem,${zones[1].total}fr) minmax(8rem,${zones[2].total}fr)`,
+          } as CSSProperties
+        }
       >
         {zones.map((zone) => (
           <LimitedBuildZone
@@ -196,6 +218,7 @@ export default function LimitedDeckBuilder({
             title={zone.title}
             zone={zone.id}
             cards={zone.cards}
+            acquiredIds={acquiredIds}
             total={zone.total}
             selectedIds={availableSelection}
             onSelect={select}
@@ -211,17 +234,6 @@ export default function LimitedDeckBuilder({
           />
         ))}
       </div>
-      <details className="shrink-0 rounded-lg border border-border bg-card px-3 py-2">
-        <summary className="cursor-pointer text-xs text-muted-foreground">
-          Deck statistics ·{" "}
-          {deck.main.length < targetMainSize
-            ? `${targetMainSize - deck.main.length} more main cards needed`
-            : "Ready to play"}
-        </summary>
-        <div className="max-h-44 overflow-y-auto pt-2">
-          <LimitedDeckStats cards={deck.main} />
-        </div>
-      </details>
     </div>
   );
 }

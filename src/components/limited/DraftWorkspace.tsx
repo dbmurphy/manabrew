@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { LimitedCardCanvas } from "@/components/limited/LimitedCardCanvas";
@@ -11,14 +11,12 @@ import type { ConspiracyHook, DraftCard, DraftState } from "@/types/limited";
 interface DraftWorkspaceProps {
   draft: DraftState;
   onPick: (card: DraftCard) => void | Promise<void>;
-  onBuild?: () => void;
   pickPending?: boolean;
   conspiracyHooks?: ConspiracyHook[];
 }
 export function DraftWorkspace({
   draft,
   onPick,
-  onBuild,
   pickPending = false,
   conspiracyHooks = [],
 }: DraftWorkspaceProps) {
@@ -26,6 +24,12 @@ export function DraftWorkspace({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
+  const builderRef = useRef<HTMLElement>(null);
+  const acquiredIds = useMemo(() => draft.pickedPile.map((card) => card.id), [draft.pickedPile]);
+  const poolTarget = useCallback(
+    () => builderRef.current?.querySelector<HTMLElement>('[data-limited-zone="pool"]') ?? null,
+    [],
+  );
   const quickPick = useLimitedBuildStore((state) => state.quickPick);
   const shortScreen = useIsShortScreen();
   const isTouch = useIsTouch();
@@ -79,91 +83,68 @@ export function DraftWorkspace({
       </div>
       <div
         className={cn(
-          "grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-hidden lg:grid-cols-[minmax(0,.8fr)_minmax(0,1.4fr)]",
-          shortTouch && "lg:grid-cols-1",
+          "grid min-h-0 flex-1 grid-cols-1 gap-2 overflow-hidden lg:grid-rows-[minmax(0,min(42%,24rem))_minmax(0,1fr)]",
+          shortTouch && "lg:grid-rows-1",
         )}
       >
         <section
           className={cn(
-            "flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-card",
+            "flex min-h-0 flex-col overflow-hidden",
             mobileTab !== "pack" && "hidden lg:flex",
             shortTouch && mobileTab !== "pack" && "lg:hidden",
           )}
-          onKeyDown={(event) => {
-            if (
-              event.key !== "Enter" ||
-              event.target instanceof HTMLInputElement ||
-              event.target instanceof HTMLButtonElement ||
-              !selected ||
-              disabled
-            )
-              return;
-            event.preventDefault();
-            void submit(selected);
-          }}
-          tabIndex={0}
-          aria-label="Current booster. Select a card and press Enter to confirm."
+          aria-label="Current booster"
         >
-          <header className="shrink-0 space-y-2 border-b border-border p-3">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="font-serif text-xl">Current booster</h2>
-              <span className="text-xs text-muted-foreground">
-                Round {draft.round}/{draft.totalRounds} · Pick {draft.pickNumber}
+          <header className="flex shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-1 px-3">
+            <h2 className="rounded bg-card/70 px-2 py-1 font-serif text-lg">
+              Booster{" "}
+              <span className="font-sans text-xs text-muted-foreground">
+                {draft.currentPack.length}
               </span>
-            </div>
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-              <span>
-                {draft.passDirection ? `Pass ${draft.passDirection}` : "Choose from this booster"}
-                {draft.picksPerPass > 1
-                  ? ` · ${draft.picksRemainingInPack} picks before passing`
-                  : ""}
-              </span>
-              <label className="flex min-h-11 cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={quickPick}
-                  onChange={(event) =>
-                    useLimitedBuildStore.getState().setQuickPick(event.target.checked)
-                  }
-                />
-                Quick pick
-              </label>
-            </div>
+            </h2>
+            <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded bg-card/70 px-2 text-xs">
+              <input
+                type="checkbox"
+                checked={quickPick}
+                onChange={(event) =>
+                  useLimitedBuildStore.getState().setQuickPick(event.target.checked)
+                }
+              />
+              Quick pick
+            </label>
           </header>
-          {draft.currentPack.length ? (
-            <LimitedCardCanvas
-              cards={draft.currentPack}
-              selectedIds={selected ? [selected.id] : []}
-              onSelect={select}
-              onActivate={(card) => {
-                setSelectedId(card.id);
-                void submit(card);
-              }}
-              disabled={disabled}
-              cardSize={130}
-              arrivalKey={`${draft.sessionId}:${draft.round}:${draft.pickNumber}`}
-              className="min-h-0 flex-1"
-            />
-          ) : (
-            <p
-              role="status"
-              className="flex min-h-24 flex-1 items-center justify-center p-4 text-sm text-muted-foreground"
-            >
-              {draft.isComplete
+          <LimitedCardCanvas
+            cards={draft.currentPack}
+            selectedIds={selected ? [selected.id] : []}
+            onSelect={select}
+            onActivate={(card) => {
+              setSelectedId(card.id);
+              void submit(card);
+            }}
+            disabled={disabled}
+            presentation="spread"
+            arrivalDirection={draft.passDirection === "left" ? "right" : "left"}
+            acquiredIds={acquiredIds}
+            departureTarget={poolTarget}
+            arrivalKey={`${draft.sessionId}:${draft.round}:${draft.pickNumber}`}
+            emptyMessage={
+              draft.isComplete
                 ? "Draft complete. Finish your build."
-                : "Waiting for the next booster..."}
-            </p>
-          )}
-          <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-border p-3">
-            <p aria-live="polite" className="min-w-0 truncate text-sm">
+                : "Waiting for the next booster..."
+            }
+            className="min-h-0 flex-1"
+          />
+          <footer className="flex shrink-0 items-center justify-center gap-3 px-3 py-1">
+            <p aria-live="polite" className="min-w-0 truncate rounded bg-card/70 px-2 py-1 text-sm">
               {selected
                 ? selected.name
                 : draft.awaitingHuman
-                  ? "Select a card, then confirm."
+                  ? "Choose a card"
                   : "Waiting for the table."}
             </p>
             <Button
               variant="primary"
+              size="sm"
               disabled={!selected || disabled}
               className="shrink-0"
               onClick={() => {
@@ -175,6 +156,7 @@ export function DraftWorkspace({
           </footer>
         </section>
         <section
+          ref={builderRef}
           className={cn(
             "flex min-h-0 min-w-0 flex-col gap-2",
             mobileTab !== "build" && "hidden lg:flex",
@@ -182,34 +164,25 @@ export function DraftWorkspace({
           )}
           aria-label="Your acquired pool and deck"
         >
-          {(onBuild || !!draft.humanConspiracies?.length) && (
-            <div className="flex shrink-0 items-start justify-between gap-2">
-              {!!draft.humanConspiracies?.length && (
-                <details className="min-w-0 text-xs">
-                  <summary className="cursor-pointer font-semibold">
-                    Conspiracies · {draft.humanConspiracies.length}
-                  </summary>
-                  <ul className="max-h-24 space-y-1 overflow-y-auto pt-2">
-                    {draft.humanConspiracies.map((name) => (
-                      <li key={name}>
-                        <span className="font-medium">{name}</span>
-                        {conspiracyHooks.find((hook) => hook.cardName === name)?.description && (
-                          <span className="text-muted-foreground">
-                            {" "}
-                            · {conspiracyHooks.find((hook) => hook.cardName === name)?.description}
-                          </span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              )}
-              {onBuild && (
-                <Button variant="outline" size="sm" className="ml-auto" onClick={onBuild}>
-                  Expand builder
-                </Button>
-              )}
-            </div>
+          {!!draft.humanConspiracies?.length && (
+            <details className="mx-2 min-w-0 max-w-xl shrink-0 text-xs">
+              <summary className="cursor-pointer rounded bg-card/70 px-2 py-1 font-semibold">
+                Conspiracies · {draft.humanConspiracies.length}
+              </summary>
+              <ul className="max-h-24 space-y-1 overflow-y-auto rounded bg-card/90 p-2">
+                {draft.humanConspiracies.map((name) => (
+                  <li key={name}>
+                    <span className="font-medium">{name}</span>
+                    {conspiracyHooks.find((hook) => hook.cardName === name)?.description && (
+                      <span className="text-muted-foreground">
+                        {" "}
+                        · {conspiracyHooks.find((hook) => hook.cardName === name)?.description}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </details>
           )}
           <div className="min-h-0 flex-1">
             <LimitedDeckBuilder

@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import LimitedDeckBuilder from "@/components/limited/LimitedDeckBuilder";
 import { LimitedPackOpening } from "@/components/limited/LimitedPackOpening";
 import { LimitedPlayAction } from "@/components/limited/LimitedPlayAction";
+import { LimitedTableSurface } from "@/components/limited/LimitedTableSurface";
 import { useLimitedStore } from "@/stores/useLimitedStore";
 import type { DraftCard } from "@/types/limited";
 export default function Sealed() {
@@ -31,17 +32,17 @@ export default function Sealed() {
 
   if (!activeSealed || activeSealed.sessionId !== id) {
     return (
-      <div className="flex h-full items-center justify-center">
+      <LimitedTableSurface className="items-center justify-center">
         {lastError ? (
           <p className="text-destructive">{lastError}</p>
         ) : (
           <p className="text-muted-foreground">Loading sealed pool…</p>
         )}
-      </div>
+      </LimitedTableSurface>
     );
   }
   return (
-    <div className="flex h-full flex-col gap-4 px-4 py-6 sm:px-6 lg:px-8">
+    <LimitedTableSurface className="gap-2 px-4 py-3 sm:px-6 lg:px-8">
       <header className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm text-muted-foreground">
@@ -89,6 +90,6 @@ export default function Sealed() {
           {lastError}
         </p>
       )}
-    </div>
+    </LimitedTableSurface>
   );
 }

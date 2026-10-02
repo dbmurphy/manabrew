@@ -13,6 +13,7 @@ import {
 import LimitedDeckBuilder from "@/components/limited/LimitedDeckBuilder";
 import { LimitedModeToggle, type LimitedDraftMode } from "@/components/limited/LimitedModeToggle";
 import { WinstonWorkspace } from "@/components/limited/WinstonWorkspace";
+import { LimitedTableSurface } from "@/components/limited/LimitedTableSurface";
 import { useLimitedStore } from "@/stores/useLimitedStore";
 type WinstonMode = LimitedDraftMode;
 export default function Winston() {
@@ -35,13 +36,13 @@ export default function Winston() {
   const mode: WinstonMode = activeWinston?.isComplete ? "building" : userMode;
   if (!activeWinston || activeWinston.sessionId !== winstonId) {
     return (
-      <div className="flex h-full items-center justify-center">
+      <LimitedTableSurface className="items-center justify-center">
         {lastError ? (
           <p className="text-destructive">{lastError}</p>
         ) : (
           <p className="text-muted-foreground">Loading Winston draft…</p>
         )}
-      </div>
+      </LimitedTableSurface>
     );
   }
   const handleTake = async () => {
@@ -73,7 +74,7 @@ export default function Winston() {
     await submitPass();
   };
   return (
-    <div className="flex h-full flex-col gap-4 px-4 py-6 sm:px-6 lg:px-8">
+    <LimitedTableSurface className="gap-2 px-4 py-3 sm:px-6 lg:px-8">
       <header className="z-10 flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-md border border-border/70 bg-background/95 px-3 py-2 shadow-sm backdrop-blur">
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <span>Deck: {activeWinston.deckSize} cards left</span>
@@ -156,6 +157,6 @@ export default function Winston() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </LimitedTableSurface>
   );
 }

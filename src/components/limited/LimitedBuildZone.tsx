@@ -1,6 +1,6 @@
 import { Fragment, type MouseEvent } from "react";
 import { LimitedCardCanvas } from "@/components/limited/LimitedCardCanvas";
-import { HoverCardPreview } from "@/components/game/HoverCardPreview";
+import { CardHoverPreview } from "@/components/game/CardHoverPreview";
 import { Button } from "@/components/ui/button";
 import { useCardPreview } from "@/hooks/useCardPreview";
 import { useLongPressPreview } from "@/hooks/useLongPressPreview";
@@ -15,6 +15,7 @@ interface Props {
   title: string;
   zone: "pool" | "main" | "maybe";
   cards: DraftCard[];
+  acquiredIds: readonly string[];
   total: number;
   selectedIds: string[];
   onSelect: (card: DraftCard, additive: boolean) => void;
@@ -29,6 +30,7 @@ export function LimitedBuildZone({
   title,
   zone,
   cards,
+  acquiredIds,
   total,
   selectedIds,
   onSelect,
@@ -39,7 +41,7 @@ export function LimitedBuildZone({
   mode,
   className,
 }: Props) {
-  const preview = useCardPreview([mode]);
+  const preview = useCardPreview([mode, cards]);
   const cache = useScryfallStore((state) => state.cards);
   const labels = cards.map((card) => {
     const info = peekCard(cache, card);
@@ -56,35 +58,37 @@ export function LimitedBuildZone({
   return (
     <section
       data-limited-zone={zone}
-      className={cn(
-        "flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card",
-        className,
-      )}
+      aria-label={zone === "main" ? "Main deck" : `${title} / sideboard`}
+      className={cn("flex min-h-0 min-w-0 flex-col overflow-hidden", className)}
     >
-      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border p-2">
-        <h3 className="font-serif text-lg">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-1 px-2">
+        <h3 className="rounded bg-card/70 px-2 py-1 font-serif text-base">
           {title}{" "}
           <span className="font-sans text-xs tabular-nums text-muted-foreground">{total}</span>
         </h3>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => cards.forEach((card, index) => onSelect(card, index > 0))}
-          disabled={!cards.length}
-        >
-          Select visible
-        </Button>
+        {cards.length > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => cards.forEach((card, index) => onSelect(card, index > 0))}
+            className="bg-card/70 text-xs"
+          >
+            Select visible
+          </Button>
+        )}
       </header>
       {cards.length ? (
         mode === "gallery" ? (
           <LimitedCardCanvas
             cards={cards}
+            acquiredIds={acquiredIds}
             selectedIds={selectedIds}
             onSelect={onSelect}
             onActivate={(card) => onMove([card.id], zone === "main" ? "pool" : "main")}
             onDrop={onDrop}
             groupBy={group}
             cardSize={cardSize}
+            presentation="columns"
             className="min-h-0 flex-1"
           />
         ) : (
@@ -107,7 +111,7 @@ export function LimitedBuildZone({
                       preview.showSticky(dto, undefined, undefined, anchor)
                     }
                     onHover={(dto, event) =>
-                      preview.handleMouseEnter(dto, event, { useDelay: true })
+                      preview.handleMouseEnter(dto, event, { useAnchor: true, useDelay: true })
                     }
                     onLeave={preview.handleMouseLeave}
                     onDismiss={preview.dismiss}
@@ -118,17 +122,17 @@ export function LimitedBuildZone({
           </div>
         )
       ) : (
-        <p className="p-5 text-sm text-muted-foreground">
+        <p className="mx-2 mt-3 rounded-md bg-card/60 px-2 py-3 text-center text-xs text-muted-foreground">
           {total
             ? "No cards match your filters."
             : zone === "main"
-              ? "Select pool cards, then Add to main."
+              ? "Add cards from your pool."
               : zone === "maybe"
-                ? "Set cards aside with Maybe. They stay in your sideboard."
-                : "All acquired cards are in your main deck or Maybe."}
+                ? "Set aside cards for later."
+                : "No unassigned cards."}
         </p>
       )}
-      <HoverCardPreview preview={preview} imageSize="normal" />
+      <CardHoverPreview preview={preview} />
     </section>
   );
 }
@@ -156,12 +160,13 @@ function CardRow({
     resolve: (event) => (dto ? { item: dto, anchor: event.currentTarget as HTMLElement } : null),
     show: onInspect,
     hide: onDismiss,
+    hideOnRelease: false,
   });
   return (
     <li
       className={cn(
-        "flex items-center gap-1 rounded border border-border px-2 py-1",
-        selected && "border-selection bg-selection/10",
+        "flex items-center gap-1 rounded bg-card/70 px-2 py-1",
+        selected && "bg-selection/20 ring-1 ring-selection",
       )}
     >
       <button
@@ -169,10 +174,12 @@ function CardRow({
         aria-pressed={selected}
         className="min-h-11 min-w-0 flex-1 text-left text-sm focus-visible:outline-2 focus-visible:outline-primary"
         onClick={(event) => onSelect(card, event.shiftKey || event.metaKey || event.ctrlKey)}
-        onMouseEnter={(event) => {
-          if (dto) onHover(dto, event);
+        onPointerEnter={(event) => {
+          if (event.pointerType !== "touch" && dto) onHover(dto, event);
         }}
-        onMouseLeave={onLeave}
+        onPointerLeave={(event) => {
+          if (event.pointerType !== "touch") onLeave();
+        }}
         {...longPress}
       >
         <span className="block truncate font-medium">

@@ -8,6 +8,7 @@ import {
   type FederatedPointerEvent,
 } from "pixi.js";
 import { withAlpha } from "@/themes/gameTheme";
+import { isCardPreviewTarget } from "@/lib/cardPreviewEvents";
 import type { CardDto, PlaymatSettings } from "@/protocol/game";
 import type { AttackTargetDto, TargetRef } from "@/protocol/prompts/common";
 import {
@@ -348,6 +349,7 @@ export class BoardScene {
     app.stage.hitArea = {
       contains: (x, y) =>
         !topModal() &&
+        !isCardPreviewTarget(app.renderer.events.pointer.nativeEvent?.target) &&
         x >= 0 &&
         x <= this.canvasW &&
         y >= 0 &&

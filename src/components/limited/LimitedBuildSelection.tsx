@@ -1,15 +1,13 @@
 import { Button } from "@/components/ui/button";
-import type { DraftCard } from "@/types/limited";
 
 interface Props {
   availableSelection: string[];
   move: (ids: string[], zone: "main" | "pool" | "maybe") => void;
   setSelectedIds: (ids: string[]) => void;
-  deck: { sideboard: DraftCard[] };
 }
-export function LimitedBuildSelection({ availableSelection, move, setSelectedIds, deck }: Props) {
+export function LimitedBuildSelection({ availableSelection, move, setSelectedIds }: Props) {
   return (
-    <div className="flex shrink-0 items-center gap-2 overflow-x-auto text-xs">
+    <div className="flex shrink-0 items-center gap-1 overflow-x-auto rounded-md bg-card/70 px-2 text-xs [&>button]:shrink-0">
       <span className="whitespace-nowrap tabular-nums text-muted-foreground">
         {availableSelection.length} selected
       </span>
@@ -27,7 +25,7 @@ export function LimitedBuildSelection({ availableSelection, move, setSelectedIds
         disabled={!availableSelection.length}
         onClick={() => move(availableSelection, "pool")}
       >
-        Remove / return to pool
+        Return to pool
       </Button>
       <Button
         variant="outline"
@@ -45,9 +43,6 @@ export function LimitedBuildSelection({ availableSelection, move, setSelectedIds
       >
         Clear selection
       </Button>
-      <span className="whitespace-nowrap text-muted-foreground">
-        Sideboard {deck.sideboard.length}. Maybe is included.
-      </span>
     </div>
   );
 }

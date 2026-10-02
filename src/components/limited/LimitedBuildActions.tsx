@@ -1,7 +1,16 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { AppSelect, AppSelectOption } from "@/components/ui/AppSelect";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuPortal,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { LimitedBuildSaveActions } from "@/components/limited/LimitedBuildSaveActions";
 import { LimitedBuildConfigurations } from "@/components/limited/LimitedBuildConfigurations";
 import { LimitedManaDialog } from "@/components/limited/LimitedManaDialog";
@@ -48,84 +57,10 @@ export function LimitedBuildActions({
     <>
       <div
         className={cn(
-          "flex shrink-0 flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-2",
-          shortTouch && "flex-nowrap overflow-x-auto",
+          "flex min-w-0 max-w-full shrink-0 flex-wrap items-center gap-1 rounded-md bg-card/70 px-1 py-1 [&>button]:shrink-0",
+          shortTouch && "flex-nowrap gap-2 overflow-x-auto",
         )}
       >
-        <span className="whitespace-nowrap font-serif text-lg">Your build</span>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={!session.undo.length}
-          onClick={() => useLimitedBuildStore.getState().undo(sessionKey)}
-        >
-          Undo
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={!session.redo.length}
-          onClick={() => useLimitedBuildStore.getState().redo(sessionKey)}
-        >
-          Redo
-        </Button>
-        <AppSelect
-          aria-label="Add basic land"
-          value=""
-          onValueChange={(name) => {
-            void useLimitedBuildStore
-              .getState()
-              .addBasic(sessionKey, name as BasicLandName)
-              .catch((error: unknown) =>
-                toast.error(error instanceof Error ? error.message : "Couldn't add this basic."),
-              );
-          }}
-        >
-          <AppSelectOption value="">Add basic</AppSelectOption>
-          {BASIC_LAND_NAMES.map((name) => (
-            <AppSelectOption key={name} value={name}>
-              {name}
-            </AppSelectOption>
-          ))}
-        </AppSelect>
-        <Button variant="outline" size="sm" onClick={() => setDialog("mana")}>
-          Suggest lands
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => setDialog("builds")}>
-          Builds
-        </Button>
-        <Button variant="ghost" size="sm" onClick={() => setDialog("compare")}>
-          Compare saved
-        </Button>
-        {!!suggestedMain?.length && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() =>
-              useLimitedBuildStore
-                .getState()
-                .suggest(sessionKey, suggestedMain, suggestedSideboard ?? [])
-            }
-          >
-            Use suggested build
-          </Button>
-        )}
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={!deck.main.length}
-          onClick={() => useLimitedBuildStore.getState().suggest(sessionKey, [], [])}
-        >
-          Move all to sideboard
-        </Button>
-        <LimitedBuildSaveActions
-          deck={deck}
-          defaultDeckName={defaultDeckName}
-          targetMainSize={targetMainSize}
-          requireCompleteToSave={requireCompleteToSave}
-          format={format}
-          onSaved={onSaved}
-        />
         {onConfirm && (
           <Button
             variant="primary"
@@ -137,6 +72,85 @@ export function LimitedBuildActions({
             {confirmLabel}
           </Button>
         )}
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={!session.undo.length}
+          onClick={() => useLimitedBuildStore.getState().undo(sessionKey)}
+        >
+          Undo
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={!session.redo.length}
+          onClick={() => useLimitedBuildStore.getState().redo(sessionKey)}
+        >
+          Redo
+        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="shrink-0 bg-card/70">
+              Build tools
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>Add basic land</DropdownMenuSubTrigger>
+              <DropdownMenuPortal>
+                <DropdownMenuSubContent>
+                  {BASIC_LAND_NAMES.map((name) => (
+                    <DropdownMenuItem
+                      key={name}
+                      onSelect={() => {
+                        void useLimitedBuildStore
+                          .getState()
+                          .addBasic(sessionKey, name as BasicLandName)
+                          .catch((error: unknown) =>
+                            toast.error(
+                              error instanceof Error ? error.message : "Couldn't add this basic.",
+                            ),
+                          );
+                      }}
+                    >
+                      {name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuPortal>
+            </DropdownMenuSub>
+            <DropdownMenuItem onSelect={() => setDialog("mana")}>Suggest lands</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setDialog("builds")}>Named builds</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setDialog("compare")}>
+              Compare saved builds
+            </DropdownMenuItem>
+            {!!suggestedMain?.length && (
+              <DropdownMenuItem
+                onSelect={() =>
+                  useLimitedBuildStore
+                    .getState()
+                    .suggest(sessionKey, suggestedMain, suggestedSideboard ?? [])
+                }
+              >
+                Use suggested build
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem
+              disabled={!deck.main.length}
+              onSelect={() => useLimitedBuildStore.getState().suggest(sessionKey, [], [])}
+            >
+              Move all to sideboard
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <LimitedBuildSaveActions
+          deck={deck}
+          defaultDeckName={defaultDeckName}
+          targetMainSize={targetMainSize}
+          requireCompleteToSave={requireCompleteToSave}
+          format={format}
+          onSaved={onSaved}
+        />
       </div>
       {dialog === "mana" && (
         <LimitedManaDialog

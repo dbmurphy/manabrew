@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useIsDesktop } from "@/hooks/useBreakpoints";
+import { useIsDesktop, useIsShortScreen, useIsTouch } from "@/hooks/useBreakpoints";
 import { LimitedCardCanvas } from "@/components/limited/LimitedCardCanvas";
 import LimitedDeckBuilder from "@/components/limited/LimitedDeckBuilder";
+import { cn } from "@/lib/utils";
 import type { WinstonState } from "@/types/limited";
 
 interface WinstonWorkspaceProps {
@@ -20,16 +21,20 @@ export function WinstonWorkspace({
   onPass,
 }: WinstonWorkspaceProps) {
   const desktop = useIsDesktop();
+  const shortScreen = useIsShortScreen();
+  const isTouch = useIsTouch();
+  const showBoth = desktop && !(shortScreen && isTouch);
   const [tab, setTab] = useState<"piles" | "deck">("piles");
   const activePile = activeWinston.piles[activeIdx] ?? [];
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
-      {!desktop && (
+      {!showBoth && (
         <div className="flex gap-2" role="tablist" aria-label="Winston workspace">
           <Button
             role="tab"
             aria-selected={tab === "piles"}
-            variant={tab === "piles" ? "primary" : "outline"}
+            variant={tab === "piles" ? "selected" : "ghost"}
+            size="sm"
             onClick={() => setTab("piles")}
           >
             Piles
@@ -37,43 +42,53 @@ export function WinstonWorkspace({
           <Button
             role="tab"
             aria-selected={tab === "deck"}
-            variant={tab === "deck" ? "primary" : "outline"}
+            variant={tab === "deck" ? "selected" : "ghost"}
+            size="sm"
             onClick={() => setTab("deck")}
           >
             Build · {activeWinston.pickedPile.length}
           </Button>
         </div>
       )}
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-2">
-        {(desktop || tab === "piles") && (
-          <section className="flex min-h-0 flex-col overflow-hidden rounded-md border border-primary/50 bg-primary/5">
-            <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border/50 px-3 py-2">
-              <div>
-                <h2 className="text-sm font-semibold text-primary">Pile {activeIdx + 1}</h2>
-                <p className="text-xs text-muted-foreground">{activePile.length} cards</p>
-              </div>
+      <div
+        className={cn(
+          "grid min-h-0 flex-1 gap-3 overflow-hidden",
+          showBoth && "grid-rows-[minmax(0,min(42%,24rem))_minmax(0,1fr)]",
+        )}
+      >
+        {(showBoth || tab === "piles") && (
+          <section className="flex min-h-0 flex-col overflow-hidden">
+            <header className="flex shrink-0 self-center items-center justify-center gap-2 rounded bg-card/70 px-2 py-1">
+              <h2 className="font-serif text-lg">Pile {activeIdx + 1}</h2>
+              <span className="text-xs text-muted-foreground">{activePile.length} cards</span>
+            </header>
+            <LimitedCardCanvas
+              cards={activePile}
+              presentation="spread"
+              arrivalKey={`${activeWinston.sessionId}:${activeIdx}:${activePile.map((card) => card.id).join(",")}`}
+              className="min-h-0 flex-1"
+            />
+            <footer className="flex shrink-0 flex-wrap items-center justify-center gap-3 px-3 py-1">
               {activeWinston.awaitingHuman && (
                 <div className="flex gap-2">
-                  <Button variant="primary" onClick={onTake} disabled={activePile.length === 0}>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={onTake}
+                    disabled={activePile.length === 0}
+                  >
                     Take pile
                   </Button>
-                  <Button variant="outline" onClick={onPass}>
+                  <Button variant="outline" size="sm" onClick={onPass}>
                     Pass
                   </Button>
                 </div>
               )}
-            </header>
-            <LimitedCardCanvas
-              cards={activePile}
-              arrivalKey={`${activeWinston.sessionId}:${activeIdx}:${activePile.map((card) => card.id).join(",")}`}
-              className="min-h-0 flex-1"
-            />
-            <footer className="flex flex-wrap gap-3 border-t border-border/50 p-3">
               {activeWinston.piles.map((pile, index) =>
                 index === activeIdx ? null : (
                   <div
                     key={index}
-                    className="flex items-center gap-2 rounded border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+                    className="flex items-center gap-2 rounded bg-card/70 px-3 py-2 text-xs text-muted-foreground"
                   >
                     <Layers className="size-4" aria-hidden="true" />
                     <span>
@@ -85,7 +100,7 @@ export function WinstonWorkspace({
             </footer>
           </section>
         )}
-        {(desktop || tab === "deck") && (
+        {(showBoth || tab === "deck") && (
           <LimitedDeckBuilder
             key={activeWinston.sessionId}
             sessionKey={activeWinston.sessionId}
