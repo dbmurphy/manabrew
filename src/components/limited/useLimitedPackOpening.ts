@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLimitedOpeningStore } from "@/components/limited/limitedOpeningStore";
-import { animationsEnabled } from "@/pixi/effects/enabled";
 import { refToDeckCard } from "@/lib/limited.utils";
 import { useScryfallStore } from "@/stores/useScryfallStore";
 import type { SealedPool } from "@/types/limited";
@@ -22,7 +21,7 @@ export function useLimitedPackOpening(
   const [preparing, setPreparing] = useState(false);
   const [imageError, setImageError] = useState(false);
   const generation = useRef(0);
-  const settle = useRef<((completed: boolean) => void) | null>(null);
+  const settle = useRef<{ packId: string; resolve: (completed: boolean) => void } | null>(null);
   const callback = useRef(onComplete);
   useLayoutEffect(() => {
     callback.current = onComplete;
@@ -32,17 +31,30 @@ export function useLimitedPackOpening(
   const activePack =
     packs.find((pack) => pack.id === reviewId) ?? packs.find((pack) => openedIds.includes(pack.id));
   const openedCount = packs.filter((pack) => openedIds.includes(pack.id)).length;
+  const poolCards = useMemo(
+    () => [
+      ...(activePack?.cards ?? []),
+      ...packs
+        .filter((pack) => pack.id !== activePack?.id && openedIds.includes(pack.id))
+        .flatMap((pack) => pack.cards),
+    ],
+    [activePack, packs, openedIds],
+  );
+  const openingCardIds = useMemo(() => activePack?.cards.map((card) => card.id), [activePack]);
   const cancel = useCallback(() => {
     generation.current += 1;
-    settle.current?.(false);
+    settle.current?.resolve(false);
     settle.current = null;
   }, []);
   const finishReveal = useCallback(() => {
-    const resolve = settle.current;
+    const pending = settle.current;
     settle.current = null;
     setRevealing(false);
-    resolve?.(true);
-  }, []);
+    if (pending) {
+      open(sessionKey, [pending.packId]);
+      pending.resolve(true);
+    }
+  }, [open, sessionKey]);
   const reveal = async (pack: SealedPool["packs"][number]): Promise<boolean> => {
     cancel();
     const current = generation.current;
@@ -64,12 +76,9 @@ export function useLimitedPackOpening(
     setPreparing(false);
     setReviewId(pack.id);
     setArrival((value) => value + 1);
-    const animate = animationsEnabled();
-    setRevealing(animate);
-    open(sessionKey, [pack.id]);
-    if (!animate) return true;
+    setRevealing(true);
     return new Promise<boolean>((resolve) => {
-      settle.current = resolve;
+      settle.current = { packId: pack.id, resolve };
     });
   };
   const openRemaining = async () => {
@@ -108,6 +117,8 @@ export function useLimitedPackOpening(
     activePack,
     preparing,
     revealing,
+    poolCards,
+    openingCardIds,
     openAll,
     imageError,
     arrival,

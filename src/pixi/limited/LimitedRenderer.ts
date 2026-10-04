@@ -15,6 +15,7 @@ export interface LimitedPane {
   dragCards?: (ids: readonly string[]) => Container[];
   restoreDragCard?: (root: Container) => void;
   cardPositions?: () => Map<string, MarqueeCardPosition>;
+  abort?: () => void;
 }
 interface RegisteredPane {
   pane: LimitedPane;
@@ -61,6 +62,8 @@ export class LimitedRenderer {
   private readonly decorationLayer = new Container();
   private readonly flightsLayer = new Container();
   private readonly motionLayer = new Container();
+  private readonly openingLayer = new Container();
+  private readonly openings = new Map<LimitedPane, Container>();
   private readonly liftedCards = new Map<Container, LiftedCard>();
   private readonly dragGroups = new Map<Container, DragFollower[]>();
   private readonly flights = new Set<CardFlight>();
@@ -104,11 +107,13 @@ export class LimitedRenderer {
     this.flightsLayer.eventMode = "none";
     this.decorationLayer.eventMode = "none";
     this.motionLayer.eventMode = "none";
+    this.openingLayer.eventMode = "none";
     this.app.stage.addChild(
       this.cardsLayer,
       this.flightsLayer,
       this.decorationLayer,
       this.motionLayer,
+      this.openingLayer,
     );
     for (const { pane, mask } of this.panes.values())
       (pane.layer === "decoration" ? this.decorationLayer : this.cardsLayer).addChild(
@@ -151,6 +156,7 @@ export class LimitedRenderer {
     for (const [root, lifted] of this.liftedCards) {
       if (lifted.pane === pane) this.restoreCard(pane, root);
     }
+    this.unmountOpening(pane);
     pane.root.mask = null;
     pane.root.removeFromParent();
     entry.mask.removeFromParent();
@@ -166,6 +172,7 @@ export class LimitedRenderer {
     if (sharedRenderer === this) sharedRenderer = null;
     this.cancelFlights();
     for (const [root, lifted] of this.liftedCards) this.restoreCard(lifted.pane, root);
+    for (const pane of this.openings.keys()) this.unmountOpening(pane);
     this.scheduler?.dispose();
     window.removeEventListener("scroll", this.request, true);
     window.removeEventListener("resize", this.resize);
@@ -177,13 +184,32 @@ export class LimitedRenderer {
   readonly request = (): void => {
     this.scheduler?.request();
   };
-  liftCard(pane: LimitedPane, root: Container): boolean {
+  get openingActive(): boolean {
+    return this.openings.size > 0;
+  }
+  mountOpening(pane: LimitedPane, root: Container): void {
+    if (!this.panes.has(pane) || this.disposed) return;
+    for (const { pane: registered } of this.panes.values()) registered.abort?.();
+    this.openings.set(pane, root);
+    this.openingLayer.addChild(root);
+    this.canvas.style.zIndex = "99";
+    this.request();
+  }
+  unmountOpening(pane: LimitedPane): void {
+    const root = this.openings.get(pane);
+    if (!root) return;
+    root.removeFromParent();
+    this.openings.delete(pane);
+    if (!this.openings.size) this.canvas.style.zIndex = "1";
+    this.request();
+  }
+  liftCard(pane: LimitedPane, root: Container, destination = this.motionLayer): boolean {
     const entry = this.panes.get(pane);
     if (!entry || this.disposed || root.destroyed || root.parent !== pane.root) return false;
     this.place(entry);
     const alpha = root.alpha;
     const transform = root.getGlobalTransform();
-    this.motionLayer.addChild(root);
+    destination.addChild(root);
     root.setFromMatrix(transform);
     root.alpha *= pane.root.alpha;
     this.liftedCards.set(root, {

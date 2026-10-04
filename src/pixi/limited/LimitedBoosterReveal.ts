@@ -1,4 +1,5 @@
 import { Container, FillGradient, Graphics, Sprite, Text } from "pixi.js";
+import { GAME_CARD_SIZES } from "@/components/game/game.constants";
 import { gsap } from "@/pixi/effects/gsap";
 import { animationsEnabled } from "@/pixi/effects/enabled";
 import { getTheme } from "@/hooks/useTheme";
@@ -12,6 +13,8 @@ export interface RevealCard {
   y: number;
   width: number;
   height: number;
+  scaleX: number;
+  scaleY: number;
 }
 export type BoosterTearDirection = "left" | "right";
 export interface BoosterOpeningState {
@@ -20,9 +23,9 @@ export interface BoosterOpeningState {
   width: number;
   height: number;
   waiting: boolean;
+  progress: number;
 }
 interface BoosterOpeningOptions {
-  interactive?: boolean;
   setCode?: string;
   set?: ScryfallSet;
   onChange?: (state: BoosterOpeningState | null) => void;
@@ -36,13 +39,15 @@ const FAN_DURATION = 0.22;
 const SETTLE_DURATION = 0.34;
 const CARD_STAGGER = 0.018;
 const STAGGER_LIMIT = 0.18;
-const REST_TILT = -0.035;
+const REST_TILT = 0;
 
 export class LimitedBoosterReveal {
   private timeline: gsap.core.Timeline | null = null;
   private wrapper: Container | null = null;
+  private backdrop: Graphics | null = null;
   private cards: RevealCard[] = [];
   private waiting = false;
+  private progress = 0;
   private wrapperWidth = 0;
   private wrapperHeight = 0;
   private symbol: Sprite | null = null;
@@ -63,6 +68,9 @@ export class LimitedBoosterReveal {
   get active(): boolean {
     return this.wrapper !== null;
   }
+  get awaitingInput(): boolean {
+    return this.waiting;
+  }
   get animating(): boolean {
     return this.timeline !== null && !this.timeline.paused();
   }
@@ -73,27 +81,32 @@ export class LimitedBoosterReveal {
     options: BoosterOpeningOptions = {},
   ): void {
     this.finish();
-    this.cards = cards;
-    this.onChange = options.onChange;
-    this.onComplete = options.onComplete;
-    if (!cards.length || !animationsEnabled()) {
-      this.finish(true);
-      return;
-    }
     const theme = getTheme();
-    const wrapperWidth = Math.min(cards[0].width + 20, width * 0.72);
-    const wrapperHeight = Math.min(cards[0].height + 24, height * 0.8);
+    const preview = GAME_CARD_SIZES.preview;
+    const wrapperScale = Math.min(
+      1.08,
+      (width * 0.76) / preview.width,
+      (height * 0.72) / preview.height,
+    );
+    const wrapperWidth = preview.width * wrapperScale;
+    const wrapperHeight = preview.height * wrapperScale;
     this.wrapperWidth = wrapperWidth;
     this.wrapperHeight = wrapperHeight;
     const centerX = width / 2;
-    const centerY = Math.min(height / 2, wrapperHeight / 2 + 24);
+    const centerY = height / 2;
+    const backdrop = new Graphics()
+      .rect(0, 0, width, height)
+      .fill({ color: hexToNum(theme.appTheme.background), alpha: 0.92 });
+    backdrop.eventMode = "none";
+    this.backdrop = backdrop;
+    this.stage.addChildAt(backdrop, 0);
     const wrapper = new Container();
     wrapper.eventMode = "none";
-    wrapper.position.set(centerX, centerY - 24);
-    wrapper.rotation = -0.1;
+    wrapper.position.set(centerX, centerY);
+    wrapper.rotation = REST_TILT;
     wrapper.scale.set(0.92);
     wrapper.alpha = 0;
-    wrapper.zIndex = 4;
+    wrapper.zIndex = 2;
     const seamY = -wrapperHeight * 0.26;
     const left = -wrapperWidth / 2;
     const right = wrapperWidth / 2;
@@ -196,7 +209,7 @@ export class LimitedBoosterReveal {
     const setName = new Text({
       style: {
         fontFamily: "Alegreya",
-        fontSize: Math.min(14, wrapperWidth * 0.105),
+        fontSize: wrapperWidth * 0.085,
         fontWeight: "bold",
         fill: theme.appTheme.foreground,
         align: "center",
@@ -218,7 +231,7 @@ export class LimitedBoosterReveal {
       },
     });
     packType.anchor.set(0.5);
-    packType.position.set(0, bottom - 23);
+    packType.position.set(0, bottom - wrapperHeight * 0.065);
     lower.addChild(bodyDetail, symbol, symbolCode, setName, packType);
     this.symbol = symbol;
     this.symbolCode = symbolCode;
@@ -245,13 +258,21 @@ export class LimitedBoosterReveal {
     this.stage.addChild(wrapper);
     this.wrapper = wrapper;
     this.setIdentity(options.setCode, options.set);
-    this.waiting = options.interactive !== false;
-    cards.forEach(({ motion, x, y, width: cardWidth, height: cardHeight }, index) => {
-      motion.position.set(
-        centerX - x - cardWidth * 0.41,
-        centerY - y - cardHeight * 0.41 + index * 1.5,
+    this.cards = cards;
+    this.onChange = options.onChange;
+    this.onComplete = options.onComplete;
+    this.waiting = true;
+    this.progress = 0;
+    cards.forEach(({ motion, width: cardWidth, height: cardHeight, scaleX, scaleY }, index) => {
+      const packedScale = Math.min(
+        (wrapperWidth * 0.8) / cardWidth,
+        (wrapperHeight * 0.78) / cardHeight,
       );
-      motion.scale.set(0.82);
+      motion.position.set(
+        centerX - (cardWidth * packedScale) / 2,
+        centerY - cardHeight * packedScale * 0.4 + index * 1.5,
+      );
+      motion.scale.set(scaleX * packedScale, scaleY * packedScale);
       motion.rotation = REST_TILT;
       motion.alpha = 0;
     });
@@ -273,7 +294,7 @@ export class LimitedBoosterReveal {
       0,
     );
     timeline.to(wrapper.scale, { x: 1, y: 1, duration: LAND_DURATION, ease: "power2.out" }, 0);
-    if (this.waiting) timeline.addPause(LAND_DURATION, this.changed);
+    timeline.addPause(LAND_DURATION, this.changed);
     timeline.to(tearLine.scale, { x: 1, duration: TEAR_DURATION, ease: "none" }, LAND_DURATION);
     const peelStart = LAND_DURATION + TEAR_DURATION;
     const extractStart = peelStart + 0.09;
@@ -313,82 +334,79 @@ export class LimitedBoosterReveal {
       extractEnd - 0.05,
     );
     timeline.to([seam, tear], { alpha: 0, duration: 0.12 }, peelStart);
-    cards.forEach(({ motion, x, y, width: cardWidth, height: cardHeight }, index) => {
-      const offset = index - (cards.length - 1) / 2;
-      const liftStart = extractStart + Math.min(index * CARD_STAGGER * 0.5, STAGGER_LIMIT * 0.5);
-      const fanStart = liftStart + EXTRACT_DURATION;
-      timeline.to(
-        motion,
-        {
-          x: centerX - x - cardWidth * 0.44 + offset * 0.7,
-          y: Math.max(8, centerY + seamY - cardHeight * 0.8) - y + index * 0.45,
-          rotation: REST_TILT * 0.3,
-          duration: EXTRACT_DURATION,
-          ease: "power3.out",
-        },
-        liftStart,
-      );
-      timeline.to(motion, { alpha: 1, duration: 0.12, ease: "power1.out" }, liftStart);
-      timeline.to(
-        motion.scale,
-        { x: 0.88, y: 0.88, duration: EXTRACT_DURATION, ease: "power3.out" },
-        liftStart,
-      );
-      timeline.to(
-        motion,
-        {
-          x: centerX - x - cardWidth / 2 + offset * cardWidth * 0.09,
-          y: centerY - y - cardHeight / 2 - 16 + Math.abs(offset) * 1.5,
-          rotation: offset * 0.018,
-          alpha: 1,
-          duration: FAN_DURATION,
-          ease: "power2.out",
-        },
-        fanStart,
-      );
-      timeline.to(
-        motion,
-        {
-          x: 0,
-          y: 0,
-          rotation: 0,
-          duration: SETTLE_DURATION,
-          ease: "power3.out",
-        },
-        fanStart + FAN_DURATION,
-      );
-      timeline.to(
-        motion.scale,
-        {
-          x: 1,
-          y: 1,
-          duration: SETTLE_DURATION,
-          ease: "power3.out",
-        },
-        fanStart + FAN_DURATION,
-      );
-    });
+    const flightStart = extractStart + EXTRACT_DURATION + FAN_DURATION;
+    timeline.to(backdrop, { alpha: 0, duration: SETTLE_DURATION, ease: "power1.out" }, flightStart);
+    cards.forEach(
+      ({ motion, x, y, width: cardWidth, height: cardHeight, scaleX, scaleY }, index) => {
+        const offset = index - (cards.length - 1) / 2;
+        const packedScale = Math.min(
+          (wrapperWidth * 0.8) / cardWidth,
+          (wrapperHeight * 0.78) / cardHeight,
+        );
+        const packedWidth = cardWidth * packedScale;
+        const packedHeight = cardHeight * packedScale;
+        const fanStride = Math.min(
+          wrapperWidth * 0.09,
+          (width - packedWidth - 32) / Math.max(1, cards.length - 1),
+        );
+        const liftStart = extractStart + Math.min(index * CARD_STAGGER * 0.5, STAGGER_LIMIT * 0.5);
+        const fanStart = liftStart + EXTRACT_DURATION;
+        timeline.to(
+          motion,
+          {
+            x: centerX - packedWidth / 2 + offset * 0.7,
+            y: Math.max(height * 0.04, centerY + seamY - packedHeight * 0.72) + index * 0.45,
+            rotation: REST_TILT,
+            duration: EXTRACT_DURATION,
+            ease: "power3.out",
+          },
+          liftStart,
+        );
+        timeline.to(motion, { alpha: 1, duration: 0.12, ease: "power1.out" }, liftStart);
+        timeline.to(
+          motion,
+          {
+            x: centerX - packedWidth / 2 + offset * fanStride,
+            y: centerY - packedHeight / 2 + Math.abs(offset) * 1.5,
+            rotation: offset * 0.018,
+            alpha: 1,
+            duration: FAN_DURATION,
+            ease: "power2.out",
+          },
+          fanStart,
+        );
+        timeline.to(
+          motion,
+          { x, y, rotation: 0, duration: SETTLE_DURATION, ease: "power3.out" },
+          fanStart + FAN_DURATION,
+        );
+        timeline.to(
+          motion.scale,
+          { x: scaleX, y: scaleY, duration: SETTLE_DURATION, ease: "power3.out" },
+          fanStart + FAN_DURATION,
+        );
+      },
+    );
     this.changed();
-    timeline.play();
+    if (animationsEnabled()) timeline.play();
+    else this.reduceMotion();
   }
   open(): void {
     if (!this.timeline || !this.waiting) return;
+    this.waiting = false;
+    this.progress = 1;
     if (!animationsEnabled()) {
       this.finish(true);
       return;
     }
-    this.waiting = false;
     this.timeline.removePause(LAND_DURATION);
     this.timeline.play();
     this.changed();
   }
   tear(progress: number, direction: BoosterTearDirection = "right"): void {
     if (!this.timeline || !this.waiting) return;
-    if (!animationsEnabled()) {
-      this.finish(true);
-      return;
-    }
     const amount = Math.max(0, Math.min(1, progress));
+    this.progress = amount;
     this.tearDirection = direction;
     if (this.tearStrip) {
       this.tearStrip.x = ((direction === "left" ? 1 : -1) * this.wrapperWidth) / 2;
@@ -397,6 +415,17 @@ export class LimitedBoosterReveal {
     this.timeline.pause().seek(LAND_DURATION + amount * TEAR_DURATION, true);
     this.changed();
     if (amount === 1) this.open();
+  }
+  reduceMotion(): void {
+    if (!this.active) return;
+    if (!this.waiting) {
+      this.finish(true);
+      return;
+    }
+    const time = LAND_DURATION + this.progress * TEAR_DURATION;
+    if (this.timeline?.paused() && Math.abs(this.timeline.time() - time) < 0.0001) return;
+    this.timeline?.pause().seek(time, true);
+    this.changed();
   }
   setIdentity(setCode: string | undefined, set: ScryfallSet | undefined): void {
     const symbol = this.symbol;
@@ -438,15 +467,12 @@ export class LimitedBoosterReveal {
   private readonly changed = (): void => {
     const wrapper = this.wrapper;
     if (!wrapper) return;
-    const tearProgress = Math.max(
-      0,
-      Math.min(1, ((this.timeline?.time() ?? 0) - LAND_DURATION) / TEAR_DURATION),
-    );
+    const tearProgress = this.progress;
     if (this.tearGlint) {
       this.tearGlint.x = this.wrapperWidth * tearProgress;
       this.tearGlint.visible = tearProgress > 0 && tearProgress < 1;
     }
-    if (this.waiting && (this.timeline?.time() ?? 0) >= LAND_DURATION) {
+    if (this.waiting && animationsEnabled() && (this.timeline?.time() ?? 0) >= LAND_DURATION) {
       const flex = Math.sin(tearProgress * Math.PI);
       const direction = this.tearDirection === "left" ? -1 : 1;
       wrapper.rotation = REST_TILT + direction * flex * 0.025;
@@ -464,10 +490,12 @@ export class LimitedBoosterReveal {
       width,
       height,
       waiting: this.waiting,
+      progress: tearProgress,
     });
     this.request();
   };
   finish(complete = false): void {
+    if (!this.active || (complete && this.waiting)) return;
     const onChange = this.onChange;
     const onComplete = complete ? this.onComplete : undefined;
     this.onChange = undefined;
@@ -475,17 +503,20 @@ export class LimitedBoosterReveal {
     this.waiting = false;
     this.timeline?.kill();
     this.timeline = null;
-    for (const { motion } of this.cards) {
+    for (const { motion, x, y, scaleX, scaleY } of this.cards) {
       if (motion.destroyed) continue;
-      motion.position.set(0, 0);
-      motion.scale.set(1);
+      motion.position.set(x, y);
+      motion.scale.set(scaleX, scaleY);
       motion.rotation = 0;
       motion.alpha = 1;
     }
     this.cards = [];
     this.wrapper?.removeFromParent();
-    this.wrapper?.destroy({ children: true });
+    this.wrapper?.destroy({ children: true, texture: false, textureSource: false });
     this.wrapper = null;
+    this.backdrop?.removeFromParent();
+    this.backdrop?.destroy();
+    this.backdrop = null;
     this.symbol = null;
     this.symbolCode = null;
     this.setName = null;
@@ -493,6 +524,7 @@ export class LimitedBoosterReveal {
     this.tearStrip = null;
     this.tearGlint = null;
     this.tearDirection = "right";
+    this.progress = 0;
     onChange?.(null);
     this.request();
     onComplete?.();

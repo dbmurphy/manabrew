@@ -22,6 +22,7 @@ import {
   LimitedBoosterReveal,
   type BoosterOpeningState,
   type BoosterTearDirection,
+  type RevealCard,
 } from "@/pixi/limited/LimitedBoosterReveal";
 import {
   LIMITED_DRAG_THRESHOLD,
@@ -45,7 +46,7 @@ export interface LimitedSceneProps {
   opening: boolean;
   openingSetCode?: string;
   openingSet?: ScryfallSet;
-  openingInteractive?: boolean;
+  openingCardIds?: readonly string[];
   onOpeningChange?: (state: BoosterOpeningState | null) => void;
   onOpeningComplete?: () => void;
   onSelect?: (card: DraftCard, additive: boolean) => void;
@@ -113,6 +114,8 @@ export class LimitedCardScene implements LimitedPane {
   private readonly longPress = new LongPressGesture();
   private readonly renderer: LimitedRenderer;
   private readonly reveal: LimitedBoosterReveal;
+  private readonly openingLayer = new Container();
+  private readonly openingEntries = new Set<CardEntry>();
   private unsubscribeTheme: (() => void) | null = null;
   private unsubscribeStore: (() => void) | null = null;
   private readonly reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -140,7 +143,9 @@ export class LimitedCardScene implements LimitedPane {
     this.root.eventMode = "none";
     this.root.sortableChildren = true;
     this.root.addChild(this.headings);
-    this.reveal = new LimitedBoosterReveal(this.root, this.request);
+    this.openingLayer.eventMode = "none";
+    this.openingLayer.sortableChildren = true;
+    this.reveal = new LimitedBoosterReveal(this.openingLayer, this.request);
     this.renderer = acquireLimitedRenderer(this);
   }
   async init(): Promise<void> {
@@ -159,6 +164,7 @@ export class LimitedCardScene implements LimitedPane {
       window.addEventListener("scroll", this.viewportChanged, true);
       window.addEventListener("resize", this.viewportChanged);
       window.visualViewport?.addEventListener("scroll", this.viewportChanged);
+      window.visualViewport?.addEventListener("resize", this.viewportChanged);
       this.reducedMotion.addEventListener("change", this.motionPreferenceChanged);
       document.addEventListener("visibilitychange", this.visibilityChanged);
       this.update(this.props);
@@ -191,7 +197,6 @@ export class LimitedCardScene implements LimitedPane {
   update(props: LimitedSceneProps): void {
     const scrollChanged = this.props.scrollTop !== props.scrollTop;
     const viewportChanged = this.props.width !== props.width || this.props.height !== props.height;
-    if (props.arrivalKey !== this.props.arrivalKey) this.reveal.finish();
     this.props = props;
     if (!this.initialized || this.disposed) return;
     const allIds = new Set(props.layout.cells.map(({ card }) => card.id));
@@ -208,14 +213,20 @@ export class LimitedCardScene implements LimitedPane {
                 .map(({ card }) => card.id),
         )
       : new Set<string>();
+    const openingIds = props.openingCardIds ? new Set(props.openingCardIds) : allIds;
+    const openingCells = props.opening
+      ? props.layout.cells.filter(({ card }) => openingIds.has(card.id))
+      : [];
     const visible = props.layout.cells.filter(
       (cell) =>
-        cell.y + cell.height >= props.scrollTop - cell.height &&
-        cell.y <= props.scrollTop + props.height + cell.height,
+        (props.opening && openingIds.has(cell.card.id)) ||
+        (cell.y + cell.height >= props.scrollTop - cell.height &&
+          cell.y <= props.scrollTop + props.height + cell.height),
     );
     const visibleIds = new Set(visible.map(({ card }) => card.id));
     const newArrival = props.arrivalKey !== this.arrivalKey || (!this.hasLayout && props.opening);
-    const validArrival = props.width > 1 && props.height > 1 && visible.length > 0;
+    const validArrival =
+      props.width > 1 && props.height > 1 && (props.opening ? openingCells : visible).length > 0;
     const freshDeal =
       newArrival &&
       (!this.hasLayout || !props.layout.cells.some(({ card }) => this.knownIds.has(card.id)));
@@ -223,12 +234,14 @@ export class LimitedCardScene implements LimitedPane {
       visibleIds.size !== this.entries.size ||
       visible.some((cell) => {
         const previous = this.entries.get(cell.card.id)?.cell;
-        return previous && this.cellChanged(previous, cell);
+        return !previous || this.cellChanged(previous, cell);
       });
-    if (newArrival) this.reveal.finish();
-    else if (scrollChanged || viewportChanged || !props.opening || layoutChanged)
-      this.reveal.finish(true);
-    else if (props.openingInteractive === false) this.reveal.open();
+    let restartOpening = false;
+    if (newArrival || !props.opening) this.reveal.finish();
+    else if (scrollChanged || viewportChanged || layoutChanged) {
+      restartOpening = this.reveal.active && this.reveal.awaitingInput;
+      this.reveal.finish(!restartOpening);
+    }
     if (
       props.disabled ||
       scrollChanged ||
@@ -289,7 +302,8 @@ export class LimitedCardScene implements LimitedPane {
           color: hexToNum(selected ? theme.gameTheme.cardSelection : theme.appTheme.border),
           width: selected ? 4 : 1,
         });
-      entry.image.alpha = props.disabled ? 0.65 : 1;
+      entry.image.alpha =
+        props.disabled && !(props.opening && openingIds.has(cell.card.id)) ? 0.65 : 1;
       if (!props.opening && freshDeal && props.arrivalKey) this.deal(entry, index);
       else if (!props.opening && !props.arrivalKey && created && addedIds.has(cell.card.id))
         this.settle(entry, index);
@@ -312,31 +326,9 @@ export class LimitedCardScene implements LimitedPane {
       text.position.set(header.x, header.y - props.scrollTop);
       this.headings.addChild(text);
     }
-    if (newArrival && validArrival) {
+    if ((newArrival || restartOpening) && validArrival) {
       this.arrivalKey = props.arrivalKey;
-      if (props.opening) {
-        for (const entry of this.entries.values()) this.finishEntry(entry);
-        this.reveal.play(
-          visible.map((cell) => ({
-            motion: this.entries.get(cell.card.id)!.motion,
-            ...cell,
-            y: cell.y - props.scrollTop,
-          })),
-          props.width,
-          props.height,
-          {
-            interactive: props.openingInteractive,
-            setCode: props.openingSetCode,
-            set: props.openingSet,
-            onChange: (state) => this.props.onOpeningChange?.(state),
-            onComplete: () => {
-              if (!this.disposed && this.props.arrivalKey === props.arrivalKey)
-                this.props.onOpeningComplete?.();
-            },
-          },
-        );
-        for (const entry of this.entries.values()) this.updatePose(entry, false);
-      }
+      if (props.opening) this.startOpening();
       this.revealing = this.reveal.active;
     }
     this.reveal.setIdentity(props.openingSetCode, props.openingSet);
@@ -348,6 +340,58 @@ export class LimitedCardScene implements LimitedPane {
     this.hasLayout ||= validArrival;
     this.request();
   }
+  private startOpening(): void {
+    const props = this.props;
+    const openingIds = props.openingCardIds ? new Set(props.openingCardIds) : null;
+    const entries = props.layout.cells
+      .filter(({ card }) => !openingIds || openingIds.has(card.id))
+      .map(({ card }) => this.entries.get(card.id))
+      .filter((entry): entry is CardEntry => entry !== undefined);
+    if (!props.opening || !entries.length || this.disposed) return;
+    this.hoveredId = null;
+    this.props.onInspect(null, false);
+    this.renderer.mountOpening(this, this.openingLayer);
+    const cards: RevealCard[] = [];
+    for (const entry of entries) {
+      this.finishEntry(entry);
+      if (!this.renderer.liftCard(this, entry.root, this.openingLayer)) continue;
+      entry.root.zIndex = 1;
+      this.openingEntries.add(entry);
+      cards.push({
+        motion: entry.root,
+        x: entry.root.x,
+        y: entry.root.y,
+        width: entry.cell.width * entry.root.scale.x,
+        height: entry.cell.height * entry.root.scale.y,
+        scaleX: entry.root.scale.x,
+        scaleY: entry.root.scale.y,
+      });
+    }
+    if (!cards.length) {
+      this.restoreOpening();
+      return;
+    }
+    this.reveal.play(cards, window.innerWidth, window.innerHeight, {
+      setCode: props.openingSetCode,
+      set: props.openingSet,
+      onChange: (state) => {
+        if (!state) this.restoreOpening();
+        this.props.onOpeningChange?.(state);
+      },
+      onComplete: () => {
+        if (!this.disposed && this.props.opening && this.props.arrivalKey === props.arrivalKey)
+          this.props.onOpeningComplete?.();
+      },
+    });
+    this.revealing = this.reveal.active;
+  }
+  private restoreOpening(): void {
+    for (const entry of this.openingEntries) this.renderer.restoreCard(this, entry.root);
+    this.openingEntries.clear();
+    this.renderer.unmountOpening(this);
+    for (const entry of this.entries.values()) this.updatePose(entry, false);
+    this.revealing = false;
+  }
   openBooster(): void {
     this.reveal.open();
   }
@@ -355,6 +399,7 @@ export class LimitedCardScene implements LimitedPane {
     this.reveal.tear(progress, direction);
   }
   skipBooster(): void {
+    if (!this.reveal.active || this.reveal.awaitingInput) return;
     this.reveal.finish(true);
     for (const entry of this.entries.values()) this.updatePose(entry, false);
     this.revealing = false;
@@ -497,7 +542,8 @@ export class LimitedCardScene implements LimitedPane {
   private updatePose(entry: CardEntry, animate = true): void {
     const interactive =
       !this.props.disabled &&
-      !this.reveal.active &&
+      !this.renderer.openingActive &&
+      !this.props.opening &&
       this.drag?.entry !== entry &&
       this.settling?.entry !== entry &&
       !this.renderer.isLifted(entry.root);
@@ -506,8 +552,9 @@ export class LimitedCardScene implements LimitedPane {
     const lift = hovered ? HOVER_LIFT : selected ? SELECTED_LIFT : 0;
     const rotation = hovered ? HOVER_TILT : 0;
     const scale = hovered ? HOVER_SCALE : selected ? SELECTED_SCALE : 1;
-    entry.root.zIndex =
-      this.drag?.entry === entry && this.drag.active ? 3 : hovered ? 2 : selected ? 1 : 0;
+    if (!this.openingEntries.has(entry))
+      entry.root.zIndex =
+        this.drag?.entry === entry && this.drag.active ? 3 : hovered ? 2 : selected ? 1 : 0;
     if (
       animate &&
       animationsEnabled() &&
@@ -568,7 +615,7 @@ export class LimitedCardScene implements LimitedPane {
     this.updatePose(entry, false);
   }
   private finishAnimations(): void {
-    if (this.reveal.active) this.reveal.finish(true);
+    if (this.reveal.active) this.reveal.reduceMotion();
     this.finishSettling();
     for (const entry of this.entries.values()) {
       if (entry.layoutTimeline || entry.motionTimeline || entry.poseTimeline)
@@ -609,7 +656,8 @@ export class LimitedCardScene implements LimitedPane {
       !this.props.onSelectMany ||
       this.props.disabled ||
       this.drag ||
-      this.reveal.active ||
+      this.renderer.openingActive ||
+      this.props.opening ||
       event.button !== 0 ||
       event.pointerType === "touch"
     )
@@ -627,7 +675,8 @@ export class LimitedCardScene implements LimitedPane {
   }
   cardPositions(): Map<string, MarqueeCardPosition> {
     const positions = new Map<string, MarqueeCardPosition>();
-    if (!this.props.onSelectMany || this.props.disabled) return positions;
+    if (!this.props.onSelectMany || this.props.disabled || this.renderer.openingActive)
+      return positions;
     for (const [id, entry] of this.entries) {
       const transform = entry.root.getGlobalTransform();
       const center = transform.apply({ x: entry.cell.width / 2, y: entry.cell.height / 2 });
@@ -641,7 +690,7 @@ export class LimitedCardScene implements LimitedPane {
     return positions;
   }
   dragCards(ids: readonly string[]): Container[] {
-    if (this.props.disabled || this.reveal.active) return [];
+    if (this.props.disabled || this.renderer.openingActive || this.props.opening) return [];
     const roots: Container[] = [];
     for (const id of ids) {
       let entry = this.entries.get(id);
@@ -672,8 +721,15 @@ export class LimitedCardScene implements LimitedPane {
   }
   pressCard(id: string, event: PointerEvent): void {
     const entry = this.entries.get(id);
-    if (!entry || this.props.disabled || this.drag || event.button !== 0) return;
-    if (this.reveal.active) this.skipBooster();
+    if (
+      !entry ||
+      this.props.disabled ||
+      this.drag ||
+      this.renderer.openingActive ||
+      this.props.opening ||
+      event.button !== 0
+    )
+      return;
     this.finishSettling();
     this.longPress.reset();
     this.drag = {
@@ -712,7 +768,8 @@ export class LimitedCardScene implements LimitedPane {
     );
   }
   hoverCard(id: string | null, pointerType: string): void {
-    if (pointerType !== "mouse" || this.drag || this.reveal.active) return;
+    if (pointerType !== "mouse" || this.drag || this.renderer.openingActive || this.props.opening)
+      return;
     const previous = this.hoveredId ? this.entries.get(this.hoveredId) : null;
     const entry = id ? this.entries.get(id) : null;
     this.hoveredId = entry?.cell.card.id ?? null;
@@ -722,6 +779,7 @@ export class LimitedCardScene implements LimitedPane {
     this.request();
   }
   inspectCard(id: string): void {
+    if (this.renderer.openingActive || this.props.opening) return;
     const card = this.props.layout.cells.find((cell) => cell.card.id === id)?.card;
     if (card) {
       this.abort();
@@ -952,7 +1010,12 @@ export class LimitedCardScene implements LimitedPane {
     this.request();
   };
   private readonly viewportChanged = (): void => {
-    if (this.reveal.active) this.skipBooster();
+    if (this.reveal.active) {
+      if (this.reveal.awaitingInput) {
+        this.reveal.finish();
+        this.startOpening();
+      } else this.reveal.finish(true);
+    }
     this.abort();
   };
   private readonly motionPreferenceChanged = (): void => {
@@ -970,6 +1033,8 @@ export class LimitedCardScene implements LimitedPane {
     this.disposed = true;
     this.abort();
     this.reveal.finish();
+    this.restoreOpening();
+    this.openingLayer.destroy({ children: true, texture: false, textureSource: false });
     this.marquee.destroy();
     for (const entry of this.entries.values()) this.killEntry(entry);
     this.unsubscribeTheme?.();
@@ -981,6 +1046,7 @@ export class LimitedCardScene implements LimitedPane {
     window.removeEventListener("scroll", this.viewportChanged, true);
     window.removeEventListener("resize", this.viewportChanged);
     window.visualViewport?.removeEventListener("scroll", this.viewportChanged);
+    window.visualViewport?.removeEventListener("resize", this.viewportChanged);
     this.reducedMotion.removeEventListener("change", this.motionPreferenceChanged);
     document.removeEventListener("visibilitychange", this.visibilityChanged);
     this.renderer.release(this);

@@ -21,6 +21,8 @@ export function LimitedPackOpening({
     nextPack,
     activePack,
     preparing,
+    poolCards,
+    openingCardIds,
     revealing,
     openAll,
     imageError,
@@ -74,16 +76,22 @@ export function LimitedPackOpening({
         ))}
       </div>
       {activePack ? (
-        <LimitedCardCanvas
-          cards={activePack.cards}
-          presentation="spread"
-          arrivalKey={`${sessionKey}:${activePack.id}:${arrival}`}
-          opening={revealing}
-          openingSetCode={activePack.setCode}
-          openingInteractive={!openAll}
-          onOpeningComplete={finishReveal}
-          className="my-auto min-h-0 w-full flex-1 sm:max-h-[32rem]"
-        />
+        <section aria-label="Opened card pool" className="flex min-h-0 flex-1 flex-col">
+          <h3 className="mx-auto rounded bg-card/70 px-2 py-1 font-serif text-lg">
+            Pool <span className="font-sans text-xs text-muted-foreground">{poolCards.length}</span>
+          </h3>
+          <LimitedCardCanvas
+            cards={poolCards}
+            selectedIds={revealing ? undefined : openingCardIds}
+            presentation="grid"
+            arrivalKey={`${sessionKey}:${activePack.id}:${arrival}`}
+            opening={revealing}
+            openingSetCode={activePack.setCode}
+            openingCardIds={openingCardIds}
+            onOpeningComplete={finishReveal}
+            className="min-h-0 w-full flex-1"
+          />
+        </section>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2">
           <p className="rounded bg-card/70 px-2 py-1 font-serif text-2xl">

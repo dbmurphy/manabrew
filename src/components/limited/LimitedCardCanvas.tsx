@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import type { KeyboardEvent } from "react";
 import { GAME_CARD_SIZES } from "@/components/game/game.constants";
 import { CardHoverPreview } from "@/components/game/CardHoverPreview";
-import { LimitedBoosterControl } from "@/components/limited/LimitedBoosterControl";
+import { LimitedBoosterOverlay } from "@/components/limited/LimitedBoosterOverlay";
 import { useCardPreview } from "@/hooks/useCardPreview";
 import { refToDeckCard } from "@/lib/limited.utils";
 import { deckCardToPreviewDto } from "@/lib/scryfall.utils";
@@ -34,7 +34,7 @@ export interface LimitedCardCanvasProps {
   arrivalKey?: string;
   opening?: boolean;
   openingSetCode?: string;
-  openingInteractive?: boolean;
+  openingCardIds?: readonly string[];
   onOpeningComplete?: () => void;
   presentation?: LimitedLayoutOptions["presentation"];
   arrivalDirection?: "left" | "right";
@@ -57,7 +57,7 @@ export function LimitedCardCanvas({
   arrivalKey,
   opening = false,
   openingSetCode,
-  openingInteractive = true,
+  openingCardIds,
   onOpeningComplete,
   presentation = "grid",
   arrivalDirection,
@@ -95,6 +95,8 @@ export function LimitedCardCanvas({
     [],
   );
   const skipBooster = useCallback(() => scene.current?.skipBooster(), []);
+  const openingActive = opening && !error;
+  const openingState = booster && booster.arrivalKey === arrivalKey ? booster.state : null;
   const instructionsId = useId();
   const activeFocusedId = cards.some((card) => card.id === focusedId) ? focusedId : null;
   const inspectionRequest = useRef(0);
@@ -186,7 +188,7 @@ export function LimitedCardCanvas({
     opening,
     openingSetCode: packSetCode,
     openingSet,
-    openingInteractive,
+    openingCardIds,
     onOpeningChange: handleOpeningChange,
     onOpeningComplete: handleOpeningComplete,
     arrivalDirection,
@@ -255,6 +257,10 @@ export function LimitedCardCanvas({
     buttons.current.get(cell.card.id)?.focus({ preventScroll: true });
   };
   const keyboard = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    if (openingActive) {
+      event.preventDefault();
+      return;
+    }
     if (
       event.key === "ArrowLeft" ||
       event.key === "ArrowRight" ||
@@ -324,6 +330,7 @@ export function LimitedCardCanvas({
       <div
         ref={scrollHost}
         onPointerDown={(event) => {
+          if (openingActive) return;
           if (event.target instanceof Element && event.target.closest("button")) return;
           dismiss();
           scene.current?.pressMarquee(event.nativeEvent);
@@ -346,17 +353,7 @@ export function LimitedCardCanvas({
               error && "invisible",
             )}
             style={{ height: viewport.height }}
-          >
-            {opening && !error && booster && booster.arrivalKey === arrivalKey && booster.state && (
-              <LimitedBoosterControl
-                key={arrivalKey}
-                state={booster.state}
-                onOpen={openBooster}
-                onTear={tearBooster}
-                onSkip={skipBooster}
-              />
-            )}
-          </div>
+          />
           {layout.cells.map((cell, index) => (
             <button
               key={cell.card.id}
@@ -366,31 +363,42 @@ export function LimitedCardCanvas({
               }}
               type="button"
               data-limited-card-id={cell.card.id}
-              disabled={disabled}
+              disabled={disabled || openingActive}
               aria-label={`${cell.card.name}, ${cell.card.setCode}, ${cell.card.cardNumber}, copy ${index + 1}`}
               aria-describedby={instructionsId}
               aria-pressed={selectedIds.includes(cell.card.id)}
-              tabIndex={cell.card.id === (activeFocusedId ?? layout.cells[0]?.card.id) ? 0 : -1}
+              tabIndex={
+                !openingActive && cell.card.id === (activeFocusedId ?? layout.cells[0]?.card.id)
+                  ? 0
+                  : -1
+              }
               onFocus={() => setFocusedId(cell.card.id)}
               onKeyDown={(event) => keyboard(event, index)}
               onPointerDown={(event) => {
+                if (openingActive) return;
                 dismiss();
                 scene.current?.pressCard(cell.card.id, event.nativeEvent);
               }}
-              onPointerEnter={(event) => scene.current?.hoverCard(cell.card.id, event.pointerType)}
-              onPointerLeave={(event) => scene.current?.hoverCard(null, event.pointerType)}
+              onPointerEnter={(event) => {
+                if (!openingActive) scene.current?.hoverCard(cell.card.id, event.pointerType);
+              }}
+              onPointerLeave={(event) => {
+                if (!openingActive) scene.current?.hoverCard(null, event.pointerType);
+              }}
               onContextMenu={(event) => {
                 event.preventDefault();
+                if (openingActive) return;
                 inspect(cell.card, true);
               }}
               onClick={(event) => {
+                if (openingActive) return;
                 if (event.detail === 0 || error) {
                   scene.current?.skipBooster();
                   onSelect?.(cell.card, event.ctrlKey || event.metaKey || event.shiftKey);
                 }
               }}
               onDoubleClick={() => {
-                if (error) onActivate?.(cell.card);
+                if (!openingActive && error) onActivate?.(cell.card);
               }}
               className={cn(
                 "absolute z-[2] cursor-pointer rounded-md p-2 text-sm opacity-0 focus-visible:opacity-100 focus-visible:bg-card focus-visible:text-card-foreground focus-visible:outline-2 focus-visible:outline-primary",
@@ -419,6 +427,15 @@ export function LimitedCardCanvas({
           )}
         </div>
       </div>
+      {openingActive && (
+        <LimitedBoosterOverlay
+          key={arrivalKey}
+          state={openingState}
+          onOpen={openBooster}
+          onTear={tearBooster}
+          onSkip={skipBooster}
+        />
+      )}
       <CardHoverPreview preview={{ ...preview, dismiss }} />
     </div>
   );

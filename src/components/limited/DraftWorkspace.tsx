@@ -38,6 +38,8 @@ export function DraftWorkspace({
   const roundOpened = useLimitedOpeningStore((state) =>
     state.sessions[draft.sessionId]?.openedIds.includes(roundKey),
   );
+  const opening = draft.currentPack.length > 0 && !roundOpened;
+  const activeTab = opening ? "pack" : mobileTab;
   const shortScreen = useIsShortScreen();
   const isTouch = useIsTouch();
   const shortTouch = shortScreen && isTouch;
@@ -54,8 +56,8 @@ export function DraftWorkspace({
       >
         <Button
           role="tab"
-          aria-selected={mobileTab === "pack"}
-          variant={mobileTab === "pack" ? "selected" : "ghost"}
+          aria-selected={activeTab === "pack"}
+          variant={activeTab === "pack" ? "selected" : "ghost"}
           size="sm"
           onClick={() => setMobileTab("pack")}
         >
@@ -63,8 +65,8 @@ export function DraftWorkspace({
         </Button>
         <Button
           role="tab"
-          aria-selected={mobileTab === "build"}
-          variant={mobileTab === "build" ? "selected" : "ghost"}
+          aria-selected={activeTab === "build"}
+          variant={activeTab === "build" ? "selected" : "ghost"}
           size="sm"
           onClick={() => setMobileTab("build")}
         >
@@ -80,8 +82,8 @@ export function DraftWorkspace({
         <section
           className={cn(
             "flex min-h-0 flex-col overflow-hidden",
-            mobileTab !== "pack" && "hidden lg:flex",
-            shortTouch && mobileTab !== "pack" && "lg:hidden",
+            activeTab !== "pack" && "hidden lg:flex",
+            shortTouch && activeTab !== "pack" && "lg:hidden",
           )}
           aria-label="Current booster"
         >
@@ -115,11 +117,12 @@ export function DraftWorkspace({
             acquiredIds={acquiredIds}
             departureTarget={pickTarget}
             arrivalKey={`${draft.sessionId}:${draft.round}:${draft.pickNumber}`}
-            opening={draft.currentPack.length > 0 && !roundOpened}
+            opening={opening}
             openingSetCode={openingSetCode}
-            onOpeningComplete={() =>
-              useLimitedOpeningStore.getState().open(draft.sessionId, [roundKey])
-            }
+            onOpeningComplete={() => {
+              setMobileTab("pack");
+              useLimitedOpeningStore.getState().open(draft.sessionId, [roundKey]);
+            }}
             emptyMessage={
               draft.isComplete
                 ? "Draft complete. Finish your build."
@@ -158,8 +161,8 @@ export function DraftWorkspace({
           ref={builderRef}
           className={cn(
             "flex min-h-0 min-w-0 flex-col gap-2",
-            mobileTab !== "build" && "hidden lg:flex",
-            shortTouch && mobileTab !== "build" && "lg:hidden",
+            activeTab !== "build" && "hidden lg:flex",
+            shortTouch && activeTab !== "build" && "lg:hidden",
           )}
           aria-label="Your acquired pool and deck"
         >
