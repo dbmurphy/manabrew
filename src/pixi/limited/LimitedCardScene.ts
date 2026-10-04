@@ -18,13 +18,18 @@ import {
   type LimitedRenderer,
 } from "@/pixi/limited/LimitedRenderer";
 import { useScryfallStore } from "@/stores/useScryfallStore";
-import { LimitedBoosterReveal } from "@/pixi/limited/LimitedBoosterReveal";
+import {
+  LimitedBoosterReveal,
+  type BoosterOpeningState,
+  type BoosterTearDirection,
+} from "@/pixi/limited/LimitedBoosterReveal";
 import {
   LIMITED_DRAG_THRESHOLD,
   type LimitedCell,
   type LimitedLayout,
 } from "@/pixi/limited/limitedLayout";
 import type { DraftCard } from "@/types/limited";
+import type { ScryfallSet } from "@/types/scryfall";
 
 export interface LimitedSceneProps {
   layout: LimitedLayout;
@@ -38,6 +43,11 @@ export interface LimitedSceneProps {
   acquiredIds?: readonly string[];
   departureTarget?: () => HTMLElement | null;
   opening: boolean;
+  openingSetCode?: string;
+  openingSet?: ScryfallSet;
+  openingInteractive?: boolean;
+  onOpeningChange?: (state: BoosterOpeningState | null) => void;
+  onOpeningComplete?: () => void;
   onSelect?: (card: DraftCard, additive: boolean) => void;
   onSelectMany?: (ids: string[]) => void;
   onActivate?: (card: DraftCard) => void;
@@ -105,6 +115,7 @@ export class LimitedCardScene implements LimitedPane {
   private readonly reveal: LimitedBoosterReveal;
   private unsubscribeTheme: (() => void) | null = null;
   private unsubscribeStore: (() => void) | null = null;
+  private readonly reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   private initialized = false;
   private disposed = false;
   private arrivalKey: string | undefined;
@@ -145,9 +156,10 @@ export class LimitedCardScene implements LimitedPane {
       window.addEventListener("pointerup", this.release);
       window.addEventListener("pointercancel", this.cancelPointer);
       window.addEventListener("blur", this.abort);
-      window.addEventListener("scroll", this.abort, true);
-      window.addEventListener("resize", this.abort);
-      window.visualViewport?.addEventListener("scroll", this.abort);
+      window.addEventListener("scroll", this.viewportChanged, true);
+      window.addEventListener("resize", this.viewportChanged);
+      window.visualViewport?.addEventListener("scroll", this.viewportChanged);
+      this.reducedMotion.addEventListener("change", this.motionPreferenceChanged);
       document.addEventListener("visibilitychange", this.visibilityChanged);
       this.update(this.props);
     } catch (error) {
@@ -169,7 +181,7 @@ export class LimitedCardScene implements LimitedPane {
       for (const entry of this.entries.values()) this.updatePose(entry);
     }
     this.revealing = this.reveal.active;
-    if (this.reveal.active) return true;
+    if (this.reveal.animating) return true;
     for (const entry of this.entries.values()) {
       if (entry.layoutTimeline || entry.motionTimeline || entry.poseTimeline) return true;
     }
@@ -178,6 +190,8 @@ export class LimitedCardScene implements LimitedPane {
   };
   update(props: LimitedSceneProps): void {
     const scrollChanged = this.props.scrollTop !== props.scrollTop;
+    const viewportChanged = this.props.width !== props.width || this.props.height !== props.height;
+    if (props.arrivalKey !== this.props.arrivalKey) this.reveal.finish();
     this.props = props;
     if (!this.initialized || this.disposed) return;
     const allIds = new Set(props.layout.cells.map(({ card }) => card.id));
@@ -200,15 +214,21 @@ export class LimitedCardScene implements LimitedPane {
         cell.y <= props.scrollTop + props.height + cell.height,
     );
     const visibleIds = new Set(visible.map(({ card }) => card.id));
-    const newArrival = props.arrivalKey !== this.arrivalKey;
+    const newArrival = props.arrivalKey !== this.arrivalKey || (!this.hasLayout && props.opening);
+    const validArrival = props.width > 1 && props.height > 1 && visible.length > 0;
     const freshDeal =
       newArrival &&
       (!this.hasLayout || !props.layout.cells.some(({ card }) => this.knownIds.has(card.id)));
-    const layoutChanged = visible.some((cell) => {
-      const previous = this.entries.get(cell.card.id)?.cell;
-      return previous && this.cellChanged(previous, cell);
-    });
-    if (newArrival || scrollChanged || !props.opening || layoutChanged) this.reveal.finish();
+    const layoutChanged =
+      visibleIds.size !== this.entries.size ||
+      visible.some((cell) => {
+        const previous = this.entries.get(cell.card.id)?.cell;
+        return previous && this.cellChanged(previous, cell);
+      });
+    if (newArrival) this.reveal.finish();
+    else if (scrollChanged || viewportChanged || !props.opening || layoutChanged)
+      this.reveal.finish(true);
+    else if (props.openingInteractive === false) this.reveal.open();
     if (
       props.disabled ||
       scrollChanged ||
@@ -292,7 +312,7 @@ export class LimitedCardScene implements LimitedPane {
       text.position.set(header.x, header.y - props.scrollTop);
       this.headings.addChild(text);
     }
-    if (newArrival) {
+    if (newArrival && validArrival) {
       this.arrivalKey = props.arrivalKey;
       if (props.opening) {
         for (const entry of this.entries.values()) this.finishEntry(entry);
@@ -304,18 +324,40 @@ export class LimitedCardScene implements LimitedPane {
           })),
           props.width,
           props.height,
+          {
+            interactive: props.openingInteractive,
+            setCode: props.openingSetCode,
+            set: props.openingSet,
+            onChange: (state) => this.props.onOpeningChange?.(state),
+            onComplete: () => {
+              if (!this.disposed && this.props.arrivalKey === props.arrivalKey)
+                this.props.onOpeningComplete?.();
+            },
+          },
         );
         for (const entry of this.entries.values()) this.updatePose(entry, false);
       }
       this.revealing = this.reveal.active;
     }
+    this.reveal.setIdentity(props.openingSetCode, props.openingSet);
     this.knownIds = allIds;
     this.acquiredIds = acquiredIds;
     for (const id of this.acceptedIds) {
       if (!allIds.has(id) || !acquiredIds.has(id)) this.acceptedIds.delete(id);
     }
-    this.hasLayout = true;
+    this.hasLayout ||= validArrival;
     this.request();
+  }
+  openBooster(): void {
+    this.reveal.open();
+  }
+  tearBooster(progress: number, direction?: BoosterTearDirection): void {
+    this.reveal.tear(progress, direction);
+  }
+  skipBooster(): void {
+    this.reveal.finish(true);
+    for (const entry of this.entries.values()) this.updatePose(entry, false);
+    this.revealing = false;
   }
   private createEntry(cell: LimitedCell): CardEntry {
     const theme = getTheme();
@@ -526,7 +568,7 @@ export class LimitedCardScene implements LimitedPane {
     this.updatePose(entry, false);
   }
   private finishAnimations(): void {
-    if (this.reveal.active) this.reveal.finish();
+    if (this.reveal.active) this.reveal.finish(true);
     this.finishSettling();
     for (const entry of this.entries.values()) {
       if (entry.layoutTimeline || entry.motionTimeline || entry.poseTimeline)
@@ -630,8 +672,8 @@ export class LimitedCardScene implements LimitedPane {
   }
   pressCard(id: string, event: PointerEvent): void {
     const entry = this.entries.get(id);
-    if (!entry || this.props.disabled || this.drag || event.button !== 0 || this.reveal.active)
-      return;
+    if (!entry || this.props.disabled || this.drag || event.button !== 0) return;
+    if (this.reveal.active) this.skipBooster();
     this.finishSettling();
     this.longPress.reset();
     this.drag = {
@@ -909,6 +951,14 @@ export class LimitedCardScene implements LimitedPane {
     this.finishSettling();
     this.request();
   };
+  private readonly viewportChanged = (): void => {
+    if (this.reveal.active) this.skipBooster();
+    this.abort();
+  };
+  private readonly motionPreferenceChanged = (): void => {
+    if (!animationsEnabled()) this.finishAnimations();
+    this.request();
+  };
   private readonly visibilityChanged = (): void => {
     if (document.hidden) this.abort();
   };
@@ -928,9 +978,10 @@ export class LimitedCardScene implements LimitedPane {
     window.removeEventListener("pointerup", this.release);
     window.removeEventListener("pointercancel", this.cancelPointer);
     window.removeEventListener("blur", this.abort);
-    window.removeEventListener("scroll", this.abort, true);
-    window.removeEventListener("resize", this.abort);
-    window.visualViewport?.removeEventListener("scroll", this.abort);
+    window.removeEventListener("scroll", this.viewportChanged, true);
+    window.removeEventListener("resize", this.viewportChanged);
+    window.visualViewport?.removeEventListener("scroll", this.viewportChanged);
+    this.reducedMotion.removeEventListener("change", this.motionPreferenceChanged);
     document.removeEventListener("visibilitychange", this.visibilityChanged);
     this.renderer.release(this);
     this.root.destroy({ children: true, texture: false, textureSource: false });

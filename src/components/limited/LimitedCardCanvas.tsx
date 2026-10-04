@@ -2,11 +2,16 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import type { KeyboardEvent } from "react";
 import { GAME_CARD_SIZES } from "@/components/game/game.constants";
 import { CardHoverPreview } from "@/components/game/CardHoverPreview";
+import { LimitedBoosterControl } from "@/components/limited/LimitedBoosterControl";
 import { useCardPreview } from "@/hooks/useCardPreview";
 import { refToDeckCard } from "@/lib/limited.utils";
 import { deckCardToPreviewDto } from "@/lib/scryfall.utils";
 import { cn } from "@/lib/utils";
 import { LimitedCardScene } from "@/pixi/limited/LimitedCardScene";
+import type {
+  BoosterOpeningState,
+  BoosterTearDirection,
+} from "@/pixi/limited/LimitedBoosterReveal";
 import {
   limitedLayout,
   type LimitedGrouping,
@@ -28,6 +33,9 @@ export interface LimitedCardCanvasProps {
   className?: string;
   arrivalKey?: string;
   opening?: boolean;
+  openingSetCode?: string;
+  openingInteractive?: boolean;
+  onOpeningComplete?: () => void;
   presentation?: LimitedLayoutOptions["presentation"];
   arrivalDirection?: "left" | "right";
   acquiredIds?: readonly string[];
@@ -48,6 +56,9 @@ export function LimitedCardCanvas({
   className,
   arrivalKey,
   opening = false,
+  openingSetCode,
+  openingInteractive = true,
+  onOpeningComplete,
   presentation = "grid",
   arrivalDirection,
   acquiredIds,
@@ -62,11 +73,52 @@ export function LimitedCardCanvas({
   const [scrollTop, setScrollTop] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [booster, setBooster] = useState<{
+    arrivalKey: string | undefined;
+    state: BoosterOpeningState | null;
+  } | null>(null);
+  const openingRequest = useRef({ arrivalKey, opening, onOpeningComplete });
+  const fallbackOpening = useRef<{ arrivalKey: string | undefined } | null>(null);
+  useLayoutEffect(() => {
+    openingRequest.current = { arrivalKey, opening, onOpeningComplete };
+  });
+  const handleOpeningChange = useCallback((state: BoosterOpeningState | null) => {
+    setBooster({ arrivalKey: openingRequest.current.arrivalKey, state });
+  }, []);
+  const handleOpeningComplete = useCallback(() => {
+    openingRequest.current.onOpeningComplete?.();
+  }, []);
+  const openBooster = useCallback(() => scene.current?.openBooster(), []);
+  const tearBooster = useCallback(
+    (progress: number, direction?: BoosterTearDirection) =>
+      scene.current?.tearBooster(progress, direction),
+    [],
+  );
+  const skipBooster = useCallback(() => scene.current?.skipBooster(), []);
   const instructionsId = useId();
   const activeFocusedId = cards.some((card) => card.id === focusedId) ? focusedId : null;
   const inspectionRequest = useRef(0);
   const bucket = useScryfallStore((state) => state.cards);
   const locale = useScryfallStore((state) => state.locale);
+  const sets = useScryfallStore((state) => state.sets);
+  const packSetCode = useMemo(() => {
+    if (openingSetCode) return openingSetCode.toLowerCase();
+    if (!opening) return undefined;
+    const counts = new Map<string, number>();
+    let largest = 0;
+    let code: string | undefined;
+    for (const card of cards) {
+      const setCode = card.setCode.toLowerCase();
+      const count = (counts.get(setCode) ?? 0) + 1;
+      counts.set(setCode, count);
+      if (count > largest) {
+        largest = count;
+        code = setCode;
+      }
+    }
+    return largest > cards.length / 2 ? code : undefined;
+  }, [cards, opening, openingSetCode]);
+  const openingSet = sets.find((set) => set.code === packSetCode);
   const preview = useCardPreview([cards, locale]);
   const {
     dismiss: dismissPreview,
@@ -132,6 +184,11 @@ export function LimitedCardCanvas({
     disabled,
     arrivalKey,
     opening,
+    openingSetCode: packSetCode,
+    openingSet,
+    openingInteractive,
+    onOpeningChange: handleOpeningChange,
+    onOpeningComplete: handleOpeningComplete,
     arrivalDirection,
     acquiredIds,
     departureTarget,
@@ -170,6 +227,16 @@ export function LimitedCardCanvas({
   useEffect(() => {
     scene.current?.update(props);
   });
+  useEffect(() => {
+    if (!opening) {
+      fallbackOpening.current = null;
+      return;
+    }
+    if (!error || (fallbackOpening.current && fallbackOpening.current.arrivalKey === arrivalKey))
+      return;
+    fallbackOpening.current = { arrivalKey };
+    openingRequest.current.onOpeningComplete?.();
+  }, [error, opening, arrivalKey]);
   useEffect(() => {
     if (groupBy === "none") return;
     for (const card of cards)
@@ -232,11 +299,13 @@ export function LimitedCardCanvas({
       focusCard(event.key === "Home" ? 0 : layout.cells.length - 1);
     } else if (event.key === "Enter" && onActivate) {
       event.preventDefault();
+      scene.current?.skipBooster();
       onActivate(layout.cells[index].card);
     } else if (event.key.toLowerCase() === "i") {
       event.preventDefault();
       inspect(layout.cells[index].card, true);
     } else if (event.key === "Escape") {
+      scene.current?.skipBooster();
       scene.current?.abort();
       dismiss();
     }
@@ -272,9 +341,22 @@ export function LimitedCardCanvas({
         <div className="relative" style={{ height: Math.max(viewport.height, layout.height) }}>
           <div
             ref={canvasHost}
-            className={cn("sticky top-0 overflow-hidden", error && "invisible")}
+            className={cn(
+              "pointer-events-none sticky top-0 z-[3] overflow-hidden",
+              error && "invisible",
+            )}
             style={{ height: viewport.height }}
-          />
+          >
+            {opening && !error && booster && booster.arrivalKey === arrivalKey && booster.state && (
+              <LimitedBoosterControl
+                key={arrivalKey}
+                state={booster.state}
+                onOpen={openBooster}
+                onTear={tearBooster}
+                onSkip={skipBooster}
+              />
+            )}
+          </div>
           {layout.cells.map((cell, index) => (
             <button
               key={cell.card.id}
@@ -302,8 +384,10 @@ export function LimitedCardCanvas({
                 inspect(cell.card, true);
               }}
               onClick={(event) => {
-                if (event.detail === 0 || error)
+                if (event.detail === 0 || error) {
+                  scene.current?.skipBooster();
                   onSelect?.(cell.card, event.ctrlKey || event.metaKey || event.shiftKey);
+                }
               }}
               onDoubleClick={() => {
                 if (error) onActivate?.(cell.card);

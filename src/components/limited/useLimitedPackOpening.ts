@@ -6,7 +6,6 @@ import { useScryfallStore } from "@/stores/useScryfallStore";
 import type { SealedPool } from "@/types/limited";
 
 const NO_OPENED_PACKS: string[] = [];
-const BOOSTER_REVEAL_MS = 1700;
 
 export function useLimitedPackOpening(
   sessionKey: string,
@@ -23,7 +22,6 @@ export function useLimitedPackOpening(
   const [preparing, setPreparing] = useState(false);
   const [imageError, setImageError] = useState(false);
   const generation = useRef(0);
-  const timer = useRef<number | null>(null);
   const settle = useRef<((completed: boolean) => void) | null>(null);
   const callback = useRef(onComplete);
   useLayoutEffect(() => {
@@ -36,10 +34,14 @@ export function useLimitedPackOpening(
   const openedCount = packs.filter((pack) => openedIds.includes(pack.id)).length;
   const cancel = useCallback(() => {
     generation.current += 1;
-    if (timer.current !== null) window.clearTimeout(timer.current);
-    timer.current = null;
     settle.current?.(false);
     settle.current = null;
+  }, []);
+  const finishReveal = useCallback(() => {
+    const resolve = settle.current;
+    settle.current = null;
+    setRevealing(false);
+    resolve?.(true);
   }, []);
   const reveal = async (pack: SealedPool["packs"][number]): Promise<boolean> => {
     cancel();
@@ -62,19 +64,12 @@ export function useLimitedPackOpening(
     setPreparing(false);
     setReviewId(pack.id);
     setArrival((value) => value + 1);
-    setRevealing(true);
+    const animate = animationsEnabled();
+    setRevealing(animate);
     open(sessionKey, [pack.id]);
+    if (!animate) return true;
     return new Promise<boolean>((resolve) => {
       settle.current = resolve;
-      timer.current = window.setTimeout(
-        () => {
-          timer.current = null;
-          settle.current = null;
-          setRevealing(false);
-          resolve(true);
-        },
-        animationsEnabled() ? BOOSTER_REVEAL_MS : 0,
-      );
     });
   };
   const openRemaining = async () => {
@@ -117,6 +112,7 @@ export function useLimitedPackOpening(
     imageError,
     arrival,
     reveal,
+    finishReveal,
     openRemaining,
     review,
     complete,

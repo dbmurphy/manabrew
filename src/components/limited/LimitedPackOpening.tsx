@@ -26,6 +26,7 @@ export function LimitedPackOpening({
     imageError,
     arrival,
     reveal,
+    finishReveal,
     openRemaining,
     review,
     complete,
@@ -78,6 +79,9 @@ export function LimitedPackOpening({
           presentation="spread"
           arrivalKey={`${sessionKey}:${activePack.id}:${arrival}`}
           opening={revealing}
+          openingSetCode={activePack.setCode}
+          openingInteractive={!openAll}
+          onOpeningComplete={finishReveal}
           className="my-auto min-h-0 w-full flex-1 sm:max-h-[32rem]"
         />
       ) : (

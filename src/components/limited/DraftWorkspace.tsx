@@ -4,18 +4,21 @@ import { LimitedCardCanvas } from "@/components/limited/LimitedCardCanvas";
 import LimitedDeckBuilder from "@/components/limited/LimitedDeckBuilder";
 import { useLimitedBuildStore } from "@/components/limited/useLimitedBuildStore";
 import { useDraftPick, type DraftPickOptions } from "@/components/limited/useDraftPick";
+import { useLimitedOpeningStore } from "@/components/limited/limitedOpeningStore";
 import { useIsShortScreen, useIsTouch } from "@/hooks/useBreakpoints";
 import { cn } from "@/lib/utils";
 import type { ConspiracyHook } from "@/types/limited";
 
 interface DraftWorkspaceProps extends DraftPickOptions {
   conspiracyHooks?: ConspiracyHook[];
+  openingSetCode?: string;
 }
 export function DraftWorkspace({
   draft,
   onPick,
   pickPending = false,
   conspiracyHooks = [],
+  openingSetCode,
 }: DraftWorkspaceProps) {
   const [mobileTab, setMobileTab] = useState<"pack" | "build">("pack");
   const {
@@ -31,6 +34,10 @@ export function DraftWorkspace({
     dropPick,
   } = useDraftPick({ draft, onPick, pickPending });
   const acquiredIds = useMemo(() => draft.pickedPile.map((card) => card.id), [draft.pickedPile]);
+  const roundKey = `${draft.sessionId}:round:${draft.round}`;
+  const roundOpened = useLimitedOpeningStore((state) =>
+    state.sessions[draft.sessionId]?.openedIds.includes(roundKey),
+  );
   const shortScreen = useIsShortScreen();
   const isTouch = useIsTouch();
   const shortTouch = shortScreen && isTouch;
@@ -108,6 +115,11 @@ export function DraftWorkspace({
             acquiredIds={acquiredIds}
             departureTarget={pickTarget}
             arrivalKey={`${draft.sessionId}:${draft.round}:${draft.pickNumber}`}
+            opening={draft.currentPack.length > 0 && !roundOpened}
+            openingSetCode={openingSetCode}
+            onOpeningComplete={() =>
+              useLimitedOpeningStore.getState().open(draft.sessionId, [roundKey])
+            }
             emptyMessage={
               draft.isComplete
                 ? "Draft complete. Finish your build."

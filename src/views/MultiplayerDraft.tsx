@@ -77,6 +77,7 @@ export default function MultiplayerDraft() {
       />
       <DraftWorkspace
         draft={draft.state}
+        openingSetCode={draft.config?.setCode}
         onPick={handlePick}
         conspiracyHooks={conspiracyHooks}
         pickPending={draft.pickPending}
