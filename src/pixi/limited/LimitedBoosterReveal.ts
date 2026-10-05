@@ -1,4 +1,4 @@
-import { Container, FillGradient, Graphics, Sprite, Text } from "pixi.js";
+import { Container, FillGradient, Graphics, GraphicsContext, Sprite, Text } from "pixi.js";
 import { GAME_CARD_SIZES } from "@/components/game/game.constants";
 import { gsap } from "@/pixi/effects/gsap";
 import { animationsEnabled } from "@/pixi/effects/enabled";
@@ -22,10 +22,13 @@ export interface BoosterOpeningState {
   y: number;
   width: number;
   height: number;
+  packCount: number;
+  packetBounds?: { x: number; y: number; width: number; height: number }[];
   waiting: boolean;
   progress: number;
 }
 interface BoosterOpeningOptions {
+  packCount?: number;
   setCode?: string;
   set?: ScryfallSet;
   onChange?: (state: BoosterOpeningState | null) => void;
@@ -50,6 +53,10 @@ export class LimitedBoosterReveal {
   private progress = 0;
   private wrapperWidth = 0;
   private wrapperHeight = 0;
+  private packCount = 1;
+  private rearPackets: Container[] = [];
+  private packetBounds: NonNullable<BoosterOpeningState["packetBounds"]> = [];
+  private wrapperContexts: GraphicsContext[] = [];
   private symbol: Sprite | null = null;
   private symbolCode: Text | null = null;
   private setName: Text | null = null;
@@ -83,10 +90,15 @@ export class LimitedBoosterReveal {
     this.finish();
     const theme = getTheme();
     const preview = GAME_CARD_SIZES.preview;
+    const packCount = options.packCount ?? 1;
+    const grouped = packCount > 1;
+    this.packCount = packCount;
+    const stackWidth = grouped ? 1.64 : 1;
+    const stackHeight = grouped ? 1.28 : 1;
     const wrapperScale = Math.min(
       1.08,
-      (width * 0.76) / preview.width,
-      (height * 0.72) / preview.height,
+      (width * 0.76) / (preview.width * stackWidth),
+      (height * 0.72) / (preview.height * stackHeight),
     );
     const wrapperWidth = preview.width * wrapperScale;
     const wrapperHeight = preview.height * wrapperScale;
@@ -144,15 +156,23 @@ export class LimitedBoosterReveal {
       topEdge.push(left + (wrapperWidth * index) / edgeSteps, seamY + (index % 2) * 2);
     for (let index = 0; index <= edgeSteps; index++)
       bottomEdge.push(left + (wrapperWidth * index) / edgeSteps, seamY + (index % 2) * 2);
-    upper.addChild(new Graphics().poly(topEdge).fill(foil).stroke({ color: border, width: 1 }));
-    lower.addChild(new Graphics().poly(bottomEdge).fill(foil).stroke({ color: border, width: 1 }));
-    const folds = new Graphics();
+    const upperFoil = new GraphicsContext()
+      .poly(topEdge)
+      .fill(foil)
+      .stroke({ color: border, width: 1 });
+    const lowerFoil = new GraphicsContext()
+      .poly(bottomEdge)
+      .fill(foil)
+      .stroke({ color: border, width: 1 });
+    upper.addChild(new Graphics(upperFoil));
+    lower.addChild(new Graphics(lowerFoil));
+    const folds = new GraphicsContext();
     for (let index = 1; index < edgeSteps; index++) {
       const x = left + (wrapperWidth * index) / edgeSteps;
       folds.moveTo(x, top + 4).lineTo(x, top + 14);
     }
     folds.stroke({ color: highlight, alpha: 0.24, width: 1 });
-    upper.addChild(folds);
+    upper.addChild(new Graphics(folds));
     const brand = new Text({
       text: "MAGIC",
       style: {
@@ -166,7 +186,7 @@ export class LimitedBoosterReveal {
     brand.anchor.set(0.5);
     brand.position.set(0, top + wrapperHeight * 0.16);
     upper.addChild(brand);
-    const bodyDetail = new Graphics()
+    const bodyDetail = new GraphicsContext()
       .roundRect(left + 12, seamY + 12, wrapperWidth - 24, wrapperHeight * 0.4, 2)
       .fill({ color: accent, alpha: 0.1 })
       .stroke({ color: accent, alpha: 0.5, width: 1 })
@@ -221,25 +241,53 @@ export class LimitedBoosterReveal {
     setName.anchor.set(0.5);
     setName.position.set(0, bottom - wrapperHeight * 0.26);
     const packType = new Text({
-      text: `${cards.length}-CARD BOOSTER`,
+      text: grouped ? `${packCount} PACKS\n${cards.length} CARDS` : `${cards.length}-CARD BOOSTER`,
       style: {
         fontFamily: "Alegreya Sans",
-        fontSize: Math.max(7, wrapperWidth * 0.055),
+        fontSize: grouped ? Math.max(9, wrapperWidth * 0.08) : Math.max(7, wrapperWidth * 0.055),
         fontWeight: "bold",
         letterSpacing: 0.6,
         fill: theme.appTheme.foreground,
+        align: "center",
       },
     });
     packType.anchor.set(0.5);
-    packType.position.set(0, bottom - wrapperHeight * 0.065);
-    lower.addChild(bodyDetail, symbol, symbolCode, setName, packType);
+    packType.position.set(0, bottom - wrapperHeight * (grouped ? 0.105 : 0.065));
+    if (grouped) packType.scale.set(Math.min(1, (wrapperWidth - 24) / packType.width));
+    lower.addChild(new Graphics(bodyDetail), symbol, symbolCode, setName, packType);
     this.symbol = symbol;
     this.symbolCode = symbolCode;
     this.setName = setName;
-    const seam = new Graphics();
+    const seamContext = new GraphicsContext();
     for (let x = left + 5; x < right - 5; x += 9)
-      seam.moveTo(x, seamY + 1).lineTo(Math.min(x + 5, right - 5), seamY + 1);
-    seam.stroke({ color: accent, width: 2, alpha: 0.65 });
+      seamContext.moveTo(x, seamY + 1).lineTo(Math.min(x + 5, right - 5), seamY + 1);
+    seamContext.stroke({ color: accent, width: 2, alpha: 0.65 });
+    const seam = new Graphics(seamContext);
+    this.wrapperContexts = [upperFoil, lowerFoil, folds, bodyDetail, seamContext];
+    const uppers = [upper];
+    const lowers = [lower];
+    const seams = [seam];
+    for (let index = packCount - 1; index > 0; index--) {
+      const packet = new Container();
+      const rank = Math.ceil(index / 2);
+      const spread = rank / Math.ceil((packCount - 1) / 2);
+      packet.position.set(
+        (index % 2 === 0 ? 1 : -1) * wrapperWidth * 0.32 * spread,
+        -wrapperHeight * 0.14 * (index / (packCount - 1)),
+      );
+      const packetUpper = new Container();
+      const packetLower = new Container();
+      const packetSeam = new Graphics(seamContext);
+      packetUpper.addChild(new Graphics(upperFoil), new Graphics(folds));
+      packetLower.addChild(new Graphics(lowerFoil), new Graphics(bodyDetail));
+      packet.addChild(packetUpper, packetLower, packetSeam);
+      wrapper.addChild(packet);
+      this.rearPackets.push(packet);
+      this.packetBounds.push({ x: 0, y: 0, width: 0, height: 0 });
+      uppers.push(packetUpper);
+      lowers.push(packetLower);
+      seams.push(packetSeam);
+    }
     const tear = new Container();
     const tearLine = new Graphics()
       .rect(0, -1.5, wrapperWidth, 3)
@@ -270,7 +318,9 @@ export class LimitedBoosterReveal {
       );
       motion.position.set(
         centerX - (cardWidth * packedScale) / 2,
-        centerY - cardHeight * packedScale * 0.4 + index * 1.5,
+        centerY -
+          cardHeight * packedScale * 0.4 +
+          (grouped ? (index / Math.max(1, cards.length - 1)) * 12 : index * 1.5),
       );
       motion.scale.set(scaleX * packedScale, scaleY * packedScale);
       motion.rotation = REST_TILT;
@@ -310,7 +360,7 @@ export class LimitedBoosterReveal {
       peelStart + 0.065,
     );
     timeline.to(
-      upper,
+      uppers,
       {
         x: -wrapperWidth * 0.35,
         y: -wrapperHeight * 0.3,
@@ -322,7 +372,7 @@ export class LimitedBoosterReveal {
       peelStart,
     );
     timeline.to(
-      lower,
+      lowers,
       {
         x: wrapperWidth * 0.08,
         y: wrapperHeight * 0.5,
@@ -333,7 +383,7 @@ export class LimitedBoosterReveal {
       },
       extractEnd - 0.05,
     );
-    timeline.to([seam, tear], { alpha: 0, duration: 0.12 }, peelStart);
+    timeline.to([...seams, tear], { alpha: 0, duration: 0.12 }, peelStart);
     const flightStart = extractStart + EXTRACT_DURATION + FAN_DURATION;
     timeline.to(backdrop, { alpha: 0, duration: SETTLE_DURATION, ease: "power1.out" }, flightStart);
     cards.forEach(
@@ -354,8 +404,15 @@ export class LimitedBoosterReveal {
         timeline.to(
           motion,
           {
-            x: centerX - packedWidth / 2 + offset * 0.7,
-            y: Math.max(height * 0.04, centerY + seamY - packedHeight * 0.72) + index * 0.45,
+            x:
+              centerX -
+              packedWidth / 2 +
+              (grouped
+                ? (offset / Math.max(1, cards.length - 1)) * wrapperWidth * 0.07
+                : offset * 0.7),
+            y:
+              Math.max(height * 0.04, centerY + seamY - packedHeight * 0.72) +
+              (grouped ? (index / Math.max(1, cards.length - 1)) * 12 : index * 0.45),
             rotation: REST_TILT,
             duration: EXTRACT_DURATION,
             ease: "power3.out",
@@ -367,8 +424,13 @@ export class LimitedBoosterReveal {
           motion,
           {
             x: centerX - packedWidth / 2 + offset * fanStride,
-            y: centerY - packedHeight / 2 + Math.abs(offset) * 1.5,
-            rotation: offset * 0.018,
+            y:
+              centerY -
+              packedHeight / 2 +
+              (grouped
+                ? (Math.abs(offset) / Math.max(1, cards.length - 1)) * 24
+                : Math.abs(offset) * 1.5),
+            rotation: grouped ? (offset / Math.max(1, cards.length - 1)) * 0.28 : offset * 0.018,
             alpha: 1,
             duration: FAN_DURATION,
             ease: "power2.out",
@@ -484,11 +546,28 @@ export class LimitedBoosterReveal {
       cos * this.wrapperWidth * wrapper.scale.x + sin * this.wrapperHeight * wrapper.scale.y;
     const height =
       sin * this.wrapperWidth * wrapper.scale.x + cos * this.wrapperHeight * wrapper.scale.y;
+    if (this.rearPackets.length) {
+      const a = Math.cos(wrapper.rotation) * wrapper.scale.x;
+      const b = Math.sin(wrapper.rotation) * wrapper.scale.x;
+      const c = -Math.sin(wrapper.rotation - wrapper.skew.x) * wrapper.scale.y;
+      const d = Math.cos(wrapper.rotation - wrapper.skew.x) * wrapper.scale.y;
+      const rearWidth = Math.abs(a) * this.wrapperWidth + Math.abs(c) * this.wrapperHeight;
+      const rearHeight = Math.abs(b) * this.wrapperWidth + Math.abs(d) * this.wrapperHeight;
+      this.rearPackets.forEach((packet, index) => {
+        const bounds = this.packetBounds[index];
+        bounds.x = wrapper.x + a * packet.x + c * packet.y - rearWidth / 2;
+        bounds.y = wrapper.y + b * packet.x + d * packet.y - rearHeight / 2;
+        bounds.width = rearWidth;
+        bounds.height = rearHeight;
+      });
+    }
     this.onChange?.({
       x: wrapper.x - width / 2,
       y: wrapper.y - height / 2,
       width,
       height,
+      packCount: this.packCount,
+      packetBounds: this.rearPackets.length ? this.packetBounds : undefined,
       waiting: this.waiting,
       progress: tearProgress,
     });
@@ -514,6 +593,11 @@ export class LimitedBoosterReveal {
     this.wrapper?.removeFromParent();
     this.wrapper?.destroy({ children: true, texture: false, textureSource: false });
     this.wrapper = null;
+    for (const context of this.wrapperContexts) context.destroy();
+    this.wrapperContexts = [];
+    this.rearPackets = [];
+    this.packetBounds = [];
+    this.packCount = 1;
     this.backdrop?.removeFromParent();
     this.backdrop?.destroy();
     this.backdrop = null;

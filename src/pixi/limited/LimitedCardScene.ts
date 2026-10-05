@@ -44,6 +44,7 @@ export interface LimitedSceneProps {
   acquiredIds?: readonly string[];
   departureTarget?: () => HTMLElement | null;
   opening: boolean;
+  openingPackCount?: number;
   openingSetCode?: string;
   openingSet?: ScryfallSet;
   openingCardIds?: readonly string[];
@@ -372,6 +373,7 @@ export class LimitedCardScene implements LimitedPane {
       return;
     }
     this.reveal.play(cards, window.innerWidth, window.innerHeight, {
+      packCount: props.openingPackCount,
       setCode: props.openingSetCode,
       set: props.openingSet,
       onChange: (state) => {

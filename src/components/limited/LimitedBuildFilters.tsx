@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { Search, SlidersHorizontal, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +12,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { ManaSymbols } from "@/components/game/ManaSymbols";
+import { GAME_CARD_SIZES } from "@/components/game/game.constants";
 import { CMC_BUCKET_LABELS } from "@/components/editor/deckBuilder.utils";
 import { cn } from "@/lib/utils";
 import { MANA_LETTERS } from "@/themes/gameTheme";
@@ -38,6 +40,9 @@ export function LimitedBuildFilters({
   presentation = "dialog",
 }: Props) {
   const deck = buildDeck(session);
+  const cardHeightId = useId();
+  const cardAspect = GAME_CARD_SIZES.hand.height / GAME_CARD_SIZES.hand.width;
+  const cardHeight = session.cardSize * cardAspect;
   const sideboardCount = session.allocation.sideboardIds.length;
   const maybeCount = session.allocation.maybeIds.length;
   const toolbar = presentation === "toolbar";
@@ -186,16 +191,27 @@ export function LimitedBuildFilters({
               <AppSelectOption value="type">Type</AppSelectOption>
               <AppSelectOption value="rarity">Rarity</AppSelectOption>
             </AppSelect>
-            <AppSelect
-              aria-label="Card size"
-              value={String(session.cardSize)}
-              onValueChange={(size) => onPreferences({ cardSize: Number(size) })}
-              className="h-9"
-            >
-              <AppSelectOption value="90">Small</AppSelectOption>
-              <AppSelectOption value="130">Medium</AppSelectOption>
-              <AppSelectOption value="170">Large</AppSelectOption>
-            </AppSelect>
+            <label htmlFor={cardHeightId} className="col-span-2 grid gap-1 text-sm">
+              <span className="flex items-center justify-between gap-2">
+                Card height
+                <output htmlFor={cardHeightId} className="tabular-nums text-muted-foreground">
+                  {Math.round(cardHeight)} px
+                </output>
+              </span>
+              <input
+                id={cardHeightId}
+                type="range"
+                min={126}
+                max={480}
+                step={1}
+                value={cardHeight}
+                aria-valuetext={`${Math.round(cardHeight)} pixels`}
+                onChange={(event) =>
+                  onPreferences({ cardSize: Number(event.target.value) / cardAspect })
+                }
+                className="h-9 w-full cursor-pointer accent-primary pointer-coarse:h-11"
+              />
+            </label>
             <Button
               variant={session.mode === "gallery" ? "selected" : "outline"}
               size="sm"

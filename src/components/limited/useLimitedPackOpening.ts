@@ -14,88 +14,101 @@ export function useLimitedPackOpening(
   const saved = useLimitedOpeningStore((state) => state.sessions[sessionKey]);
   const open = useLimitedOpeningStore((state) => state.open);
   const openedIds = saved?.openedIds ?? NO_OPENED_PACKS;
-  const [reviewId, setReviewId] = useState<string | null>(null);
+  const [selectedPackIds, setSelectedPackIds] = useState<string[]>([]);
   const [revealing, setRevealing] = useState(false);
-  const [openAll, setOpenAll] = useState(false);
   const [arrival, setArrival] = useState(0);
   const [preparing, setPreparing] = useState(false);
   const [imageError, setImageError] = useState(false);
   const generation = useRef(0);
-  const settle = useRef<{ packId: string; resolve: (completed: boolean) => void } | null>(null);
+  const pendingReveal = useRef<{ generation: number; packIds: string[] } | null>(null);
   const callback = useRef(onComplete);
   useLayoutEffect(() => {
     callback.current = onComplete;
   }, [onComplete]);
   const delivered = useRef<string | null>(null);
   const nextPack = packs.find((pack) => !openedIds.includes(pack.id));
-  const activePack =
-    packs.find((pack) => pack.id === reviewId) ?? packs.find((pack) => openedIds.includes(pack.id));
+  const activePacks = useMemo(
+    () =>
+      selectedPackIds.length > 0
+        ? packs.filter((pack) => selectedPackIds.includes(pack.id))
+        : packs.filter((pack) => openedIds.includes(pack.id)).slice(0, 1),
+    [packs, selectedPackIds, openedIds],
+  );
+  const activePack = activePacks.length === 1 ? activePacks[0] : undefined;
   const openedCount = packs.filter((pack) => openedIds.includes(pack.id)).length;
   const poolCards = useMemo(
     () => [
-      ...(activePack?.cards ?? []),
+      ...activePacks.flatMap((pack) => pack.cards),
       ...packs
-        .filter((pack) => pack.id !== activePack?.id && openedIds.includes(pack.id))
+        .filter(
+          (pack) =>
+            openedIds.includes(pack.id) && !activePacks.some((active) => active.id === pack.id),
+        )
         .flatMap((pack) => pack.cards),
     ],
-    [activePack, packs, openedIds],
+    [activePacks, packs, openedIds],
   );
-  const openingCardIds = useMemo(() => activePack?.cards.map((card) => card.id), [activePack]);
+  const openingCardIds = useMemo(
+    () => activePacks.flatMap((pack) => pack.cards.map((card) => card.id)),
+    [activePacks],
+  );
+  const openingPackCount = activePacks.length || 1;
+  const openingSetCode = activePacks.every((pack) => pack.setCode === activePacks[0]?.setCode)
+    ? activePacks[0]?.setCode
+    : undefined;
   const cancel = useCallback(() => {
     generation.current += 1;
-    settle.current?.resolve(false);
-    settle.current = null;
+    pendingReveal.current = null;
   }, []);
   const finishReveal = useCallback(() => {
-    const pending = settle.current;
-    settle.current = null;
+    const pending = pendingReveal.current;
+    if (!pending || pending.generation !== generation.current) return;
+    pendingReveal.current = null;
     setRevealing(false);
-    if (pending) {
-      open(sessionKey, [pending.packId]);
-      pending.resolve(true);
-    }
+    open(sessionKey, pending.packIds);
   }, [open, sessionKey]);
-  const reveal = async (pack: SealedPool["packs"][number]): Promise<boolean> => {
+  const revealPacks = async (remainingPacks: SealedPool["packs"]) => {
+    if (remainingPacks.length === 0) return;
     cancel();
     const current = generation.current;
+    setRevealing(false);
     setPreparing(true);
+    setImageError(false);
     const results = await Promise.allSettled(
-      pack.cards.map(async (card) => {
-        const store = useScryfallStore.getState();
-        const entry = await store.getCard({
-          name: card.name,
-          setCode: card.setCode,
-          cardNumber: card.cardNumber,
-        });
-        const deckCard = refToDeckCard(card, entry);
-        await store.getCardTexture(deckCard);
-      }),
+      remainingPacks.flatMap((pack) =>
+        pack.cards.map(async (card) => {
+          const store = useScryfallStore.getState();
+          const entry = await store.getCard({
+            name: card.name,
+            setCode: card.setCode,
+            cardNumber: card.cardNumber,
+          });
+          if (generation.current !== current) return;
+          const deckCard = refToDeckCard(card, entry);
+          await store.getCardTexture(deckCard);
+        }),
+      ),
     );
-    if (generation.current !== current) return false;
+    if (generation.current !== current) return;
+    const packIds = remainingPacks.map((pack) => pack.id);
+    pendingReveal.current = { generation: current, packIds };
     setImageError(results.some((result) => result.status === "rejected"));
     setPreparing(false);
-    setReviewId(pack.id);
+    setSelectedPackIds(packIds);
     setArrival((value) => value + 1);
     setRevealing(true);
-    return new Promise<boolean>((resolve) => {
-      settle.current = { packId: pack.id, resolve };
-    });
   };
-  const openRemaining = async () => {
-    setOpenAll(true);
-    for (const pack of packs.filter((pack) => !openedIds.includes(pack.id))) {
-      if (!(await reveal(pack))) return;
-    }
-    setOpenAll(false);
-  };
+  const reveal = (pack: SealedPool["packs"][number]) => revealPacks([pack]);
+  const openRemaining = () => revealPacks(packs.filter((pack) => !openedIds.includes(pack.id)));
   const review = (id: string) => {
-    setReviewId(id);
+    cancel();
+    setPreparing(false);
+    setSelectedPackIds([id]);
     setRevealing(false);
   };
   const complete = () => {
     cancel();
     setPreparing(false);
-    setOpenAll(false);
     setRevealing(false);
     open(
       sessionKey,
@@ -109,7 +122,7 @@ export function useLimitedPackOpening(
       callback.current();
     }
   }, [saved?.completed, sessionKey]);
-  useEffect(() => cancel, [cancel]);
+  useLayoutEffect(() => cancel, [cancel, sessionKey]);
   return {
     openedIds,
     openedCount,
@@ -119,7 +132,8 @@ export function useLimitedPackOpening(
     revealing,
     poolCards,
     openingCardIds,
-    openAll,
+    openingPackCount,
+    openingSetCode,
     imageError,
     arrival,
     reveal,

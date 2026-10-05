@@ -23,8 +23,9 @@ export function LimitedPackOpening({
     preparing,
     poolCards,
     openingCardIds,
+    openingPackCount,
+    openingSetCode,
     revealing,
-    openAll,
     imageError,
     arrival,
     reveal,
@@ -52,6 +53,11 @@ export function LimitedPackOpening({
             ? "Preparing booster images…"
             : `${openedCount} of ${packs.length} boosters opened`}
         </p>
+        {(nextPack || revealing || preparing) && (
+          <Button variant="outline" size="sm" onClick={complete}>
+            Skip opening
+          </Button>
+        )}
       </header>
       {imageError && (
         <p role="status" className="text-sm text-muted-foreground">
@@ -65,7 +71,7 @@ export function LimitedPackOpening({
             className="shrink-0"
             size="sm"
             variant={activePack?.id === pack.id ? "selected" : "outline"}
-            disabled={!openedIds.includes(pack.id) || preparing || revealing || openAll}
+            disabled={!openedIds.includes(pack.id) || preparing || revealing}
             onClick={() => review(pack.id)}
             aria-label={`Review booster ${index + 1}${pack.setCode ? `, ${pack.setCode}` : ""}`}
             aria-pressed={activePack?.id === pack.id}
@@ -75,20 +81,22 @@ export function LimitedPackOpening({
           </Button>
         ))}
       </div>
-      {activePack ? (
+      {activePack || revealing || poolCards.length > 0 ? (
         <section aria-label="Opened card pool" className="flex min-h-0 flex-1 flex-col">
           <h3 className="mx-auto rounded bg-card/70 px-2 py-1 font-serif text-lg">
             Pool <span className="font-sans text-xs text-muted-foreground">{poolCards.length}</span>
           </h3>
           <LimitedCardCanvas
             cards={poolCards}
-            selectedIds={revealing ? undefined : openingCardIds}
+            selectedIds={!revealing && activePack ? openingCardIds : undefined}
             presentation="grid"
-            arrivalKey={`${sessionKey}:${activePack.id}:${arrival}`}
+            arrivalKey={`${sessionKey}:${arrival}`}
             opening={revealing}
-            openingSetCode={activePack.setCode}
+            openingPackCount={openingPackCount}
+            openingSetCode={openingSetCode}
             openingCardIds={openingCardIds}
             onOpeningComplete={finishReveal}
+            onSkipOpening={complete}
             className="min-h-0 w-full flex-1"
           />
         </section>
@@ -107,7 +115,7 @@ export function LimitedPackOpening({
           <Button
             variant="primary"
             size="sm"
-            disabled={preparing || revealing || openAll}
+            disabled={preparing || revealing}
             onClick={() => void reveal(nextPack)}
           >
             Open next
@@ -121,15 +129,12 @@ export function LimitedPackOpening({
           <Button
             variant="outline"
             size="sm"
-            disabled={openAll || preparing || revealing}
+            disabled={preparing || revealing}
             onClick={() => void openRemaining()}
           >
             Open all
           </Button>
         )}
-        <Button variant="ghost" size="sm" onClick={complete}>
-          {nextPack || revealing ? "Skip opening" : "Continue"}
-        </Button>
       </div>
     </section>
   );

@@ -100,6 +100,18 @@ export function LimitedBoosterControl({ state, onOpen, onTear, ref }: LimitedBoo
   };
   return (
     <>
+      {state.waiting &&
+        state.packetBounds?.map((bounds, index) => (
+          <button
+            key={index}
+            type="button"
+            tabIndex={-1}
+            aria-label={`Open all ${state.packCount} boosters`}
+            onClick={open}
+            className="absolute cursor-pointer touch-none rounded-xl focus-visible:outline-2 focus-visible:outline-primary"
+            style={{ left: bounds.x, top: bounds.y, width: bounds.width, height: bounds.height }}
+          />
+        ))}
       <div
         ref={control}
         role="slider"
@@ -111,7 +123,11 @@ export function LimitedBoosterControl({ state, onOpen, onTear, ref }: LimitedBoo
         aria-valuemax={100}
         aria-valuenow={Math.round(state.progress * 100)}
         aria-valuetext={
-          state.waiting ? `${Math.round(state.progress * 100)}% torn` : "Booster opened"
+          state.waiting
+            ? `${Math.round(state.progress * 100)}% torn`
+            : state.packCount > 1
+              ? "Boosters opened"
+              : "Booster opened"
         }
         aria-disabled={!state.waiting}
         onPointerDown={(event) => {
@@ -209,8 +225,9 @@ export function LimitedBoosterControl({ state, onOpen, onTear, ref }: LimitedBoo
       >
         {state.waiting ? "Drag across the glowing seam" : "Booster opened"}
         <span className="sr-only">
-          . Tap the packet or press Enter or Space to open. Arrow keys tear gradually. Home or
-          Escape resets the tear.
+          . Tap a packet or press Enter or Space to open
+          {state.packCount > 1 ? ` all ${state.packCount} boosters together` : " it"}. Arrow keys
+          tear gradually. Home or Escape resets the tear.
         </span>
       </p>
     </>

@@ -33,9 +33,11 @@ export interface LimitedCardCanvasProps {
   className?: string;
   arrivalKey?: string;
   opening?: boolean;
+  openingPackCount?: number;
   openingSetCode?: string;
   openingCardIds?: readonly string[];
   onOpeningComplete?: () => void;
+  onSkipOpening?: () => void;
   presentation?: LimitedLayoutOptions["presentation"];
   arrivalDirection?: "left" | "right";
   acquiredIds?: readonly string[];
@@ -56,9 +58,11 @@ export function LimitedCardCanvas({
   className,
   arrivalKey,
   opening = false,
+  openingPackCount = 1,
   openingSetCode,
   openingCardIds,
   onOpeningComplete,
+  onSkipOpening,
   presentation = "grid",
   arrivalDirection,
   acquiredIds,
@@ -108,8 +112,12 @@ export function LimitedCardCanvas({
     if (!opening) return undefined;
     const counts = new Map<string, number>();
     let largest = 0;
+    let cardCount = 0;
     let code: string | undefined;
+    const openingIds = openingCardIds ? new Set(openingCardIds) : null;
     for (const card of cards) {
+      if (openingIds && !openingIds.has(card.id)) continue;
+      cardCount += 1;
       const setCode = card.setCode.toLowerCase();
       const count = (counts.get(setCode) ?? 0) + 1;
       counts.set(setCode, count);
@@ -118,8 +126,8 @@ export function LimitedCardCanvas({
         code = setCode;
       }
     }
-    return largest > cards.length / 2 ? code : undefined;
-  }, [cards, opening, openingSetCode]);
+    return largest > cardCount / 2 ? code : undefined;
+  }, [cards, opening, openingSetCode, openingCardIds]);
   const openingSet = sets.find((set) => set.code === packSetCode);
   const preview = useCardPreview([cards, locale]);
   const {
@@ -186,6 +194,7 @@ export function LimitedCardCanvas({
     disabled,
     arrivalKey,
     opening,
+    openingPackCount,
     openingSetCode: packSetCode,
     openingSet,
     openingCardIds,
@@ -434,6 +443,7 @@ export function LimitedCardCanvas({
           onOpen={openBooster}
           onTear={tearBooster}
           onSkip={skipBooster}
+          onSkipOpening={onSkipOpening}
         />
       )}
       <CardHoverPreview preview={{ ...preview, dismiss }} />
