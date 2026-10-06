@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.54.5](https://github.com/witchesofthehill/manabrew/compare/v3.54.4...v3.54.5) (2026-10-05)
+
+### Fixes
+
+* planeswalkers not valid commanders in brawl is wrong ([#1035](https://github.com/witchesofthehill/manabrew/issues/1035)) ([01cebe0](https://github.com/witchesofthehill/manabrew/commit/01cebe05f259bdbc9c7b3d5ce92ed6b3dd00d96d))
+
+## [3.54.4](https://github.com/witchesofthehill/manabrew/compare/v3.54.3...v3.54.4) (2026-10-05)
+
+### Fixes
+
+* grist can now be a commander ([#1034](https://github.com/witchesofthehill/manabrew/issues/1034)) ([0cd1548](https://github.com/witchesofthehill/manabrew/commit/0cd1548740a526f747a3010aa6e35185fb5a5799))
+
 ## [3.54.3](https://github.com/witchesofthehill/manabrew/compare/v3.54.2...v3.54.3) (2026-10-04)
 
 ### Fixes
