@@ -1,7 +1,9 @@
+import { useState } from "react";
 import type { ReactNode } from "react";
 import { boardBackgroundDarken, boardBackgroundUrl } from "@/pixi/board/boardBackgrounds";
 import { usePreferencesStore } from "@/stores/usePreferencesStore";
 import { cn } from "@/lib/utils";
+import { CardPreviewOwnershipContext } from "@/hooks/useCardPreview";
 
 interface LimitedTableSurfaceProps {
   children: ReactNode;
@@ -14,6 +16,7 @@ export function LimitedTableSurface({
   backgroundId,
   className,
 }: LimitedTableSurfaceProps) {
+  const [previewOwners] = useState(() => new Set<() => void>());
   const personalBackground = usePreferencesStore((state) => state.boardBackgroundId);
   const selectedBackground = backgroundId ?? personalBackground;
   const backgroundUrl = boardBackgroundUrl(selectedBackground);
@@ -32,7 +35,9 @@ export function LimitedTableSurface({
         />
       )}
       <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", className)}>
-        {children}
+        <CardPreviewOwnershipContext.Provider value={previewOwners}>
+          {children}
+        </CardPreviewOwnershipContext.Provider>
       </div>
     </div>
   );

@@ -178,8 +178,8 @@ export class LimitedCardScene implements LimitedPane {
     if (
       drag &&
       (!this.host.isConnected ||
-        !drag.table?.isConnected ||
-        drag.table !== this.host.closest("[data-limited-table]"))
+        ((drag.active || this.settling === drag) &&
+          (!drag.table?.isConnected || drag.table !== this.host.closest("[data-limited-table]"))))
     )
       this.abort();
     if (!animationsEnabled()) this.finishAnimations();

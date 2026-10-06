@@ -265,7 +265,7 @@ fn pair_limited_matches(
                         .unwrap_or_else(|| format!("virtual-{}", uuid::Uuid::new_v4())),
                     username: player.username,
                     ready: true,
-                    connected: true,
+                    connected: original.is_some_and(|seat| seat.connected),
                     is_bot: original.is_none_or(|seat| seat.is_bot),
                     selected_deck_name: Some(player.deck.name.clone()),
                     selected_deck: Some(player.deck),
@@ -346,10 +346,11 @@ fn return_to_limited_session(
         })
     });
     if current_id != room_id && all_returned {
-        state.rooms.remove(&current_id);
-        if let Some(mut parent) = state.rooms.get_mut(room_id) {
-            parent.limited_matches.retain(|id| id != &current_id);
-        }
+        crate::cleanup::remove_room_and_clear_sessions(
+            state,
+            &current_id,
+            analytics::GameEndReason::HostEnded,
+        );
     }
     let message = ServerMessage::StateUpdate {
         from_player: host_name.clone(),

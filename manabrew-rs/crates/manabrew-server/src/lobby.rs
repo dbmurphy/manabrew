@@ -366,15 +366,17 @@ pub fn leave_room_sync(state: &Arc<ServerState>, player_id: &str) -> Result<(), 
         .rooms
         .get(&room_id)
         .and_then(|room| room.parent_limited_room.clone());
-    if let Some(parent_id) = parent_id {
-        let info = state.rooms.get_mut(&parent_id).map(|mut parent| {
+    let mut parent_empty = false;
+    if let Some(parent_id) = &parent_id {
+        let info = state.rooms.get_mut(parent_id).map(|mut parent| {
             parent.remove_participant(player_id);
+            parent_empty = parent.is_empty();
             parent.to_room_info()
         });
         if let Some(info) = info {
             crate::connection::broadcast_to_room(
                 state,
-                &parent_id,
+                parent_id,
                 &crate::protocol::ServerMessage::RoomUpdate { room: info },
             );
         }
@@ -388,7 +390,11 @@ pub fn leave_room_sync(state: &Arc<ServerState>, player_id: &str) -> Result<(), 
 
         room.remove_participant(player_id);
         let empty = room.is_empty();
-        let no_connected = room.connected_player_ids().is_empty();
+        let no_connected = if room.parent_limited_room.is_some() {
+            !crate::cleanup::paired_room_has_participants(state, &room, std::time::Instant::now())
+        } else {
+            room.all_disconnected()
+        };
         if !empty && !no_connected && room.players.is_empty() {
             room.reset_lobby_settings();
         }
@@ -401,6 +407,15 @@ pub fn leave_room_sync(state: &Arc<ServerState>, player_id: &str) -> Result<(), 
 
     if let Some(mut player) = state.players.get_mut(player_id) {
         player.room_id = None;
+    }
+    if parent_empty {
+        if let Some(parent_id) = parent_id {
+            crate::cleanup::remove_room_and_clear_sessions(
+                state,
+                &parent_id,
+                GameEndReason::Abandoned,
+            );
+        }
     }
 
     Ok(())
@@ -718,7 +733,7 @@ pub fn reset_room_to_lobby(
     room_id: &str,
     reason: GameEndReason,
 ) -> Option<(RoomInfo, Vec<String>)> {
-    let (info, cleared, paired_limited) = {
+    let (info, cleared, paired_limited, children) = {
         let mut room = state.rooms.get_mut(room_id)?;
         if let Some(replay) = room.replay.take() {
             analytics::emit_game_ended(&state.analytics, &room, &replay, reason);
@@ -726,19 +741,26 @@ pub fn reset_room_to_lobby(
         let cleared: Vec<String> = room.players.iter().map(|p| p.player_id.clone()).collect();
         room.status = RoomStatus::Lobby;
         let paired_limited = room.parent_limited_room.is_some();
-        if paired_limited {
+        let children = if paired_limited {
             for seat in &mut room.players {
                 seat.ready = false;
             }
+            Vec::new()
         } else {
+            std::mem::take(&mut room.limited_matches)
+        };
+        if !paired_limited {
             room.players.clear();
             room.limited_session_id = None;
         }
         if !paired_limited {
             room.reset_lobby_settings();
         }
-        (room.to_room_info(), cleared, paired_limited)
+        (room.to_room_info(), cleared, paired_limited, children)
     };
+    for child_id in children {
+        crate::cleanup::remove_room_and_clear_sessions(state, &child_id, reason);
+    }
 
     let mut notify = Vec::new();
     for pid in cleared {

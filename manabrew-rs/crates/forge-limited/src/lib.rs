@@ -44,7 +44,7 @@ pub use gauntlet_mini::{GauntletKind, GauntletMini};
 pub use i_booster_draft::IBoosterDraft;
 pub use i_draft_log::{IDraftLog, VecDraftLog};
 pub use limited_agent::{HumanLimitedAgent, LimitedAgent};
-pub use limited_deck_builder::{DeckBuildError, LimitedDeck, LimitedDeckBuilder};
+pub use limited_deck_builder::{LimitedDeck, LimitedDeckBuilder};
 pub use limited_deck_evaluator::LimitedDeckEvaluator;
 pub use limited_player::{LimitedPlayer, PlayerFlags};
 pub use limited_player_ai::LimitedPlayerAI;

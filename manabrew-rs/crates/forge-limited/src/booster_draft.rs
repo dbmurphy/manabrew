@@ -291,7 +291,7 @@ impl BoosterDraft {
                     .as_any()
                     .downcast_ref::<crate::limited_player_ai::LimitedPlayerAI>()
                     .ok_or_else(|| "draft seat is not an AI player".to_string())?;
-                ai.build_deck(&seat.name, &seat.picked)
+                Ok(ai.build_deck(&seat.name, &seat.picked))
             })
             .collect()
     }

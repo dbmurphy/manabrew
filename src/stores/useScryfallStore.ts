@@ -885,7 +885,7 @@ export const useScryfallStore = create<ScryfallState>()(
                   setCode: card.set,
                   collectorNumber: card.collector_number,
                 });
-                const cached = state.cards[exactKey];
+                const cached = get().cards[exactKey];
                 const wrapper: ScryfallEntry = cached?.card
                   ? cached
                   : { card: { info: card, texture: Texture.EMPTY, uris } };

@@ -20,6 +20,8 @@ Pool snapshots, Sealed pack contents and builds are targeted to their owner thro
 
 The relay retains the original Limited room while moving participants into private two-seat match rooms. The match host receives both decks to run the engine. Other seats receive only their own deck; opponent cards and sideboards are empty in both `GameStarted` and replay. Return is an authenticated transaction back to the original room, preserving the acquired pool and local build, clearing readiness and allowing BO1/BO3 sideboarding.
 
+Paired match rooms retain authenticated human seats through reconnect grace even after `EndGame` returns the child to Lobby. Repeated disconnects invalidate earlier expiry timers; returning to the original room also disarms child-seat forfeiture. Virtual AI slots are not connections and cannot retain an abandoned child. Every child teardown unlinks its ID from the original room's match registry; resetting or removing the original room tears down its children.
+
 A guest can request its private snapshot while the original host tab remains alive. Reloading or closing that host loses the generation/session map; retain the local build and report that the session cannot resume rather than pretending to recover it. Limited session recovery does not inherit the engine-room relay-restart guarantee below.
 
 ## Replay cache and resync

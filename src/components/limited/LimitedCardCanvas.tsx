@@ -136,6 +136,7 @@ export function LimitedCardCanvas({
     handleMouseEnter,
     handleMouseLeave,
     showSticky,
+    claimOwnership,
   } = preview;
   const dismiss = useCallback(() => {
     inspectionRequest.current += 1;
@@ -172,19 +173,20 @@ export function LimitedCardCanvas({
         handleMouseLeave();
         return;
       }
+      const ownsPreview = claimOwnership();
       const anchor = buttons.current.get(card.id)?.getBoundingClientRect();
       void useScryfallStore
         .getState()
         .getCard({ name: card.name, setCode: card.setCode, collectorNumber: card.cardNumber })
         .then((entry) => {
-          if (request !== inspectionRequest.current) return;
+          if (request !== inspectionRequest.current || !ownsPreview()) return;
           const dto = deckCardToPreviewDto(refToDeckCard(card, entry));
           if (sticky) showSticky(dto, undefined, undefined, anchor);
           else handleMouseEnter(dto, undefined, { anchorOverride: anchor, useDelay: true });
         })
         .catch(() => undefined);
     },
-    [getSnapshot, handleMouseEnter, handleMouseLeave, showSticky],
+    [getSnapshot, handleMouseEnter, handleMouseLeave, showSticky, claimOwnership],
   );
   const props = {
     layout,

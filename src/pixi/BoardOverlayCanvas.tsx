@@ -932,7 +932,7 @@ export function BoardOverlayCanvasSurface({
     };
     window.addEventListener("pointermove", onMove, true);
     window.addEventListener("pointerover", onOver, true);
-    window.addEventListener("pointerout", onWindowLeave);
+    window.addEventListener("pointerout", onWindowLeave, true);
     window.addEventListener("pointerdown", onDown, true);
     window.addEventListener("pointerup", onUp, true);
     window.addEventListener("pointercancel", onUp, true);
@@ -952,7 +952,7 @@ export function BoardOverlayCanvasSurface({
       uninstallPointerRouting();
       window.removeEventListener("pointermove", onMove, true);
       window.removeEventListener("pointerover", onOver, true);
-      window.removeEventListener("pointerout", onWindowLeave);
+      window.removeEventListener("pointerout", onWindowLeave, true);
       window.removeEventListener("pointerdown", onDown, true);
       window.removeEventListener("pointerup", onUp, true);
       window.removeEventListener("pointercancel", onUp, true);

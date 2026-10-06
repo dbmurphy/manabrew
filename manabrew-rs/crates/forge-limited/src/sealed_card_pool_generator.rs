@@ -191,15 +191,16 @@ impl SealedCardPoolGenerator {
             }
         }
 
-        let suggested_human_deck = LimitedDeckBuilder::new(
-            human_pool.clone(),
-            chosen.clone(),
-            ranker.clone(),
-            color_of.clone(),
-            is_land.clone(),
-        )
-        .build_deck(deck_name.clone(), land_set_code.as_deref())
-        .ok();
+        let suggested_human_deck = Some(
+            LimitedDeckBuilder::new(
+                human_pool.clone(),
+                chosen.clone(),
+                ranker.clone(),
+                color_of.clone(),
+                is_land.clone(),
+            )
+            .build_deck(deck_name.clone(), land_set_code.as_deref()),
+        );
 
         let mut ai_decks: Vec<LimitedDeck> = Vec::new();
         for ai_idx in 0..ai_opponent_count {
@@ -232,17 +233,15 @@ impl SealedCardPoolGenerator {
                 }
             }
 
-            if let Ok(deck) = LimitedDeckBuilder::new(
+            let deck = LimitedDeckBuilder::new(
                 pool,
                 ai_chosen,
                 ranker.clone(),
                 color_of.clone(),
                 is_land.clone(),
             )
-            .build_deck(format!("AI {}", ai_idx + 1), land_set_code.as_deref())
-            {
-                ai_decks.push(deck);
-            }
+            .build_deck(format!("AI {}", ai_idx + 1), land_set_code.as_deref());
+            ai_decks.push(deck);
         }
 
         // Rank AI decks weakest-first so the gauntlet escalates.

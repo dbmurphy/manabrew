@@ -98,10 +98,10 @@ export function CardPreviewHoverArea({
     };
     if (lastPointer.current) update(lastPointer.current.x, lastPointer.current.y);
     window.addEventListener("pointermove", move, true);
-    window.addEventListener("pointerout", leave);
+    window.addEventListener("pointerout", leave, true);
     return () => {
       window.removeEventListener("pointermove", move, true);
-      window.removeEventListener("pointerout", leave);
+      window.removeEventListener("pointerout", leave, true);
     };
   }, [source, card, panel, panelWidth, sticky]);
   useLayoutEffect(

@@ -36,7 +36,7 @@ impl LimitedPlayerAI {
         &self,
         name: &str,
         pool: &[PaperCard],
-    ) -> Result<crate::limited_deck_builder::LimitedDeck, String> {
+    ) -> crate::limited_deck_builder::LimitedDeck {
         let color_of = self.color_of.clone();
         crate::limited_deck_builder::LimitedDeckBuilder::new(
             pool.to_vec(),
@@ -46,7 +46,6 @@ impl LimitedPlayerAI {
             |card| card.rarity == forge_foundation::sealed_product::Rarity::BasicLand,
         )
         .build_deck(name, None)
-        .map_err(|error| error.to_string())
     }
 }
 
