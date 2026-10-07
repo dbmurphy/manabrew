@@ -51,7 +51,7 @@ export function useLimitedGameReturn({
           );
         }
         await endGame();
-        clearGauntletMatch();
+        await clearGauntletMatch();
         completed.current = true;
         navigate(`/gauntlet/${match.gauntletId}`);
       } else if (peekLimitedMatchReturn()) {

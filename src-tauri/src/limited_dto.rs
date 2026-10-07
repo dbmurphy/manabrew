@@ -7,6 +7,99 @@ use forge_limited::{
 use manabrew_protocol::deck_dto::DeckCardIdentity;
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LimitedEngineCheckpointDto {
+    pub schema_version: u32,
+    pub kind: String,
+    pub session_id: String,
+    pub state: serde_json::Value,
+}
+
+impl LimitedEngineCheckpointDto {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.schema_version != 1 {
+            return Err(format!(
+                "unsupported Limited checkpoint schema version {}",
+                self.schema_version
+            ));
+        }
+        if self.session_id.is_empty() {
+            return Err("Limited checkpoint session id is empty".into());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LimitedSessionImportDto {
+    pub kind: String,
+    pub session_id: String,
+    pub state: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GauntletCheckpointDto {
+    pub engine: GauntletMini,
+    pub decks: Vec<LimitedDeckDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LimitedDraftDecisionDto {
+    pub revision: u64,
+    pub seat: usize,
+    pub round: u32,
+    pub pick_number: u32,
+    pub action: forge_limited::DraftDecisionAction,
+    pub pack_id: String,
+    pub visible_cards: Vec<DeckCardIdentity>,
+    pub selected_ids: Vec<String>,
+    pub automatic: bool,
+}
+
+impl LimitedDraftDecisionDto {
+    pub fn from_engine(
+        session_id: &str,
+        kind: &str,
+        decision: forge_limited::DraftDecision,
+    ) -> Self {
+        let occurrence_id = |id| {
+            if kind == "draft" {
+                format!("{session_id}:{}:{id}", decision.pack_id)
+            } else {
+                format!("{session_id}:{id}")
+            }
+        };
+        let visible_cards = decision
+            .visible_cards
+            .iter()
+            .map(|(card, id)| {
+                let mut card = paper_card_to_identity(card);
+                card.id = occurrence_id(*id);
+                card
+            })
+            .collect();
+        let selected_ids = decision
+            .selected_ids
+            .iter()
+            .map(|id| occurrence_id(*id))
+            .collect();
+        Self {
+            revision: decision.revision,
+            seat: decision.seat,
+            round: decision.round,
+            pick_number: decision.pick_number,
+            action: decision.action,
+            pack_id: format!("{session_id}:{}", decision.pack_id),
+            visible_cards,
+            selected_ids,
+            automatic: decision.automatic,
+        }
+    }
+}
+
 use crate::limited_bootstrap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -185,6 +278,11 @@ pub fn submit_occurrence_pick(
     seat: usize,
     card_id: &str,
 ) -> Result<(), String> {
+    let (pack, card) = parse_occurrence_id(session_id, card_id)?;
+    draft.submit_human_pick_id_for(seat, pack, card)
+}
+
+pub fn parse_occurrence_id(session_id: &str, card_id: &str) -> Result<(u32, u32), String> {
     let suffix = card_id
         .strip_prefix(session_id)
         .and_then(|s| s.strip_prefix(':'))
@@ -198,7 +296,7 @@ pub fn submit_occurrence_pick(
     let card = card
         .parse()
         .map_err(|_| "invalid card occurrence".to_string())?;
-    draft.submit_human_pick_id_for(seat, pack, card)
+    Ok((pack, card))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -309,6 +407,8 @@ pub struct BoosterDraftSetupDto {
     #[serde(default)]
     pub picks_per_pass: Option<u32>,
     #[serde(default)]
+    pub pick_seconds: Option<u32>,
+    #[serde(default)]
     pub custom_pool: bool,
 }
 
@@ -329,6 +429,7 @@ pub struct DraftSeatDto {
 #[serde(rename_all = "camelCase")]
 pub struct DraftStateDto {
     pub session_id: String,
+    pub revision: u64,
     pub round: u32,
     pub total_rounds: u32,
     pub pick_number: u32,
@@ -349,6 +450,7 @@ pub struct DraftStateDto {
 #[serde(rename_all = "camelCase")]
 pub struct WinstonStateDto {
     pub session_id: String,
+    pub revision: u64,
     pub active_seat: u32,
     pub current_pile: u32,
     pub piles: Vec<Vec<DeckCardIdentity>>,
@@ -388,6 +490,7 @@ impl WinstonStateDto {
             .collect();
         Self {
             session_id,
+            revision: draft.revision(),
             active_seat: draft.active_seat() as u32,
             current_pile: draft.current_pile() as u32,
             piles,
@@ -575,10 +678,7 @@ impl DraftStateDto {
                     .len()
                     .saturating_sub(usize::from(p.current_pack().is_some()))
                     as u32,
-                awaiting_pick: p
-                    .current_pack()
-                    .map(|pack| !pack.is_empty())
-                    .unwrap_or(false),
+                awaiting_pick: draft.awaiting_pick_for_seat(p.seat),
             })
             .collect();
         seat_summaries.sort_by_key(|s| s.seat);
@@ -598,6 +698,7 @@ impl DraftStateDto {
         let picked_pile = draft_picked_cards(&session_id, draft, seat_idx);
         Self {
             session_id,
+            revision: draft.revision(),
             round: draft.round(),
             total_rounds: draft.total_rounds(),
             pick_number,
@@ -607,7 +708,7 @@ impl DraftStateDto {
             seat_summaries,
             is_round_over: draft.is_round_over(),
             is_complete: !draft.has_next_choice() && draft.round() >= draft.total_rounds(),
-            awaiting_human,
+            awaiting_human: awaiting_human && draft.awaiting_pick_for_seat(seat_idx),
             human_conspiracies,
             picks_per_pass: draft.picks_per_pass(),
             picks_remaining_in_pack,

@@ -6,6 +6,7 @@ use forge_foundation::sealed_product::{
 };
 use forge_foundation::ColorSet;
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 
 use crate::card_ranker::CardRanker;
 use crate::custom_limited::CustomLimited;
@@ -23,7 +24,7 @@ pub struct SealedCardPoolGenerator {
     pool_limited: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SealedDeckGroup {
     pub deck_name: String,
     pub land_set_code: Option<String>,

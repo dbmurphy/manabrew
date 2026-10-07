@@ -678,7 +678,7 @@ export const useGameStore = create<GameState>()(
         clearActiveGameSession();
         const runtime = getSelectedGameRuntime();
         const wasMultiplayer = get().isMultiplayer;
-        if (peekGauntletMatch() && !get().gameView?.gameOver) clearGauntletMatch();
+        if (peekGauntletMatch() && !get().gameView?.gameOver) await clearGauntletMatch();
         // Before the state is cleared: how the engine performed. A game the
         // relay knows about is reported to it; anything else goes to the hub.
         // Never throws, never blocks the teardown.

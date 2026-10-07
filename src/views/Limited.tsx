@@ -13,8 +13,11 @@ import { LimitedModeSelector } from "@/components/limited/LimitedModeSelector";
 import { LimitedSetupDialog } from "@/components/limited/LimitedSetupDialog";
 import { LimitedSetConfiguration } from "@/components/limited/LimitedSetConfiguration";
 import { LimitedCubeSource } from "@/components/limited/LimitedCubeSource";
+import { LimitedReferenceButton } from "@/components/limited/LimitedReferenceButton";
 import { useLimitedSetSelection } from "@/components/limited/useLimitedSetSelection";
 import { useLimitedSetup } from "@/components/limited/useLimitedSetup";
+import { LimitedSavedSessions } from "@/components/limited/LimitedSavedSessions";
+import { limitedSessionRoute } from "@/game/limitedRecovery";
 import { TablePickerDialog } from "@/components/lobby/TablePickerDialog";
 import { usePreferencesStore } from "@/stores/usePreferencesStore";
 import type { ReactNode } from "react";
@@ -57,6 +60,7 @@ export default function Limited({ leadingControl }: LimitedProps) {
     setup.seed.trim() && Number.isFinite(parsedSeed) && parsedSeed >= 0
       ? `seed ${Math.floor(parsedSeed)}`
       : null,
+    setup.mode === "draft" && setup.pickSeconds ? `${setup.pickSeconds}s per pick` : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -148,6 +152,11 @@ export default function Limited({ leadingControl }: LimitedProps) {
           >
             Customize
           </Button>
+          <LimitedReferenceButton
+            cards={[]}
+            setCodes={setup.source === "set" ? [selection.selectedCode] : undefined}
+            format={setup.source === "set" ? "set" : "cube"}
+          />
           <Button variant="primary" onClick={setup.start} disabled={setup.startBlocked}>
             {startLabel}
             <ArrowRight className="ml-2 h-4 w-4" />
@@ -159,6 +168,7 @@ export default function Limited({ leadingControl }: LimitedProps) {
           </p>
         )}
       </section>
+      <LimitedSavedSessions onResume={(saved) => navigate(limitedSessionRoute(saved))} />
       <LimitedSetupDialog
         panel={panel}
         onClose={() => setPanel(null)}

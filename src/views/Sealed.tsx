@@ -5,11 +5,13 @@ import { LimitedPackOpening } from "@/components/limited/LimitedPackOpening";
 import { LimitedPlayAction } from "@/components/limited/LimitedPlayAction";
 import { LimitedTableSurface } from "@/components/limited/LimitedTableSurface";
 import { useLimitedStore } from "@/stores/useLimitedStore";
+import { useLimitedSessionSource } from "@/components/limited/useLimitedSavedSession";
 import type { DraftCard } from "@/types/limited";
 export default function Sealed() {
   const { id } = useParams<{
     id: string;
   }>();
+  const referenceFormat = useLimitedSessionSource(id ?? null);
   const activeSealed = useLimitedStore((s) => s.activeSealed);
   const refresh = useLimitedStore((s) => s.refreshSealedPool);
   const lastError = useLimitedStore((s) => s.lastError);
@@ -80,6 +82,7 @@ export default function Sealed() {
             suggestedMain={activeSealed.suggestedDeck?.main}
             defaultDeckName={activeSealed.deckName}
             format="sealed"
+            referenceFormat={referenceFormat}
             onChange={(deck) => setBuiltDeck({ sessionId: activeSealed.sessionId, ...deck })}
           />
         )}

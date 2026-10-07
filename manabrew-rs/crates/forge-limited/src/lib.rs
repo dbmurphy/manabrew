@@ -29,7 +29,10 @@ pub mod winston_draft;
 pub mod winston_draft_ai;
 
 pub use booster_deck_builder::BoosterDeckBuilder;
-pub use booster_draft::{BoosterDraft, PassDirection, TickOutcome};
+pub use booster_draft::{
+    BoosterDraft, BoosterDraftCheckpoint, DraftDecision, DraftDecisionAction, PassDirection,
+    TickOutcome,
+};
 pub use booster_draft_ai::BoosterDraftAI;
 pub use card_ranker::CardRanker;
 pub use card_ranking_comparator::CardRankingComparator;

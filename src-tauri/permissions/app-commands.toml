@@ -53,4 +53,8 @@ commands.allow = [
   "limited_get_gauntlet_state",
   "limited_list_conspiracy_hooks",
   "limited_drop_session",
+  "limited_export_session",
+  "limited_import_session",
+  "limited_get_draft_review",
+  "limited_auto_pick",
 ]

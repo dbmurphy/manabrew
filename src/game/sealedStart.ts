@@ -6,6 +6,9 @@ import { resolveSealedPool } from "@/lib/limited.utils";
 import type { MpDraftSeatAssignment } from "@/game/draftRelay";
 import type { DraftCard, SealedPool } from "@/types/limited";
 import type { RoomInfo } from "@/types/server";
+import { listLimitedSaves } from "@/game/limitedStorage";
+import { restoreLimitedHostSession } from "@/game/limitedSession";
+import { useMultiplayerLimitedStore } from "@/stores/useMultiplayerLimitedStore";
 
 function hashStringToU32(s: string): number {
   let h = 0x811c9dc5;
@@ -15,7 +18,7 @@ function hashStringToU32(s: string): number {
   }
   return h >>> 0;
 }
-const starts = new Map<string, Promise<SealedPool>>();
+const starts = new Map<string, { gameId: string; promise: Promise<SealedPool> }>();
 export interface StartMpSealedArgs {
   room: RoomInfo;
   username: string;
@@ -30,14 +33,31 @@ export async function startMpSealed({
   }
   if (!useServerStore.getState().hasRelayFeature("limited_sessions"))
     throw new Error("Update the relay to use multiplayer Limited sessions.");
+  if (!useServerStore.getState().hasRelayFeature("limited_session_recovery"))
+    throw new Error("Update the relay to use durable multiplayer Limited sessions.");
+  const relay = useServerStore.getState();
   const existing = starts.get(room.room_id);
-  if (existing) return existing;
-  const start = generateHostPools(room);
+  if (existing?.gameId === relay.gameId) return existing.promise;
+  const localSessionId = useMultiplayerLimitedStore.getState().sessionId;
+  const saved = (await listLimitedSaves()).find(
+    (session) =>
+      session.kind === "sealed" &&
+      session.role === "host" &&
+      !session.archived &&
+      session.connection?.room.room_id === room.room_id &&
+      (session.connection.resume.game_id === relay.gameId ||
+        (relay.gameRoomId !== room.room_id && session.sessionId === localSessionId)),
+  );
+  if (saved?.hostSession && saved.state) {
+    await restoreLimitedHostSession(saved);
+    return saved.state as SealedPool;
+  }
+  const start = { gameId: relay.gameId, promise: generateHostPools(room) };
   starts.set(room.room_id, start);
   try {
-    return await start;
+    return await start.promise;
   } catch (error) {
-    starts.delete(room.room_id);
+    if (starts.get(room.room_id) === start) starts.delete(room.room_id);
     throw error;
   }
 }

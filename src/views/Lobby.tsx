@@ -379,6 +379,14 @@ export default function Lobby() {
       toast.error(`This room has no draft config \u2014 recreate it as a Draft room.`);
       return;
     }
+    if (!relayFeatures.includes(RELAY_FEATURE.LimitedSessionRecovery)) {
+      toast.error("Update the relay before starting a recoverable Limited session.");
+      return;
+    }
+    if (config.pick_seconds && !relayFeatures.includes(RELAY_FEATURE.LimitedDraftClocks)) {
+      toast.error("Update the relay before starting a timed draft.");
+      return;
+    }
     setStartingLimited(true);
     try {
       const participants: DraftHostParticipant[] = room.players
@@ -406,6 +414,7 @@ export default function Lobby() {
           rounds: config.rounds,
           picksPerPass: config.picks_per_pass,
           seed: config.seed,
+          pickSeconds: config.pick_seconds,
           fillWithBots: config.fill_with_bots,
         },
       });
@@ -425,6 +434,10 @@ export default function Lobby() {
     if (!room || !username) return;
     if (!room.sealed_config) {
       toast.error(`This room has no sealed config \u2014 recreate it as a Sealed room.`);
+      return;
+    }
+    if (!relayFeatures.includes(RELAY_FEATURE.LimitedSessionRecovery)) {
+      toast.error("Update the relay before starting a recoverable Limited session.");
       return;
     }
     setStartingLimited(true);

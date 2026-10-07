@@ -105,22 +105,33 @@ fn authorize_game_message(
                         | "statuses"
                         | "rejected"
                         | "pairMatches"
+                        | "clockSync"
+                        | "clockNomination"
+                        | "resultAck"
                 );
                 if output {
                     if !room.is_host(player_id) {
                         return None;
                     }
-                    if matches!(kind, "stateUpdate" | "snapshot" | "rejected")
-                        && state
-                            .get("targetPlayer")
-                            .and_then(serde_json::Value::as_str)
-                            .is_none()
+                    if matches!(
+                        kind,
+                        "stateUpdate" | "snapshot" | "rejected" | "clockNomination" | "resultAck"
+                    ) && state
+                        .get("targetPlayer")
+                        .and_then(serde_json::Value::as_str)
+                        .is_none()
                     {
                         return None;
                     }
                 } else if matches!(
                     kind,
-                    "pick" | "resync" | "build" | "opened" | "returnToSession" | "result"
+                    "pick"
+                        | "resync"
+                        | "nominate"
+                        | "build"
+                        | "opened"
+                        | "returnToSession"
+                        | "result"
                 ) {
                     if !room
                         .players
@@ -1670,6 +1681,7 @@ fn handle_client_message(
                             room: resumed.room_info.clone(),
                         },
                     );
+                    crate::draft_clock::replay(state, &room_id, username);
                     broadcast_to_room_except(
                         state,
                         player_id,
@@ -2185,6 +2197,19 @@ fn handle_client_message(
                         drop(room);
                         let _ = return_to_limited_session(state, &rid, player_id, username);
                         return;
+                    }
+                    if kind == Some("clockSync") {
+                        drop(room);
+                        crate::draft_clock::synchronize(state, &rid, payload);
+                        return;
+                    }
+                    if kind == Some("resync") {
+                        drop(room);
+                        crate::draft_clock::replay(state, &rid, username);
+                        let Some(reopened) = state.rooms.get_mut(&rid) else {
+                            return;
+                        };
+                        room = reopened;
                     }
                 }
                 if source != GameMessageSource::RoomRelay && room.status != RoomStatus::InGame {

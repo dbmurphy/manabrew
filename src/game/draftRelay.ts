@@ -1,4 +1,4 @@
-import type { DraftState } from "@/types/limited";
+import type { DraftState, LimitedDraftDecision } from "@/types/limited";
 import type { RoomRelayEnvelope } from "@/types/server";
 
 export const DRAFT_RELAY_PROTOCOL = "draft-v1";
@@ -11,6 +11,7 @@ export interface MpDraftConfig {
   rounds: number;
   picksPerPass: number;
   seed?: number;
+  pickSeconds?: number;
   fillWithBots: boolean;
 }
 
@@ -33,6 +34,7 @@ export interface DraftStateBroadcastMessage {
   sessionId: string;
   seat: number;
   state: DraftState;
+  history?: LimitedDraftDecision[];
 }
 
 export interface DraftPickMessage {
@@ -41,6 +43,7 @@ export interface DraftPickMessage {
   cardId: string;
   round: number;
   pickNumber: number;
+  revision?: string;
 }
 
 export interface DraftResyncMessage {
@@ -48,11 +51,55 @@ export interface DraftResyncMessage {
   sessionId?: string;
 }
 
+export interface DraftClockWireSeat {
+  seat: number;
+  revision: string;
+  remainingMs: number;
+  deadlineMs: number | null;
+}
+
+export interface DraftClockSyncMessage {
+  type: "clockSync";
+  sessionId: string;
+  sequence: number;
+  paused: boolean;
+  seats: DraftClockWireSeat[];
+}
+
+export interface DraftClockStateMessage {
+  type: "clockState";
+  sessionId: string;
+  sequence: number;
+  paused: boolean;
+  serverNowMs: number;
+  seats: DraftClockWireSeat[];
+}
+
+export interface DraftClockExpiredMessage {
+  type: "clockExpired";
+  sessionId: string;
+  seat: number;
+  revision: string;
+  sequence: number;
+}
+
+export interface DraftNominationMessage {
+  type: "nominate" | "clockNomination";
+  sessionId: string;
+  seat: number;
+  revision: string;
+  cardId: string | null;
+}
+
 export type DraftRelayPayload =
   | DraftStartMessage
   | DraftStateBroadcastMessage
   | DraftPickMessage
-  | DraftResyncMessage;
+  | DraftResyncMessage
+  | DraftClockSyncMessage
+  | DraftClockStateMessage
+  | DraftClockExpiredMessage
+  | DraftNominationMessage;
 
 export type DraftRelayEnvelope = RoomRelayEnvelope<DraftRelayPayload>;
 

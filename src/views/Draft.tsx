@@ -6,7 +6,7 @@ import { DraftWorkspace } from "@/components/limited/DraftWorkspace";
 import { LimitedTableSurface } from "@/components/limited/LimitedTableSurface";
 import type { LimitedDraftMode } from "@/components/limited/LimitedModeToggle";
 import { useLimitedStore } from "@/stores/useLimitedStore";
-import { useLimitedBuildStore } from "@/components/limited/useLimitedBuildStore";
+import { useLimitedSessionSource } from "@/components/limited/useLimitedSavedSession";
 import { LimitedPlayAction } from "@/components/limited/LimitedPlayAction";
 import type { DraftCard } from "@/types/limited";
 type DraftMode = LimitedDraftMode;
@@ -14,6 +14,7 @@ export default function Draft() {
   const { draftId } = useParams<{
     draftId: string;
   }>();
+  const referenceFormat = useLimitedSessionSource(draftId ?? null);
   const activeDraft = useLimitedStore((s) => s.activeDraft);
   const pick = useLimitedStore((s) => s.pickDraftCard);
   const undo = useLimitedStore((s) => s.undoDraftPick);
@@ -61,7 +62,7 @@ export default function Draft() {
     pickingRef.current = true;
     setPicking(true);
     try {
-      await pick(draftId, card);
+      await pick(draftId, card, activeDraft.revision);
     } finally {
       pickingRef.current = false;
       setPicking(false);
@@ -70,8 +71,7 @@ export default function Draft() {
   const handleUndo = async () => {
     if (!draftId) return;
     try {
-      const state = await undo(draftId);
-      useLimitedBuildStore.getState().reconcilePool(draftId, state.pickedPile);
+      await undo(draftId);
     } catch {
       /* surfaced via lastError */
     }
@@ -114,6 +114,7 @@ export default function Draft() {
             pool={activeDraft.pickedPile}
             defaultDeckName="Booster Draft Deck"
             format="draft"
+            referenceFormat={referenceFormat}
             onChange={(deck) => setBuiltDeck({ sessionId: activeDraft.sessionId, ...deck })}
           />
         </div>
@@ -123,6 +124,7 @@ export default function Draft() {
           onPick={handlePick}
           conspiracyHooks={conspiracyHooks}
           pickPending={picking}
+          referenceFormat={referenceFormat}
         />
       )}
 

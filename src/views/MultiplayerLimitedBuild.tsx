@@ -8,6 +8,7 @@ import { AppSelect, AppSelectOption } from "@/components/ui/AppSelect";
 import { useMultiplayerLimitedStore } from "@/stores/useMultiplayerLimitedStore";
 import { useServerStore } from "@/stores/useServerStore";
 import { useGameStore } from "@/stores/useGameStore";
+import { useLimitedSessionSource } from "@/components/limited/useLimitedSavedSession";
 import {
   completeLimitedMatch,
   completeLimitedOpening,
@@ -24,6 +25,7 @@ import type { DraftCard } from "@/types/limited";
 export default function MultiplayerLimitedBuild() {
   const navigate = useNavigate();
   const session = useMultiplayerLimitedStore();
+  const referenceFormat = useLimitedSessionSource(session.sessionId);
   const server = useServerStore();
   const [starting, setStarting] = useState(false);
   const gameActive = useGameStore((s) => s.isGameActive);
@@ -243,8 +245,8 @@ export default function MultiplayerLimitedBuild() {
       )}
       {hostDisconnected && (
         <p role="status" className="text-sm text-destructive">
-          The host is disconnected. Wait for the same tab to reconnect. A closed or reloaded host
-          tab cannot restore this session.
+          The host is disconnected. Resume the saved session on the host&apos;s device to continue
+          with the same pools and builds.
         </p>
       )}
       {session.lastError && (
@@ -266,6 +268,8 @@ export default function MultiplayerLimitedBuild() {
             initialSideboard={session.build?.sideboard}
             defaultDeckName={`Multiplayer ${session.kind}`}
             format={session.kind ?? "draft"}
+            referenceFormat={referenceFormat}
+            reviewSessionId={session.sessionId ?? undefined}
             requireCompleteToSave
             onChange={onChange}
             onConfirm={onConfirm}

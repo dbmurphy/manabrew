@@ -43,6 +43,7 @@ export interface LimitedCardCanvasProps {
   acquiredIds?: readonly string[];
   departureTarget?: () => HTMLElement | null;
   emptyMessage?: string;
+  previewPortalTarget?: HTMLElement | null;
 }
 const NO_SELECTION: readonly string[] = [];
 export function LimitedCardCanvas({
@@ -68,6 +69,7 @@ export function LimitedCardCanvas({
   acquiredIds,
   departureTarget,
   emptyMessage = "No cards in this zone.",
+  previewPortalTarget,
 }: LimitedCardCanvasProps) {
   const scrollHost = useRef<HTMLDivElement>(null);
   const canvasHost = useRef<HTMLDivElement>(null);
@@ -448,7 +450,7 @@ export function LimitedCardCanvas({
           onSkipOpening={onSkipOpening}
         />
       )}
-      <CardHoverPreview preview={{ ...preview, dismiss }} />
+      <CardHoverPreview preview={{ ...preview, dismiss }} portalTarget={previewPortalTarget} />
     </div>
   );
 }

@@ -5,6 +5,8 @@ import { useIsDesktop, useIsShortScreen, useIsTouch } from "@/hooks/useBreakpoin
 import { LimitedCardCanvas } from "@/components/limited/LimitedCardCanvas";
 import LimitedDeckBuilder from "@/components/limited/LimitedDeckBuilder";
 import { cn } from "@/lib/utils";
+import { LimitedReferenceButton } from "@/components/limited/LimitedReferenceButton";
+import type { LimitedReferenceFormat } from "@/components/limited/LimitedSetReference";
 import type { WinstonState } from "@/types/limited";
 
 interface WinstonWorkspaceProps {
@@ -12,6 +14,7 @@ interface WinstonWorkspaceProps {
   activeIdx: number;
   onTake: () => void;
   onPass: () => void;
+  referenceFormat?: LimitedReferenceFormat;
 }
 
 export function WinstonWorkspace({
@@ -19,6 +22,7 @@ export function WinstonWorkspace({
   activeIdx,
   onTake,
   onPass,
+  referenceFormat,
 }: WinstonWorkspaceProps) {
   const desktop = useIsDesktop();
   const shortScreen = useIsShortScreen();
@@ -61,6 +65,10 @@ export function WinstonWorkspace({
             <header className="flex shrink-0 self-center items-center justify-center gap-2 rounded bg-card/70 px-2 py-1">
               <h2 className="font-serif text-lg">Pile {activeIdx + 1}</h2>
               <span className="text-xs text-muted-foreground">{activePile.length} cards</span>
+              <LimitedReferenceButton
+                cards={activeWinston.pickedPile.length ? activeWinston.pickedPile : activePile}
+                format={referenceFormat}
+              />
             </header>
             <LimitedCardCanvas
               cards={activePile}
@@ -108,6 +116,7 @@ export function WinstonWorkspace({
             defaultDeckName="Winston Draft Deck"
             format="draft"
             showUtilities={false}
+            referenceFormat={referenceFormat}
           />
         )}
       </div>

@@ -3,8 +3,11 @@ use std::collections::VecDeque;
 use forge_foundation::sealed_product::{
     IUnOpenedProduct, PaperCard, Rarity, SealedTemplate, UnOpenedProduct,
 };
-use rand::rngs::StdRng;
 use rand::SeedableRng;
+use rand_chacha::ChaCha12Rng;
+use serde::{Deserialize, Serialize};
+
+use crate::booster_draft::{DraftDecision, DraftDecisionAction};
 
 use crate::winston_draft_ai::WinstonDraftAI;
 
@@ -23,6 +26,7 @@ pub enum WinstonOutcome {
     AwaitingHuman,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WinstonDraft {
     seats: Vec<WinstonSeat>,
     deck: VecDeque<PaperCard>,
@@ -37,8 +41,11 @@ pub struct WinstonDraft {
     current_pile: usize,
     ai: WinstonDraftAI,
     pending_human_pile: Option<usize>,
+    decisions: Vec<DraftDecision>,
+    revision: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WinstonSeat {
     pub seat: usize,
     pub name: String,
@@ -60,8 +67,21 @@ impl WinstonDraft {
         pool_packs: usize,
         pool_limited: bool,
     ) -> Self {
+        Self::new_with_seed(template, pool, pool_packs, pool_limited, None)
+    }
+
+    pub fn new_with_seed(
+        template: SealedTemplate,
+        pool: Vec<PaperCard>,
+        pool_packs: usize,
+        pool_limited: bool,
+        seed: Option<u64>,
+    ) -> Self {
         assert!(pool_packs >= 1);
-        let mut rng = StdRng::from_entropy();
+        let mut rng = match seed {
+            Some(seed) => ChaCha12Rng::seed_from_u64(seed),
+            None => ChaCha12Rng::from_entropy(),
+        };
         let mut product = UnOpenedProduct::new(template, pool);
         product.set_limited_pool(pool_limited);
         let mut deck: Vec<PaperCard> = Vec::new();
@@ -112,9 +132,86 @@ impl WinstonDraft {
             picked_ids: vec![Vec::new(); NUM_PLAYERS],
             active_seat: 0,
             current_pile: 0,
-            ai: WinstonDraftAI::new(),
+            ai: WinstonDraftAI::with_rng(rng),
             pending_human_pile: None,
+            decisions: Vec::new(),
+            revision: 0,
         }
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    pub fn decisions_for_seat(&self, seat: usize) -> Result<Vec<DraftDecision>, String> {
+        if seat >= self.seats.len() {
+            return Err(format!("no seat at index {seat}"));
+        }
+        Ok(self
+            .decisions
+            .iter()
+            .filter(|decision| decision.seat == seat)
+            .cloned()
+            .collect())
+    }
+
+    pub fn validate_checkpoint(&self) -> Result<(), String> {
+        if self.seats.len() != NUM_PLAYERS
+            || self.piles.len() != NUM_PILES
+            || self.pile_ids.len() != NUM_PILES
+            || self.picked_ids.len() != NUM_PLAYERS
+            || self.active_seat >= NUM_PLAYERS
+            || self.current_pile >= NUM_PILES
+            || self.deck.len() != self.deck_ids.len()
+            || !self.seats[0].is_human
+            || self.seats[1].is_human
+            || self
+                .piles
+                .iter()
+                .zip(&self.pile_ids)
+                .any(|(cards, ids)| cards.len() != ids.len())
+            || self
+                .seats
+                .iter()
+                .zip(&self.picked_ids)
+                .enumerate()
+                .any(|(index, (seat, ids))| seat.seat != index || seat.picked.len() != ids.len())
+        {
+            return Err("incompatible Winston checkpoint state".into());
+        }
+        let mut occurrences = std::collections::HashSet::new();
+        for id in self
+            .deck_ids
+            .iter()
+            .chain(self.pile_ids.iter().flatten())
+            .chain(self.picked_ids.iter().flatten())
+        {
+            if !occurrences.insert(*id) {
+                return Err("duplicate Winston occurrence".into());
+            }
+        }
+        Ok(())
+    }
+
+    fn record_decision(
+        &mut self,
+        action: DraftDecisionAction,
+        pile: usize,
+        visible_cards: Vec<(PaperCard, u32)>,
+        selected_ids: Vec<u32>,
+    ) {
+        self.revision += 1;
+        self.decisions.push(DraftDecision {
+            revision: self.revision,
+            seat: self.active_seat,
+            round: 1,
+            pick_number: self.seats[self.active_seat].picked.len() as u32 + 1,
+            action,
+            pack_id: format!("pile:{pile}"),
+            visible_cards,
+            selected_ids,
+            automatic: !self.is_human_turn(),
+        });
     }
 
     pub fn active_seat(&self) -> usize {
@@ -171,7 +268,7 @@ impl WinstonDraft {
 
     /// Human accepts the current pile.
     pub fn human_take_pile(&mut self) -> Result<Vec<PaperCard>, String> {
-        if !self.is_human_turn() {
+        if !self.is_human_turn() || self.is_complete() {
             return Err("not human's turn".into());
         }
         let cards = self.take_active_pile();
@@ -183,7 +280,7 @@ impl WinstonDraft {
     /// Human passes the current pile. Returns Some(cards) if the pass
     /// landed on top-of-deck (i.e. all 3 piles passed); None otherwise.
     pub fn human_pass_pile(&mut self) -> Result<Option<Vec<PaperCard>>, String> {
-        if !self.is_human_turn() {
+        if !self.is_human_turn() || self.is_complete() {
             return Err("not human's turn".into());
         }
         let drawn = self.pass_active_pile();
@@ -196,6 +293,17 @@ impl WinstonDraft {
 
     pub(crate) fn take_active_pile(&mut self) -> Vec<PaperCard> {
         let pile_idx = self.current_pile;
+        let visible_cards = self.piles[pile_idx]
+            .iter()
+            .cloned()
+            .zip(self.pile_ids[pile_idx].iter().copied())
+            .collect();
+        self.record_decision(
+            DraftDecisionAction::Take,
+            pile_idx,
+            visible_cards,
+            self.pile_ids[pile_idx].clone(),
+        );
         let cards = std::mem::take(&mut self.piles[pile_idx]);
         self.picked_ids[self.active_seat].append(&mut self.pile_ids[pile_idx]);
         self.refill_pile(pile_idx);
@@ -205,6 +313,11 @@ impl WinstonDraft {
 
     pub(crate) fn pass_active_pile(&mut self) -> Option<Vec<PaperCard>> {
         let pile_idx = self.current_pile;
+        let visible_cards = self.piles[pile_idx]
+            .iter()
+            .cloned()
+            .zip(self.pile_ids[pile_idx].iter().copied())
+            .collect();
         if let Some(c) = self.deck.pop_front() {
             self.piles[pile_idx].push(c);
             self.pile_ids[pile_idx].push(self.deck_ids.pop_front().expect("deck occurrence"));
@@ -213,13 +326,26 @@ impl WinstonDraft {
         if self.current_pile >= NUM_PILES {
             self.current_pile = 0;
             if let Some(c) = self.deck.pop_front() {
-                self.picked_ids[self.active_seat]
-                    .push(self.deck_ids.pop_front().expect("deck occurrence"));
+                let id = self.deck_ids.pop_front().expect("deck occurrence");
+                self.picked_ids[self.active_seat].push(id);
+                self.record_decision(DraftDecisionAction::Pass, pile_idx, visible_cards, vec![id]);
                 Some(vec![c])
             } else {
+                self.record_decision(
+                    DraftDecisionAction::Pass,
+                    pile_idx,
+                    visible_cards,
+                    Vec::new(),
+                );
                 Some(Vec::new())
             }
         } else {
+            self.record_decision(
+                DraftDecisionAction::Pass,
+                pile_idx,
+                visible_cards,
+                Vec::new(),
+            );
             None
         }
     }
@@ -234,6 +360,7 @@ impl WinstonDraft {
     fn advance_seat(&mut self) {
         self.active_seat = (self.active_seat + 1) % self.seats.len();
         self.current_pile = 0;
+        self.pending_human_pile = None;
     }
 
     fn ai_resolve_turn(&mut self) -> Vec<PaperCard> {

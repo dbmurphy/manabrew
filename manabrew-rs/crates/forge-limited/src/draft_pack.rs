@@ -1,6 +1,7 @@
 use forge_foundation::sealed_product::PaperCard;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DraftPack {
     cards: Vec<PaperCard>,
     card_ids: Vec<u32>,

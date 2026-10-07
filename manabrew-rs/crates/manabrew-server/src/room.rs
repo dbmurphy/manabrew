@@ -53,6 +53,7 @@ pub struct Room {
     pub resume_token: String,
     pub humanless_since: Option<Instant>,
     pub limited_session_id: Option<String>,
+    pub draft_clock: Option<crate::draft_clock::DraftClock>,
     pub parent_limited_room: Option<String>,
     pub limited_matches: Vec<String>,
     /// Announced endpoints by player id. Only the relay binds one to a username.
@@ -128,6 +129,7 @@ impl Room {
             resume_token: String::new(),
             humanless_since: None,
             limited_session_id: None,
+            draft_clock: None,
             parent_limited_room: None,
             limited_matches: Vec::new(),
             transports: HashMap::new(),

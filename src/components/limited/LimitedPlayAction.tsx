@@ -24,7 +24,7 @@ export function LimitedPlayAction({ sessionId, kind, rounds, deck }: LimitedPlay
     const start = kind === "sealed" ? startSealed : startDraft;
     try {
       const state = await start(sessionId, rounds, deck.main, deck.sideboard);
-      configureGauntlet(state, sessionId, bestOf);
+      await configureGauntlet(state, sessionId, bestOf);
       navigate(`/gauntlet/${state.gauntletId}`, { state: { launch: true } });
     } catch {
       return;

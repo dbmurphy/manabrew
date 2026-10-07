@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLimitedBuildStore, type BuildZone } from "@/components/limited/useLimitedBuildStore";
+import { useDraftClock } from "@/components/limited/useDraftClock";
+import { draftDecisionRevision, nominateDraftFallback } from "@/game/limitedDraftClock";
+import { useMultiplayerDraftStore } from "@/stores/useMultiplayerDraftStore";
 import type { DraftCard, DraftState } from "@/types/limited";
 
 export interface DraftPickOptions {
   draft: DraftState;
   onPick: (card: DraftCard) => void | Promise<void>;
   pickPending?: boolean;
+  viewerSeat?: number;
 }
 
-export function useDraftPick({ draft, onPick, pickPending = false }: DraftPickOptions) {
+export function useDraftPick({ draft, onPick, pickPending = false, viewerSeat }: DraftPickOptions) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
@@ -19,6 +23,31 @@ export function useDraftPick({ draft, onPick, pickPending = false }: DraftPickOp
   const wasPickPending = useRef(false);
   const quickPick = useLimitedBuildStore((state) => state.quickPick);
   const selected = draft.currentPack.find((card) => card.id === selectedId);
+  const multiplayerSeat = useMultiplayerDraftStore((state) =>
+    state.sessionId === draft.sessionId ? state.mySeat : null,
+  );
+  const seat = viewerSeat ?? multiplayerSeat ?? 0;
+  const clock = useDraftClock(draft.sessionId, seat);
+  const nominated = draft.currentPack.find((card) => card.id === clock.nominatedId);
+  const nominate = async (card: DraftCard | null) => {
+    if (
+      !draft.awaitingHuman ||
+      pickPending ||
+      !clock.seat ||
+      (card && !draft.currentPack.some((candidate) => candidate.id === card.id))
+    )
+      return;
+    try {
+      await nominateDraftFallback(
+        draft.sessionId,
+        seat,
+        draftDecisionRevision(draft),
+        card?.id ?? null,
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "The fallback could not be changed.");
+    }
+  };
   const disabled = !draft.awaitingHuman || pickPending || submitting;
   const pickTarget = useCallback(
     () =>
@@ -73,6 +102,9 @@ export function useDraftPick({ draft, onPick, pickPending = false }: DraftPickOp
   };
   return {
     selected,
+    nominated,
+    nominate,
+    clock,
     submitting,
     disabled,
     quickPick,

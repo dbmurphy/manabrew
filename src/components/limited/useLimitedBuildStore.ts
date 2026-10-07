@@ -1,7 +1,8 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import { BASIC_LAND_NAMES, isSynthBasic } from "@/lib/limited.utils";
 import type { DraftCard } from "@/types/limited";
+import { limitedStateStorage, LIMITED_STORE_NAMES } from "@/game/limitedStorage";
 
 export type BuildGroup = "none" | "color" | "cmc" | "type" | "rarity";
 export type BuildZone = "pool" | "main" | "sideboard" | "maybe";
@@ -91,6 +92,60 @@ export function buildDeck(session: Pick<BuildSession, "pool" | "allocation">) {
     sideboard: cards.filter((card) => !mainIds.has(card.id)),
   };
 }
+
+function movedAllocation(
+  allocation: BuildAllocation,
+  ids: readonly string[],
+  zone: BuildZone,
+): BuildAllocation {
+  const moved = new Set(ids);
+  const mainIds = allocation.mainIds.filter((id) => !moved.has(id));
+  const sideboardIds = allocation.sideboardIds.filter((id) => !moved.has(id));
+  const maybeIds = allocation.maybeIds.filter((id) => !moved.has(id));
+  if (zone === "main") mainIds.push(...new Set(ids));
+  if (zone === "sideboard") sideboardIds.push(...new Set(ids));
+  if (zone === "maybe") maybeIds.push(...new Set(ids));
+  return { ...allocation, mainIds, sideboardIds, maybeIds };
+}
+
+function editedSession(session: BuildSession, allocation: BuildAllocation): BuildSession {
+  if (JSON.stringify(allocation) === JSON.stringify(session.allocation)) return session;
+  return {
+    ...session,
+    allocation,
+    undo: [...session.undo, session.allocation].slice(-80),
+    redo: [],
+  };
+}
+
+export function reconcileLimitedBuildPool(
+  session: BuildSession,
+  pool: DraftCard[],
+  pending?: PendingPick,
+): BuildSession {
+  const acquired = new Set(pool.map((card) => card.id));
+  const reconcile = (allocation: BuildAllocation): BuildAllocation => {
+    const allowed = new Set([...acquired, ...allocation.basics.map((card) => card.id)]);
+    return {
+      ...allocation,
+      mainIds: allocation.mainIds.filter((id) => allowed.has(id)),
+      sideboardIds: allocation.sideboardIds.filter((id) => allowed.has(id)),
+      maybeIds: allocation.maybeIds.filter((id) => allowed.has(id)),
+    };
+  };
+  const reconciled = {
+    ...session,
+    pool,
+    allocation: reconcile(session.allocation),
+    undo: session.undo.map(reconcile),
+    redo: session.redo.map(reconcile),
+    builds: session.builds.map((build) => ({ ...build, ...reconcile(build) })),
+  };
+  return pending && acquired.has(pending.id)
+    ? editedSession(reconciled, movedAllocation(reconciled.allocation, [pending.id], pending.zone))
+    : reconciled;
+}
+
 export const useLimitedBuildStore = create<BuildStore>()(
   persist(
     (set, get) => ({
@@ -154,7 +209,7 @@ export const useLimitedBuildStore = create<BuildStore>()(
           return {
             sessions: {
               ...state.sessions,
-              [key]: { ...session, pool: pool.map((card) => ({ ...card })) },
+              [key]: reconcileLimitedBuildPool(session, pool),
             },
           };
         }),
@@ -164,31 +219,14 @@ export const useLimitedBuildStore = create<BuildStore>()(
         set((state) => {
           const session = state.sessions[key];
           if (!session) return state;
-          const allocation = change(session.allocation);
-          if (JSON.stringify(allocation) === JSON.stringify(session.allocation)) return state;
+          const edited = editedSession(session, change(session.allocation));
+          if (edited === session) return state;
           return {
-            sessions: {
-              ...state.sessions,
-              [key]: {
-                ...session,
-                allocation,
-                undo: [...session.undo, session.allocation].slice(-80),
-                redo: [],
-              },
-            },
+            sessions: { ...state.sessions, [key]: edited },
           };
         }),
       move: (key, ids, zone) =>
-        get().edit(key, (allocation) => {
-          const moved = new Set(ids);
-          const mainIds = allocation.mainIds.filter((id) => !moved.has(id));
-          const sideboardIds = allocation.sideboardIds.filter((id) => !moved.has(id));
-          const maybeIds = allocation.maybeIds.filter((id) => !moved.has(id));
-          if (zone === "main") mainIds.push(...new Set(ids));
-          if (zone === "sideboard") sideboardIds.push(...new Set(ids));
-          if (zone === "maybe") maybeIds.push(...new Set(ids));
-          return { ...allocation, mainIds, sideboardIds, maybeIds };
-        }),
+        get().edit(key, (allocation) => movedAllocation(allocation, ids, zone)),
       undo: (key) =>
         set((state) => {
           const session = state.sessions[key];
@@ -260,8 +298,9 @@ export const useLimitedBuildStore = create<BuildStore>()(
         }),
     }),
     {
-      name: "manabrew-limited-builds",
+      name: LIMITED_STORE_NAMES.build,
       version: 1,
+      storage: createJSONStorage(() => limitedStateStorage),
       migrate: (persistedState, version) => {
         const state = persistedState as Pick<BuildStore, "sessions" | "quickPick">;
         if (version < 1) {

@@ -2,11 +2,12 @@ use std::sync::Arc;
 
 use forge_foundation::sealed_product::{PaperCard, Rarity};
 use forge_foundation::ColorSet;
+use serde::{Deserialize, Serialize};
 
 use crate::card_ranker::CardRanker;
 use crate::deck_colors::DeckColors;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LimitedDeck {
     pub name: String,
     pub main: Vec<PaperCard>,

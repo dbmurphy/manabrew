@@ -23,16 +23,14 @@ export default function MultiplayerDraft() {
   const conspiracyHooks = useLimitedStore((s) => s.conspiracyHooks);
   const fetchConspiracyHooks = useLimitedStore((s) => s.fetchConspiracyHooks);
   const roomBackground = useServerStore((state) => state.currentRoom?.table_style);
-  const { mode, amHost, setError } = draft;
+  const { mode, amHost } = draft;
   useEffect(() => {
     if (conspiracyHooks.length === 0) fetchConspiracyHooks();
   }, [conspiracyHooks.length, fetchConspiracyHooks]);
   useEffect(() => {
     if (mode === "idle" && phase === "idle") navigate(ROUTES.LOBBY, { replace: true });
     else if (mode === "drafting" && !amHost) void requestDraftResync();
-    else if (mode === "drafting" && amHost && !hasLiveDraftHost())
-      setError("The host tab was reloaded. The draft engine is gone; this draft cannot resume.");
-  }, [mode, amHost, setError, phase, navigate]);
+  }, [mode, amHost, phase, navigate]);
   const leave = async (destination: string) => {
     if (draft.amHost) teardownHost(true);
     await useServerStore.getState().leaveRoom();
@@ -78,14 +76,17 @@ export default function MultiplayerDraft() {
       <DraftWorkspace
         draft={draft.state}
         openingSetCode={draft.config?.setCode}
+        viewerSeat={draft.mySeat ?? undefined}
+        referenceFormat={draft.config?.cubeId ? "cube" : "set"}
+        pickSeconds={draft.config?.pickSeconds}
         onPick={handlePick}
         conspiracyHooks={conspiracyHooks}
         pickPending={draft.pickPending}
       />
       {hostDisconnected && (
         <p role="status" className="text-sm text-destructive">
-          The host is disconnected. Reconnect the same host tab to continue; reloading it loses the
-          draft engine.
+          The host is disconnected. Resume the saved session on the host&apos;s device to continue
+          with the same pod and pools.
         </p>
       )}
       {draft.lastError && (

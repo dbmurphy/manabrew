@@ -45,6 +45,10 @@ import init, {
   limited_cubecobra_url,
   limited_import_cube,
   limited_drop_session,
+  limited_export_session,
+  limited_import_session,
+  limited_get_draft_review,
+  limited_auto_pick,
 } from "../wasm/wasm";
 import type { Deck } from "@/protocol/deck";
 
@@ -556,6 +560,22 @@ async function handleCommand(command: string, args?: Record<string, unknown>): P
       return limited_import_cube(args?.request as object, args?.body as string);
     case "limited_drop_session":
       return limited_drop_session(args?.kind as string, args?.sessionId as string);
+    case "limited_export_session":
+      return limited_export_session(args?.kind as string, args?.sessionId as string);
+    case "limited_import_session":
+      return limited_import_session(args?.checkpoint as object);
+    case "limited_get_draft_review":
+      return limited_get_draft_review(
+        args?.kind as string,
+        args?.sessionId as string,
+        args?.seat as number | undefined,
+      );
+    case "limited_auto_pick":
+      return limited_auto_pick(
+        args?.sessionId as string,
+        args?.seat as number | undefined,
+        args?.cardId as string | undefined,
+      );
 
     default:
       throw new Error(`Unknown command: ${command}`);

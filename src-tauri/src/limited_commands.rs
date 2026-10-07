@@ -369,3 +369,41 @@ fn empty_pool_error(supplied: usize) -> String {
         "no playable cards in pool — supplied {supplied} cards but the engine can't script any of them yet"
     )
 }
+
+#[tauri::command]
+pub async fn limited_export_session(
+    lm: State<'_, LimitedManager>,
+    kind: String,
+    session_id: String,
+) -> Result<tauri::ipc::Response, String> {
+    lm.export_session(&kind, &session_id)
+        .map(tauri::ipc::Response::new)
+}
+
+#[tauri::command]
+pub async fn limited_import_session(
+    lm: State<'_, LimitedManager>,
+    checkpoint: crate::limited_dto::LimitedEngineCheckpointDto,
+) -> Result<crate::limited_dto::LimitedSessionImportDto, String> {
+    lm.import_session(checkpoint)
+}
+
+#[tauri::command]
+pub async fn limited_get_draft_review(
+    lm: State<'_, LimitedManager>,
+    kind: String,
+    session_id: String,
+    seat: Option<u32>,
+) -> Result<Vec<crate::limited_dto::LimitedDraftDecisionDto>, String> {
+    lm.get_draft_review(&kind, &session_id, seat.unwrap_or(0) as usize)
+}
+
+#[tauri::command]
+pub async fn limited_auto_pick(
+    lm: State<'_, LimitedManager>,
+    session_id: String,
+    seat: Option<u32>,
+    card_id: Option<String>,
+) -> Result<DraftStateDto, String> {
+    lm.auto_pick(&session_id, seat.unwrap_or(0) as usize, card_id.as_deref())
+}

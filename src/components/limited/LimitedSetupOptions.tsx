@@ -1,5 +1,6 @@
 import { useId } from "react";
 import { Input } from "@/components/ui/input";
+import { LimitedPickClockSetting } from "@/components/limited/LimitedPickClockSetting";
 import type { LimitedSetupMode } from "@/components/limited/limitedSetup.types";
 
 interface LimitedSetupOptionsProps {
@@ -14,6 +15,8 @@ interface LimitedSetupOptionsProps {
   onSeedChange: (s: string) => void;
   picksPerPass: number;
   onPicksPerPassChange: (n: number) => void;
+  pickSeconds?: number;
+  onPickSecondsChange: (seconds: number | undefined) => void;
   disabled?: boolean;
 }
 
@@ -59,6 +62,8 @@ export function LimitedSetupOptions({
   onSeedChange,
   picksPerPass,
   onPicksPerPassChange,
+  pickSeconds,
+  onPickSecondsChange,
   disabled = false,
 }: LimitedSetupOptionsProps) {
   const id = useId();
@@ -126,6 +131,13 @@ export function LimitedSetupOptions({
           </div>
         )}
       </div>
+      {mode === "draft" && (
+        <LimitedPickClockSetting
+          pickSeconds={pickSeconds}
+          onPickSecondsChange={onPickSecondsChange}
+          disabled={disabled}
+        />
+      )}
     </fieldset>
   );
 }

@@ -17,6 +17,21 @@ use crate::limited_dto::{
 };
 use manabrew_protocol::deck_dto::DeckCardIdentity;
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LimitedEngineCheckpointRef<'a, T> {
+    schema_version: u32,
+    kind: &'a str,
+    session_id: &'a str,
+    state: T,
+}
+
+#[derive(serde::Serialize)]
+struct GauntletCheckpointRef<'a> {
+    engine: &'a GauntletMini,
+    decks: &'a [LimitedDeckDto],
+}
+
 pub struct LimitedManager {
     sessions: Mutex<HashMap<String, SealedDeckGroup>>,
     drafts: Mutex<HashMap<String, BoosterDraft>>,
@@ -42,6 +57,175 @@ impl LimitedManager {
             gauntlet_decks: Mutex::new(HashMap::new()),
             rank_cache: Arc::new(DraftRankCache::new()),
         }
+    }
+
+    pub fn export_session(&self, kind: &str, session_id: &str) -> Result<String, String> {
+        match kind {
+            "draft" => {
+                let drafts = lock_recover(&self.drafts);
+                let draft = drafts
+                    .get(session_id)
+                    .ok_or_else(|| format!("no draft session for id {session_id}"))?;
+                serialize_checkpoint(kind, session_id, draft.export_checkpoint())
+            }
+            "winston" => {
+                let drafts = lock_recover(&self.winston);
+                let draft = drafts
+                    .get(session_id)
+                    .ok_or_else(|| format!("no Winston session for id {session_id}"))?;
+                serialize_checkpoint(kind, session_id, draft)
+            }
+            "sealed" => {
+                let sessions = lock_recover(&self.sessions);
+                let group = sessions
+                    .get(session_id)
+                    .ok_or_else(|| format!("no sealed session for id {session_id}"))?;
+                serialize_checkpoint(kind, session_id, group)
+            }
+            "gauntlet" => {
+                let gauntlets = lock_recover(&self.gauntlets);
+                let engine = gauntlets
+                    .get(session_id)
+                    .ok_or_else(|| format!("no gauntlet session for id {session_id}"))?;
+                let decks = lock_recover(&self.gauntlet_decks);
+                let decks = decks
+                    .get(session_id)
+                    .ok_or_else(|| "gauntlet deck identities are missing".to_string())?;
+                serialize_checkpoint(kind, session_id, GauntletCheckpointRef { engine, decks })
+            }
+            _ => Err(format!("unknown Limited session kind: {kind}")),
+        }
+    }
+
+    pub fn import_session(
+        &self,
+        checkpoint: crate::limited_dto::LimitedEngineCheckpointDto,
+    ) -> Result<crate::limited_dto::LimitedSessionImportDto, String> {
+        checkpoint.validate()?;
+        let session_id = checkpoint.session_id;
+        let state = match checkpoint.kind.as_str() {
+            "draft" => {
+                let saved = serde_json::from_value(checkpoint.state)
+                    .map_err(|error| format!("invalid draft checkpoint: {error}"))?;
+                let draft = BoosterDraft::import_checkpoint(saved)?;
+                let awaiting = !draft.is_round_over() && draft.has_next_choice();
+                let state = serde_json::to_value(DraftStateDto::from_engine(
+                    session_id.clone(),
+                    &draft,
+                    awaiting,
+                ))
+                .map_err(|error| error.to_string())?;
+                lock_recover(&self.drafts).insert(session_id.clone(), draft);
+                state
+            }
+            "winston" => {
+                let draft: WinstonDraft = serde_json::from_value(checkpoint.state)
+                    .map_err(|error| format!("invalid Winston checkpoint: {error}"))?;
+                draft.validate_checkpoint()?;
+                let state =
+                    serde_json::to_value(WinstonStateDto::from_engine(session_id.clone(), &draft))
+                        .map_err(|error| error.to_string())?;
+                lock_recover(&self.winston).insert(session_id.clone(), draft);
+                state
+            }
+            "sealed" => {
+                let group: SealedDeckGroup = serde_json::from_value(checkpoint.state)
+                    .map_err(|error| format!("invalid sealed checkpoint: {error}"))?;
+                let state =
+                    serde_json::to_value(SealedPoolDto::from_group(session_id.clone(), &group))
+                        .map_err(|error| error.to_string())?;
+                lock_recover(&self.sessions).insert(session_id.clone(), group);
+                state
+            }
+            "gauntlet" => {
+                let saved: crate::limited_dto::GauntletCheckpointDto =
+                    serde_json::from_value(checkpoint.state)
+                        .map_err(|error| format!("invalid gauntlet checkpoint: {error}"))?;
+                if saved.engine.rounds == 0
+                    || saved.engine.current_round == 0
+                    || saved.engine.current_round > saved.engine.rounds
+                    || saved.engine.rounds as usize > saved.engine.ai_decks.len()
+                    || saved.decks.len() != saved.engine.ai_decks.len() + 1
+                {
+                    return Err("incompatible gauntlet checkpoint state".into());
+                }
+                let state = serde_json::to_value(GauntletStateDto::from_engine(
+                    session_id.clone(),
+                    &saved.engine,
+                ))
+                .map_err(|error| error.to_string())?;
+                let mut gauntlets = lock_recover(&self.gauntlets);
+                let mut decks = lock_recover(&self.gauntlet_decks);
+                gauntlets.insert(session_id.clone(), saved.engine);
+                decks.insert(session_id.clone(), saved.decks);
+                state
+            }
+            kind => return Err(format!("unknown Limited session kind: {kind}")),
+        };
+        Ok(crate::limited_dto::LimitedSessionImportDto {
+            kind: checkpoint.kind,
+            session_id,
+            state,
+        })
+    }
+
+    pub fn get_draft_review(
+        &self,
+        kind: &str,
+        session_id: &str,
+        seat: usize,
+    ) -> Result<Vec<crate::limited_dto::LimitedDraftDecisionDto>, String> {
+        let decisions = match kind {
+            "draft" => lock_recover(&self.drafts)
+                .get(session_id)
+                .ok_or_else(|| format!("no draft session for id {session_id}"))?
+                .decisions_for_seat(seat)?,
+            "winston" => lock_recover(&self.winston)
+                .get(session_id)
+                .ok_or_else(|| format!("no Winston session for id {session_id}"))?
+                .decisions_for_seat(seat)?,
+            _ => return Err("draft review requires draft or Winston kind".into()),
+        };
+        Ok(decisions
+            .into_iter()
+            .map(|decision| {
+                crate::limited_dto::LimitedDraftDecisionDto::from_engine(session_id, kind, decision)
+            })
+            .collect())
+    }
+
+    pub fn auto_pick(
+        &self,
+        session_id: &str,
+        seat: usize,
+        card_id: Option<&str>,
+    ) -> Result<DraftStateDto, String> {
+        let mut drafts = lock_recover(&self.drafts);
+        let draft = drafts
+            .get_mut(session_id)
+            .ok_or_else(|| format!("no draft session for id {session_id}"))?;
+        let nominated =
+            card_id.and_then(|id| crate::limited_dto::parse_occurrence_id(session_id, id).ok());
+        draft.submit_auto_pick_for(seat, nominated)?;
+        loop {
+            match draft.tick() {
+                TickOutcome::Progress => continue,
+                TickOutcome::AwaitingHuman => break,
+                TickOutcome::RoundOver => {
+                    if !draft.start_round() {
+                        break;
+                    }
+                }
+                TickOutcome::Complete => break,
+            }
+        }
+        let awaiting = !draft.is_round_over() && draft.has_next_choice();
+        Ok(DraftStateDto::from_engine_for_seat(
+            session_id.to_string(),
+            draft,
+            seat,
+            awaiting,
+        ))
     }
 
     fn template_for_pool(&self, pool: &[PaperCard], variant: Option<&str>) -> SealedTemplate {
@@ -143,6 +327,9 @@ impl LimitedManager {
         };
         let mut draft = BoosterDraft::new(pod_size, rounds, template, card_pool, ranker, color_of);
         draft.set_limited_pool(setup.custom_pool);
+        if let Some(seed) = setup.seed {
+            draft.set_seed(seed);
+        }
         if let Some(picks) = setup.picks_per_pass {
             draft.set_picks_per_pass(picks);
         }
@@ -238,6 +425,9 @@ impl LimitedManager {
             pod_size, rounds, template, card_pool, ranker, color_of, &humans,
         );
         draft.set_limited_pool(setup.custom_pool);
+        if let Some(seed) = setup.seed {
+            draft.set_seed(seed);
+        }
         if let Some(picks) = setup.picks_per_pass {
             draft.set_picks_per_pass(picks);
         }
@@ -305,8 +495,13 @@ impl LimitedManager {
         } else {
             self.template_for_pool(&card_pool, setup.variant.as_deref())
         };
-        let draft =
-            WinstonDraft::new_with_pool_limit(template, card_pool, pool_packs, setup.custom_pool);
+        let draft = WinstonDraft::new_with_seed(
+            template,
+            card_pool,
+            pool_packs,
+            setup.custom_pool,
+            setup.seed,
+        );
         let session_id = format!("winston-{}", uuid_like());
         let dto = WinstonStateDto::from_engine(session_id.clone(), &draft);
         lock_recover(&self.winston).insert(session_id, draft);
@@ -552,6 +747,20 @@ impl LimitedManager {
         human.sideboard = sideboard;
         Ok(GauntletStateDto::from_engine(gauntlet_id.to_string(), g))
     }
+}
+
+fn serialize_checkpoint<T: serde::Serialize>(
+    kind: &str,
+    session_id: &str,
+    state: T,
+) -> Result<String, String> {
+    serde_json::to_string(&LimitedEngineCheckpointRef {
+        schema_version: 1,
+        kind,
+        session_id,
+        state,
+    })
+    .map_err(|error| error.to_string())
 }
 
 fn lock_recover<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {

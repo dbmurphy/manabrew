@@ -7,6 +7,7 @@ import { useRoomInvites } from "@/hooks/useRoomInvites";
 import { useGameStore } from "@/stores/useGameStore";
 import { cn } from "@/lib/utils";
 import { useGameSessionResume } from "@/hooks/useGameSessionResume";
+import { useLimitedSessionRecovery } from "@/hooks/useLimitedSessionRecovery";
 import { useKeybindings } from "@/hooks/useKeybindings";
 import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog";
 import { RoomInviteOverlay } from "@/components/lobby/RoomInviteOverlay";
@@ -105,6 +106,7 @@ export function AppShell() {
     return () => window.removeEventListener("online", flush);
   }, []);
 
+  useLimitedSessionRecovery();
   useGameSessionResume();
   useStatusBanner();
   useDesktopUpdater();

@@ -1,12 +1,13 @@
 import { create } from "zustand";
-import { devtools, persist } from "zustand/middleware";
+import { createJSONStorage, devtools, persist } from "zustand/middleware";
 
 import type { MpDraftConfig, MpDraftSeatAssignment } from "@/game/draftRelay";
 import type { DraftState } from "@/types/limited";
+import { limitedStateStorage, LIMITED_STORE_NAMES } from "@/game/limitedStorage";
 
 export type MpDraftMode = "idle" | "drafting" | "complete";
 
-interface MultiplayerDraftStore {
+export interface MultiplayerDraftStore {
   mode: MpDraftMode;
   amHost: boolean;
   sessionId: string | null;
@@ -102,7 +103,7 @@ export const useMultiplayerDraftStore = create<MultiplayerDraftStore>()(
             pickPending: false,
           }),
       }),
-      { name: "manabrew-multiplayer-draft" },
+      { name: LIMITED_STORE_NAMES.draft, storage: createJSONStorage(() => limitedStateStorage) },
     ),
     { name: "multiplayerDraft", enabled: import.meta.env.DEV },
   ),

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { DeckStats } from "@/components/editor/DeckStats";
 import { TokenSection } from "@/components/editor/TokenSection";
+import { LimitedPoolAnalysis } from "@/components/limited/LimitedPoolAnalysis";
 import { CARD_WIDTH_MAP, DEFAULT_CARD_SIZE } from "@/components/editor/deckBuilder.utils";
 import { CardHoverPreview } from "@/components/game/CardHoverPreview";
 import { useCardPreview } from "@/hooks/useCardPreview";
@@ -13,6 +14,8 @@ import type { Deck } from "@/protocol/deck";
 import type { DraftCard } from "@/types/limited";
 
 interface LimitedBuildUtilitiesProps {
+  sessionKey: string;
+  pool: DraftCard[];
   deck: { main: DraftCard[]; sideboard: DraftCard[] };
   cardSize: number;
   activeManaValue: number | null;
@@ -22,6 +25,8 @@ interface LimitedBuildUtilitiesProps {
 const EMPTY_DECK: Deck = { name: "Limited build", cards: [], sideboard: [] };
 
 export function LimitedBuildUtilities({
+  sessionKey,
+  pool,
   deck,
   cardSize,
   activeManaValue,
@@ -29,6 +34,7 @@ export function LimitedBuildUtilities({
 }: LimitedBuildUtilitiesProps) {
   const [manaOpen, setManaOpen] = useState(false);
   const [tokensOpen, setTokensOpen] = useState(false);
+  const [analysisOpen, setAnalysisOpen] = useState(false);
   const locale = useScryfallStore((state) => state.locale);
   const [resolution, setResolution] = useState<{
     main: DraftCard[];
@@ -146,6 +152,17 @@ export function LimitedBuildUtilities({
               No derived tokens for this build.
             </p>
           ))}
+      </details>
+      <details
+        className="group min-w-0 md:col-span-2"
+        open={analysisOpen}
+        onToggle={(event) => setAnalysisOpen(event.currentTarget.open)}
+      >
+        <summary className="flex min-h-8 cursor-pointer items-center gap-2 rounded-sm px-2 text-sm font-medium focus-visible:outline-2 focus-visible:outline-primary">
+          <ChevronDown className="size-3.5 -rotate-90 text-muted-foreground transition-transform group-open:rotate-0" />
+          Pool and mana analysis
+        </summary>
+        {analysisOpen && <LimitedPoolAnalysis sessionKey={sessionKey} pool={pool} deck={deck} />}
       </details>
       <CardHoverPreview preview={preview} />
     </section>

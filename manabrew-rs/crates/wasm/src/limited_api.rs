@@ -20,6 +20,101 @@ use crate::card_loader::get_card_db;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct LimitedEngineCheckpointDto<T = serde_json::Value> {
+    pub schema_version: u32,
+    pub kind: String,
+    pub session_id: String,
+    pub state: T,
+}
+
+impl LimitedEngineCheckpointDto {
+    fn validate(&self) -> Result<(), JsError> {
+        if self.schema_version != 1 {
+            return Err(JsError::new(&format!(
+                "unsupported Limited checkpoint schema version {}",
+                self.schema_version
+            )));
+        }
+        if self.session_id.is_empty() {
+            return Err(JsError::new("Limited checkpoint session id is empty"));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LimitedSessionImportDto {
+    pub kind: String,
+    pub session_id: String,
+    pub state: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GauntletCheckpointDto {
+    pub engine: GauntletMini,
+    pub decks: Vec<LimitedDeckDto>,
+}
+
+#[derive(Serialize)]
+struct GauntletCheckpointRef<'a> {
+    engine: &'a GauntletMini,
+    decks: &'a [LimitedDeckDto],
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LimitedDraftDecisionDto {
+    pub revision: u64,
+    pub seat: usize,
+    pub round: u32,
+    pub pick_number: u32,
+    pub action: forge_limited::DraftDecisionAction,
+    pub pack_id: String,
+    pub visible_cards: Vec<DeckCardIdentity>,
+    pub selected_ids: Vec<String>,
+    pub automatic: bool,
+}
+
+impl LimitedDraftDecisionDto {
+    fn from_engine(session_id: &str, kind: &str, decision: forge_limited::DraftDecision) -> Self {
+        let occurrence_id = |id| {
+            if kind == "draft" {
+                format!("{session_id}:{}:{id}", decision.pack_id)
+            } else {
+                format!("{session_id}:{id}")
+            }
+        };
+        let visible_cards = decision
+            .visible_cards
+            .iter()
+            .map(|(card, id)| {
+                let mut card = paper_card_to_identity(card);
+                card.id = occurrence_id(*id);
+                card
+            })
+            .collect();
+        let selected_ids = decision
+            .selected_ids
+            .iter()
+            .map(|id| occurrence_id(*id))
+            .collect();
+        Self {
+            revision: decision.revision,
+            seat: decision.seat,
+            round: decision.round,
+            pick_number: decision.pick_number,
+            action: decision.action,
+            pack_id: format!("{session_id}:{}", decision.pack_id),
+            visible_cards,
+            selected_ids,
+            automatic: decision.automatic,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SealedSetupDto {
     pub pool_type: String,
     pub num_boosters: u32,
@@ -194,6 +289,11 @@ fn submit_occurrence_pick(
     seat: usize,
     card_id: &str,
 ) -> Result<(), String> {
+    let (pack, card) = parse_occurrence_id(session_id, card_id)?;
+    draft.submit_human_pick_id_for(seat, pack, card)
+}
+
+fn parse_occurrence_id(session_id: &str, card_id: &str) -> Result<(u32, u32), String> {
     let suffix = card_id
         .strip_prefix(session_id)
         .and_then(|s| s.strip_prefix(':'))
@@ -207,7 +307,7 @@ fn submit_occurrence_pick(
     let card = card
         .parse()
         .map_err(|_| "invalid card occurrence".to_string())?;
-    draft.submit_human_pick_id_for(seat, pack, card)
+    Ok((pack, card))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -294,6 +394,8 @@ pub struct BoosterDraftSetupDto {
     #[serde(default)]
     pub picks_per_pass: Option<u32>,
     #[serde(default)]
+    pub pick_seconds: Option<u32>,
+    #[serde(default)]
     pub custom_pool: bool,
 }
 
@@ -314,6 +416,7 @@ pub struct DraftSeatDto {
 #[serde(rename_all = "camelCase")]
 pub struct DraftStateDto {
     pub session_id: String,
+    pub revision: u64,
     pub round: u32,
     pub total_rounds: u32,
     pub pick_number: u32,
@@ -375,10 +478,7 @@ impl DraftStateDto {
                     .len()
                     .saturating_sub(usize::from(p.current_pack().is_some()))
                     as u32,
-                awaiting_pick: p
-                    .current_pack()
-                    .map(|pack| !pack.is_empty())
-                    .unwrap_or(false),
+                awaiting_pick: draft.awaiting_pick_for_seat(p.seat),
             })
             .collect();
         seat_summaries.sort_by_key(|s| s.seat);
@@ -398,6 +498,7 @@ impl DraftStateDto {
         let picked_pile = draft_picked_cards(&session_id, draft, seat_idx);
         Self {
             session_id,
+            revision: draft.revision(),
             round: draft.round(),
             total_rounds: draft.total_rounds(),
             pick_number,
@@ -407,7 +508,7 @@ impl DraftStateDto {
             seat_summaries,
             is_round_over: draft.is_round_over(),
             is_complete: !draft.has_next_choice() && draft.round() >= draft.total_rounds(),
-            awaiting_human,
+            awaiting_human: awaiting_human && draft.awaiting_pick_for_seat(seat_idx),
             human_conspiracies,
             picks_per_pass: draft.picks_per_pass(),
             picks_remaining_in_pack,
@@ -424,6 +525,7 @@ impl DraftStateDto {
 #[serde(rename_all = "camelCase")]
 pub struct WinstonStateDto {
     pub session_id: String,
+    pub revision: u64,
     pub active_seat: u32,
     pub current_pile: u32,
     pub piles: Vec<Vec<DeckCardIdentity>>,
@@ -463,6 +565,7 @@ impl WinstonStateDto {
             .collect();
         Self {
             session_id,
+            revision: draft.revision(),
             active_seat: draft.active_seat() as u32,
             current_pile: draft.current_pile() as u32,
             piles,
@@ -823,6 +926,9 @@ pub fn limited_start_booster_draft(setup_json: JsValue) -> Result<JsValue, JsErr
         };
         let mut draft = BoosterDraft::new(pod_size, rounds, template, card_pool, ranker, color_of);
         draft.set_limited_pool(setup.custom_pool);
+        if let Some(seed) = setup.seed {
+            draft.set_seed(seed);
+        }
         if let Some(n) = setup.picks_per_pass {
             draft.set_picks_per_pass(n);
         }
@@ -930,6 +1036,9 @@ pub fn limited_start_multiplayer_draft(
             pod_size, rounds, template, card_pool, ranker, color_of, &humans,
         );
         draft.set_limited_pool(setup.custom_pool);
+        if let Some(seed) = setup.seed {
+            draft.set_seed(seed);
+        }
         if let Some(n) = setup.picks_per_pass {
             draft.set_picks_per_pass(n);
         }
@@ -1040,11 +1149,12 @@ pub fn limited_start_winston(setup_json: JsValue) -> Result<JsValue, JsError> {
                 card_pool.len()
             )));
         }
-        let draft = WinstonDraft::new_with_pool_limit(
+        let draft = WinstonDraft::new_with_seed(
             template,
             card_pool,
             pool_packs,
             setup.custom_pool,
+            setup.seed,
         );
         let session_id = state.fresh_id("winston");
         let dto = WinstonStateDto::from_engine(session_id.clone(), &draft);
@@ -1415,4 +1525,218 @@ pub fn limited_import_cube(request_json: JsValue, body: String) -> Result<JsValu
         rejected_card_count: card_count.saturating_sub(playable_card_count),
     };
     serde_wasm_bindgen::to_value(&dto).map_err(|e| JsError::new(&e.to_string()))
+}
+
+fn serialize_limited_checkpoint<T: Serialize>(
+    kind: String,
+    session_id: String,
+    state: T,
+) -> Result<JsValue, JsError> {
+    LimitedEngineCheckpointDto {
+        schema_version: 1,
+        kind,
+        session_id,
+        state,
+    }
+    .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+    .map_err(|error| JsError::new(&error.to_string()))
+}
+
+#[wasm_bindgen]
+pub fn limited_export_session(kind: String, session_id: String) -> Result<JsValue, JsError> {
+    STATE.with(|cell| {
+        let state = cell.borrow();
+        match kind.as_str() {
+            "draft" => {
+                let draft = state.drafts.get(&session_id).ok_or_else(|| {
+                    JsError::new(&format!("no draft session for id {session_id}"))
+                })?;
+                serialize_limited_checkpoint(kind, session_id, draft.export_checkpoint())
+            }
+            "winston" => {
+                let draft = state.winston.get(&session_id).ok_or_else(|| {
+                    JsError::new(&format!("no Winston session for id {session_id}"))
+                })?;
+                serialize_limited_checkpoint(kind, session_id, draft)
+            }
+            "sealed" => {
+                let group = state.sessions.get(&session_id).ok_or_else(|| {
+                    JsError::new(&format!("no sealed session for id {session_id}"))
+                })?;
+                serialize_limited_checkpoint(kind, session_id, group)
+            }
+            "gauntlet" => {
+                let engine = state.gauntlets.get(&session_id).ok_or_else(|| {
+                    JsError::new(&format!("no gauntlet session for id {session_id}"))
+                })?;
+                let decks = state
+                    .gauntlet_decks
+                    .get(&session_id)
+                    .ok_or_else(|| JsError::new("gauntlet deck identities are missing"))?;
+                serialize_limited_checkpoint(
+                    kind,
+                    session_id,
+                    GauntletCheckpointRef { engine, decks },
+                )
+            }
+            _ => Err(JsError::new(&format!(
+                "unknown Limited session kind: {kind}"
+            ))),
+        }
+    })
+}
+
+#[wasm_bindgen]
+pub fn limited_import_session(checkpoint_json: JsValue) -> Result<JsValue, JsError> {
+    let checkpoint: LimitedEngineCheckpointDto = serde_wasm_bindgen::from_value(checkpoint_json)
+        .map_err(|error| JsError::new(&format!("invalid Limited checkpoint: {error}")))?;
+    checkpoint.validate()?;
+    STATE.with(|cell| {
+        let mut state = cell.borrow_mut();
+        let session_id = checkpoint.session_id;
+        let restored = match checkpoint.kind.as_str() {
+            "draft" => {
+                let saved = serde_json::from_value(checkpoint.state)
+                    .map_err(|error| JsError::new(&format!("invalid draft checkpoint: {error}")))?;
+                let draft =
+                    BoosterDraft::import_checkpoint(saved).map_err(|error| JsError::new(&error))?;
+                let awaiting = !draft.is_round_over() && draft.has_next_choice();
+                let restored = serde_json::to_value(DraftStateDto::from_engine(
+                    session_id.clone(),
+                    &draft,
+                    awaiting,
+                ))
+                .map_err(|error| JsError::new(&error.to_string()))?;
+                state.drafts.insert(session_id.clone(), draft);
+                restored
+            }
+            "winston" => {
+                let draft: WinstonDraft =
+                    serde_json::from_value(checkpoint.state).map_err(|error| {
+                        JsError::new(&format!("invalid Winston checkpoint: {error}"))
+                    })?;
+                draft
+                    .validate_checkpoint()
+                    .map_err(|error| JsError::new(&error))?;
+                let restored =
+                    serde_json::to_value(WinstonStateDto::from_engine(session_id.clone(), &draft))
+                        .map_err(|error| JsError::new(&error.to_string()))?;
+                state.winston.insert(session_id.clone(), draft);
+                restored
+            }
+            "sealed" => {
+                let group: SealedDeckGroup =
+                    serde_json::from_value(checkpoint.state).map_err(|error| {
+                        JsError::new(&format!("invalid sealed checkpoint: {error}"))
+                    })?;
+                let restored =
+                    serde_json::to_value(SealedPoolDto::from_group(session_id.clone(), &group))
+                        .map_err(|error| JsError::new(&error.to_string()))?;
+                state.sessions.insert(session_id.clone(), group);
+                restored
+            }
+            "gauntlet" => {
+                let saved: GauntletCheckpointDto = serde_json::from_value(checkpoint.state)
+                    .map_err(|error| {
+                        JsError::new(&format!("invalid gauntlet checkpoint: {error}"))
+                    })?;
+                if saved.engine.rounds == 0
+                    || saved.engine.current_round == 0
+                    || saved.engine.current_round > saved.engine.rounds
+                    || saved.engine.rounds as usize > saved.engine.ai_decks.len()
+                    || saved.decks.len() != saved.engine.ai_decks.len() + 1
+                {
+                    return Err(JsError::new("incompatible gauntlet checkpoint state"));
+                }
+                let restored = serde_json::to_value(GauntletStateDto::from_engine(
+                    session_id.clone(),
+                    &saved.engine,
+                ))
+                .map_err(|error| JsError::new(&error.to_string()))?;
+                state.gauntlets.insert(session_id.clone(), saved.engine);
+                state.gauntlet_decks.insert(session_id.clone(), saved.decks);
+                restored
+            }
+            kind => {
+                return Err(JsError::new(&format!(
+                    "unknown Limited session kind: {kind}"
+                )))
+            }
+        };
+        LimitedSessionImportDto {
+            kind: checkpoint.kind,
+            session_id,
+            state: restored,
+        }
+        .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+        .map_err(|error| JsError::new(&error.to_string()))
+    })
+}
+
+#[wasm_bindgen]
+pub fn limited_get_draft_review(
+    kind: String,
+    session_id: String,
+    seat: Option<u32>,
+) -> Result<JsValue, JsError> {
+    STATE.with(|cell| {
+        let state = cell.borrow();
+        let seat = seat.unwrap_or(0) as usize;
+        let decisions = match kind.as_str() {
+            "draft" => state
+                .drafts
+                .get(&session_id)
+                .ok_or_else(|| JsError::new(&format!("no draft session for id {session_id}")))?
+                .decisions_for_seat(seat),
+            "winston" => state
+                .winston
+                .get(&session_id)
+                .ok_or_else(|| JsError::new(&format!("no Winston session for id {session_id}")))?
+                .decisions_for_seat(seat),
+            _ => return Err(JsError::new("draft review requires draft or Winston kind")),
+        }
+        .map_err(|error| JsError::new(&error))?;
+        let decisions: Vec<LimitedDraftDecisionDto> = decisions
+            .into_iter()
+            .map(|decision| LimitedDraftDecisionDto::from_engine(&session_id, &kind, decision))
+            .collect();
+        serde_wasm_bindgen::to_value(&decisions).map_err(|error| JsError::new(&error.to_string()))
+    })
+}
+
+#[wasm_bindgen]
+pub fn limited_auto_pick(
+    session_id: String,
+    seat: Option<u32>,
+    card_id: Option<String>,
+) -> Result<JsValue, JsError> {
+    STATE.with(|cell| {
+        let mut state = cell.borrow_mut();
+        let draft = state
+            .drafts
+            .get_mut(&session_id)
+            .ok_or_else(|| JsError::new(&format!("no draft session for id {session_id}")))?;
+        let seat = seat.unwrap_or(0) as usize;
+        let nominated = card_id
+            .as_deref()
+            .and_then(|id| parse_occurrence_id(&session_id, id).ok());
+        draft
+            .submit_auto_pick_for(seat, nominated)
+            .map_err(|error| JsError::new(&error))?;
+        loop {
+            match draft.tick() {
+                TickOutcome::Progress => continue,
+                TickOutcome::AwaitingHuman => break,
+                TickOutcome::RoundOver => {
+                    if !draft.start_round() {
+                        break;
+                    }
+                }
+                TickOutcome::Complete => break,
+            }
+        }
+        let awaiting = !draft.is_round_over() && draft.has_next_choice();
+        let dto = DraftStateDto::from_engine_for_seat(session_id, draft, seat, awaiting);
+        serde_wasm_bindgen::to_value(&dto).map_err(|error| JsError::new(&error.to_string()))
+    })
 }

@@ -78,6 +78,8 @@ export function LimitedSetupDialog({
               onSeedChange={setup.setSeed}
               picksPerPass={setup.picksPerPass}
               onPicksPerPassChange={setup.setPicksPerPass}
+              pickSeconds={setup.pickSeconds}
+              onPickSecondsChange={setup.setPickSeconds}
               disabled={setup.busy}
             />
             {setup.source === "set" && variants.length > 0 && (

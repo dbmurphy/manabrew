@@ -194,6 +194,7 @@ pub fn schedule_peer_host_loss(state: Arc<ServerState>, room_id: String, player_
     let Some(timeout_s) = state
         .rooms
         .get(&room_id)
+        .filter(|room| room.parent_limited_room.is_some() || !room.is_limited_session())
         .map(|room| room.reconnect_timeout_s)
     else {
         return;
@@ -246,6 +247,7 @@ pub fn schedule_seat_forfeit(state: Arc<ServerState>, room_id: String, player_id
     let Some(timeout_s) = state
         .rooms
         .get(&room_id)
+        .filter(|room| room.parent_limited_room.is_some() || !room.is_limited_session())
         .map(|room| room.reconnect_timeout_s)
     else {
         return;
@@ -363,6 +365,7 @@ fn mark_disconnected_inner(state: &Arc<ServerState>, player_id: &str, our_genera
         }
     };
     let parent_id = room_id.as_ref().and_then(|id| {
+        crate::draft_clock::pause_disconnected_host(state, id, player_id);
         state
             .rooms
             .get(id)

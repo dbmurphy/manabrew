@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
+import { limitedStateStorage, LIMITED_STORE_NAMES } from "@/game/limitedStorage";
 interface OpeningSession {
   openedIds: string[];
   completed: boolean;
@@ -25,6 +26,10 @@ export const useLimitedOpeningStore = create<LimitedOpeningState>()(
           },
         })),
     }),
-    { name: "manabrew-limited-openings", version: 1 },
+    {
+      name: LIMITED_STORE_NAMES.opening,
+      version: 1,
+      storage: createJSONStorage(() => limitedStateStorage),
+    },
   ),
 );

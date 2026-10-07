@@ -11,6 +11,7 @@ import { LimitedBuildUtilities } from "@/components/limited/LimitedBuildUtilitie
 import { useIsDesktop, useIsShortScreen, useIsTouch } from "@/hooks/useBreakpoints";
 import type { DraftCard } from "@/types/limited";
 import type { DeckFormat } from "@/protocol/deck";
+import type { LimitedReferenceFormat } from "@/components/limited/LimitedSetReference";
 export interface LimitedDeckBuilderProps {
   sessionKey: string;
   pool: DraftCard[];
@@ -26,6 +27,8 @@ export interface LimitedDeckBuilderProps {
   confirmLabel?: string;
   onConfirm?: (deck: { main: DraftCard[]; sideboard: DraftCard[] }) => void;
   onSaved?: (deckName: string) => void;
+  reviewSessionId?: string;
+  referenceFormat?: LimitedReferenceFormat;
 }
 export default function LimitedDeckBuilder({
   sessionKey,
@@ -42,6 +45,8 @@ export default function LimitedDeckBuilder({
   confirmLabel = "Save Deck",
   onConfirm,
   onSaved,
+  reviewSessionId = sessionKey,
+  referenceFormat,
 }: LimitedDeckBuilderProps) {
   const session = useLimitedBuildStore((state) => state.sessions[sessionKey]);
   const [filters, setFilters] = useState<BuildFilters>({ search: "", colors: [], type: "all" });
@@ -200,6 +205,8 @@ export default function LimitedDeckBuilder({
           onSaved={onSaved}
           onConfirm={onConfirm}
           confirmLabel={confirmLabel}
+          reviewSessionId={reviewSessionId}
+          referenceFormat={referenceFormat}
         />
         <LimitedBuildFilters
           filters={filters}
@@ -237,6 +244,8 @@ export default function LimitedDeckBuilder({
         />
         {showUtilities && (
           <LimitedBuildUtilities
+            sessionKey={sessionKey}
+            pool={session.pool}
             deck={deck}
             cardSize={session.cardSize}
             activeManaValue={filters.manaValue ?? null}

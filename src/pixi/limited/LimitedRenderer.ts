@@ -46,17 +46,25 @@ interface DragFollower {
 const DRAG_STACK_OFFSET = 6;
 const DRAG_STACK_LAYERS = 5;
 const PICK_FLIGHT_DURATION = 0.42;
-let sharedRenderer: LimitedRenderer | null = null;
+const renderers = new Map<HTMLElement, LimitedRenderer>();
 export function acquireLimitedRenderer(pane: LimitedPane): LimitedRenderer {
-  if (!sharedRenderer) sharedRenderer = new LimitedRenderer();
-  sharedRenderer.register(pane);
-  return sharedRenderer;
+  const scope = pane.host.closest<HTMLElement>("[role=dialog]") ?? document.body;
+  let renderer = renderers.get(scope);
+  if (!renderer) {
+    renderer = new LimitedRenderer(scope);
+    renderers.set(scope, renderer);
+  }
+  renderer.register(pane);
+  return renderer;
 }
 
 export class LimitedRenderer {
   readonly ready: Promise<void>;
   private readonly app = new Application();
   private readonly canvas = document.createElement("canvas");
+  private readonly scope: HTMLElement;
+  private readonly portal: HTMLDivElement | null;
+  private portalBounds = "";
   private readonly panes = new Map<LimitedPane, RegisteredPane>();
   private readonly cardsLayer = new Container();
   private readonly decorationLayer = new Container();
@@ -70,7 +78,9 @@ export class LimitedRenderer {
   private scheduler: OverlayRenderScheduler | null = null;
   private initialized = false;
   private disposed = false;
-  constructor() {
+  constructor(scope: HTMLElement) {
+    this.scope = scope;
+    this.portal = scope === document.body ? null : document.createElement("div");
     installPixiPatches();
     this.canvas.dataset.limitedWorkspace = "true";
     this.canvas.setAttribute("aria-hidden", "true");
@@ -82,7 +92,22 @@ export class LimitedRenderer {
       pointerEvents: "none",
       zIndex: "1",
     });
-    document.body.appendChild(this.canvas);
+    if (this.portal) {
+      Object.assign(this.portal.style, {
+        position: "absolute",
+        overflow: "hidden",
+        pointerEvents: "none",
+        zIndex: "1",
+      });
+      this.portal.setAttribute("aria-hidden", "true");
+      Object.assign(this.canvas.style, {
+        position: "absolute",
+        inset: "auto",
+        transformOrigin: "0 0",
+      });
+      this.portal.appendChild(this.canvas);
+      scope.appendChild(this.portal);
+    } else scope.appendChild(this.canvas);
     this.ready = this.initialize();
   }
   private async initialize(): Promise<void> {
@@ -122,6 +147,7 @@ export class LimitedRenderer {
       );
     this.scheduler = new OverlayRenderScheduler(this.app, (deltaMs) => {
       let active = false;
+      this.positionCanvasInScope();
       if (!animationsEnabled()) this.cancelFlights();
       for (const { pane } of this.panes.values())
         active = (pane.layout?.(deltaMs) ?? false) || active;
@@ -169,7 +195,7 @@ export class LimitedRenderer {
   private readonly disposeWhenUnused = (): void => {
     if (this.disposed || this.panes.size) return;
     this.disposed = true;
-    if (sharedRenderer === this) sharedRenderer = null;
+    if (renderers.get(this.scope) === this) renderers.delete(this.scope);
     this.cancelFlights();
     for (const [root, lifted] of this.liftedCards) this.restoreCard(lifted.pane, root);
     for (const pane of this.openings.keys()) this.unmountOpening(pane);
@@ -179,6 +205,7 @@ export class LimitedRenderer {
     window.visualViewport?.removeEventListener("resize", this.resize);
     window.visualViewport?.removeEventListener("scroll", this.request);
     this.canvas.remove();
+    this.portal?.remove();
     if (this.initialized) destroyPixiApp(this.app);
   };
   readonly request = (): void => {
@@ -192,7 +219,7 @@ export class LimitedRenderer {
     for (const { pane: registered } of this.panes.values()) registered.abort?.();
     this.openings.set(pane, root);
     this.openingLayer.addChild(root);
-    this.canvas.style.zIndex = "99";
+    (this.portal ?? this.canvas).style.zIndex = "99";
     this.request();
   }
   unmountOpening(pane: LimitedPane): void {
@@ -200,7 +227,7 @@ export class LimitedRenderer {
     if (!root) return;
     root.removeFromParent();
     this.openings.delete(pane);
-    if (!this.openings.size) this.canvas.style.zIndex = "1";
+    if (!this.openings.size) (this.portal ?? this.canvas).style.zIndex = "1";
     this.request();
   }
   liftCard(pane: LimitedPane, root: Container, destination = this.motionLayer): boolean {
@@ -432,6 +459,29 @@ export class LimitedRenderer {
     this.flights.delete(flight);
     this.request();
   }
+  private positionCanvasInScope(): void {
+    if (!this.portal) return;
+    const bounds = this.scope.getBoundingClientRect();
+    if (!bounds.width || !bounds.height) return;
+    const scaleX = bounds.width / this.scope.offsetWidth;
+    const scaleY = bounds.height / this.scope.offsetHeight;
+    const left = bounds.left + this.scope.clientLeft * scaleX;
+    const top = bounds.top + this.scope.clientTop * scaleY;
+    const key = `${left}:${top}:${scaleX}:${scaleY}:${this.scope.scrollLeft}:${this.scope.scrollTop}:${this.scope.clientWidth}:${this.scope.clientHeight}`;
+    if (key === this.portalBounds) return;
+    this.portalBounds = key;
+    Object.assign(this.portal.style, {
+      left: `${this.scope.scrollLeft}px`,
+      top: `${this.scope.scrollTop}px`,
+      width: `${this.scope.clientWidth}px`,
+      height: `${this.scope.clientHeight}px`,
+    });
+    Object.assign(this.canvas.style, {
+      left: `${-left / scaleX}px`,
+      top: `${-top / scaleY}px`,
+      transform: `scale(${1 / scaleX}, ${1 / scaleY})`,
+    });
+  }
   private readonly resize = (): void => {
     if (!this.initialized || this.disposed) return;
     this.app.renderer.resolution = overlayResolution(window.innerWidth, window.innerHeight);
@@ -453,9 +503,11 @@ export class LimitedRenderer {
     let right = Math.min(window.innerWidth, bounds.right);
     let bottom = Math.min(window.innerHeight, bounds.bottom);
     let ancestor: HTMLElement | null = host;
+    let insideScope = true;
     while (ancestor && ancestor !== document.body) {
       const style = getComputedStyle(ancestor);
-      opacity *= Number(style.opacity);
+      if (ancestor === this.scope) insideScope = false;
+      if (insideScope) opacity *= Number(style.opacity);
       if (style.visibility === "hidden" || style.visibility === "collapse") visible = false;
       const clipX = style.overflowX !== "visible";
       const clipY = style.overflowY !== "visible";

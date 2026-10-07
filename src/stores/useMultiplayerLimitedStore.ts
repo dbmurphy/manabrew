@@ -1,8 +1,9 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import type { MpDraftSeatAssignment } from "@/game/draftRelay";
 import type { DraftCard, SealedPool } from "@/types/limited";
 import type { RoomInfo } from "@/types/server";
+import { limitedStateStorage, LIMITED_STORE_NAMES } from "@/game/limitedStorage";
 
 export interface LimitedBuild {
   main: DraftCard[];
@@ -25,9 +26,10 @@ export interface LimitedMatchReturn {
   route: string;
   sessionId: string;
   result?: { gameId: string; winner: string | null };
+  resultAcknowledged?: boolean;
   started?: boolean;
 }
-interface MultiplayerLimitedState {
+export interface MultiplayerLimitedState {
   kind: "draft" | "sealed" | null;
   phase: "idle" | "opening" | "building" | "playing";
   sessionId: string | null;
@@ -91,9 +93,11 @@ export const useMultiplayerLimitedStore = create<MultiplayerLimitedState>()(
           sealed: args.sealed ?? null,
           build: args.build ?? (same ? get().build : null),
           phase:
-            args.kind === "sealed" && !args.statuses.find((s) => s.seat === args.mySeat)?.opened
-              ? "opening"
-              : "building",
+            same && get().matchReturn
+              ? "playing"
+              : args.kind === "sealed" && !args.statuses.find((s) => s.seat === args.mySeat)?.opened
+                ? "opening"
+                : "building",
           matchReturn: same ? get().matchReturn : null,
           lastError: null,
         });
@@ -110,6 +114,6 @@ export const useMultiplayerLimitedStore = create<MultiplayerLimitedState>()(
       setError: (lastError) => set({ lastError }),
       clear: () => set({ ...empty, seats: [], pool: [], statuses: [] }),
     }),
-    { name: "manabrew-multiplayer-limited" },
+    { name: LIMITED_STORE_NAMES.limited, storage: createJSONStorage(() => limitedStateStorage) },
   ),
 );

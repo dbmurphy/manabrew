@@ -30,6 +30,7 @@ export function useLimitedSetup(selectedCode: string, selectedVariant: string) {
   const [winstonPacks, setWinstonPacks] = useState(6);
   const [seed, setSeed] = useState("");
   const [picksPerPass, setPicksPerPass] = useState(1);
+  const [pickSeconds, setPickSeconds] = useState<number | undefined>();
   const [cubeInput, setCubeInput] = useState("");
   const [fetchingPool, setFetchingPool] = useState(false);
   const [pendingDraftStart, setPendingDraftStart] = useState<PendingDraftStart | null>(null);
@@ -80,6 +81,7 @@ export function useLimitedSetup(selectedCode: string, selectedVariant: string) {
           variant,
           seed: seedOpt,
           picksPerPass,
+          pickSeconds,
           ...(custom ? { customPool: true } : {}),
         });
         navigate(`/draft/${session.sessionId}`);
@@ -125,6 +127,7 @@ export function useLimitedSetup(selectedCode: string, selectedVariant: string) {
             pool,
             seed: seedOpt,
             picksPerPass,
+            pickSeconds,
           });
           navigate(`/draft/${session.sessionId}`);
         } catch (error) {
@@ -195,6 +198,8 @@ export function useLimitedSetup(selectedCode: string, selectedVariant: string) {
     setSeed,
     picksPerPass,
     setPicksPerPass,
+    pickSeconds,
+    setPickSeconds,
     cubeInput,
     setCubeInput,
     cube,

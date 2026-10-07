@@ -8,10 +8,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { LimitedBuildSaveActions } from "@/components/limited/LimitedBuildSaveActions";
-import { LimitedBuildConfigurations } from "@/components/limited/LimitedBuildConfigurations";
-import { LimitedManaDialog } from "@/components/limited/LimitedManaDialog";
-import { LimitedBasicLandsDialog } from "@/components/limited/LimitedBasicLandsDialog";
-import { LimitedCompareDialog } from "@/components/limited/LimitedCompareDialog";
+import {
+  LimitedBuildDialogs,
+  type LimitedBuildDialog,
+} from "@/components/limited/LimitedBuildDialogs";
+import type { LimitedReferenceFormat } from "@/components/limited/LimitedSetReference";
 import { exportToArena } from "@/components/editor/deckExport";
 import { useLimitedBuildStore, type BuildSession } from "@/components/limited/useLimitedBuildStore";
 import { resolveDeckCards } from "@/lib/limited.utils";
@@ -33,6 +34,8 @@ interface Props {
   onSaved?: (deckName: string) => void;
   onConfirm?: (deck: BuildDeck) => void;
   confirmLabel: string;
+  reviewSessionId?: string;
+  referenceFormat?: LimitedReferenceFormat;
 }
 export function LimitedBuildActions({
   sessionKey,
@@ -48,8 +51,10 @@ export function LimitedBuildActions({
   onSaved,
   onConfirm,
   confirmLabel,
+  reviewSessionId = sessionKey,
+  referenceFormat,
 }: Props) {
-  const [dialog, setDialog] = useState<"basics" | "mana" | "builds" | "compare" | null>(null);
+  const [dialog, setDialog] = useState<LimitedBuildDialog | null>(null);
   const [copying, setCopying] = useState(false);
   const copyingRef = useRef(false);
   const copy = async () => {
@@ -117,6 +122,18 @@ export function LimitedBuildActions({
             <DropdownMenuItem onSelect={() => setDialog("compare")}>
               Compare saved builds
             </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => setDialog("hand")}
+              disabled={!deck.main.length && !session.builds.some((build) => build.mainIds.length)}
+            >
+              Test hand
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setDialog("reference")}>
+              Set reference
+            </DropdownMenuItem>
+            {format === "draft" && (
+              <DropdownMenuItem onSelect={() => setDialog("review")}>Draft review</DropdownMenuItem>
+            )}
             {!!suggestedMain?.length && (
               <DropdownMenuItem
                 onSelect={() =>
@@ -170,31 +187,15 @@ export function LimitedBuildActions({
           </Button>
         )}
       </div>
-      {dialog === "basics" && (
-        <LimitedBasicLandsDialog sessionKey={sessionKey} onClose={() => setDialog(null)} />
-      )}
-      {dialog === "mana" && (
-        <LimitedManaDialog
-          sessionKey={sessionKey}
-          session={session}
-          main={deck.main}
-          targetMainSize={targetMainSize}
-          onClose={() => setDialog(null)}
-        />
-      )}
-      {dialog === "builds" && (
-        <LimitedBuildConfigurations
-          sessionKey={sessionKey}
-          session={session}
-          onClose={() => setDialog(null)}
-        />
-      )}
-      <LimitedCompareDialog
-        current={deck.main}
-        open={dialog === "compare"}
-        onOpenChange={(open) => {
-          if (!open) setDialog(null);
-        }}
+      <LimitedBuildDialogs
+        dialog={dialog}
+        onClose={() => setDialog(null)}
+        sessionKey={sessionKey}
+        session={session}
+        deck={deck}
+        targetMainSize={targetMainSize}
+        reviewSessionId={reviewSessionId}
+        referenceFormat={referenceFormat}
       />
     </>
   );

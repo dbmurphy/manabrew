@@ -15,11 +15,13 @@ import { LimitedModeToggle, type LimitedDraftMode } from "@/components/limited/L
 import { WinstonWorkspace } from "@/components/limited/WinstonWorkspace";
 import { LimitedTableSurface } from "@/components/limited/LimitedTableSurface";
 import { useLimitedStore } from "@/stores/useLimitedStore";
+import { useLimitedSessionSource } from "@/components/limited/useLimitedSavedSession";
 type WinstonMode = LimitedDraftMode;
 export default function Winston() {
   const { winstonId } = useParams<{
     winstonId: string;
   }>();
+  const referenceFormat = useLimitedSessionSource(winstonId ?? null);
   const activeWinston = useLimitedStore((s) => s.activeWinston);
   const refresh = useLimitedStore((s) => s.refreshWinstonState);
   const take = useLimitedStore((s) => s.winstonTake);
@@ -115,6 +117,7 @@ export default function Winston() {
             pool={activeWinston.pickedPile}
             defaultDeckName="Winston Draft Deck"
             format="draft"
+            referenceFormat={referenceFormat}
           />
         </div>
       ) : (
@@ -123,6 +126,7 @@ export default function Winston() {
           activeIdx={activeIdx}
           onTake={handleTake}
           onPass={handlePass}
+          referenceFormat={referenceFormat}
         />
       )}
 

@@ -7,11 +7,16 @@ import { useDraftPick, type DraftPickOptions } from "@/components/limited/useDra
 import { useLimitedOpeningStore } from "@/components/limited/limitedOpeningStore";
 import { useIsShortScreen, useIsTouch } from "@/hooks/useBreakpoints";
 import { cn } from "@/lib/utils";
+import { LimitedReferenceButton } from "@/components/limited/LimitedReferenceButton";
+import { LimitedDraftFallback } from "@/components/limited/LimitedDraftFallback";
+import type { LimitedReferenceFormat } from "@/components/limited/LimitedSetReference";
 import type { ConspiracyHook } from "@/types/limited";
 
 interface DraftWorkspaceProps extends DraftPickOptions {
   conspiracyHooks?: ConspiracyHook[];
   openingSetCode?: string;
+  referenceFormat?: LimitedReferenceFormat;
+  pickSeconds?: number;
 }
 export function DraftWorkspace({
   draft,
@@ -19,6 +24,9 @@ export function DraftWorkspace({
   pickPending = false,
   conspiracyHooks = [],
   openingSetCode,
+  viewerSeat,
+  referenceFormat,
+  pickSeconds,
 }: DraftWorkspaceProps) {
   const [mobileTab, setMobileTab] = useState<"pack" | "build">("pack");
   const {
@@ -32,13 +40,20 @@ export function DraftWorkspace({
     select,
     submit,
     dropPick,
-  } = useDraftPick({ draft, onPick, pickPending });
+    clock,
+    nominate,
+  } = useDraftPick({ draft, onPick, pickPending, viewerSeat });
   const acquiredIds = useMemo(() => draft.pickedPile.map((card) => card.id), [draft.pickedPile]);
+  const referenceCards = useMemo(
+    () => [...draft.currentPack, ...draft.pickedPile],
+    [draft.currentPack, draft.pickedPile],
+  );
   const roundKey = `${draft.sessionId}:round:${draft.round}`;
   const roundOpened = useLimitedOpeningStore((state) =>
     state.sessions[draft.sessionId]?.openedIds.includes(roundKey),
   );
-  const opening = draft.currentPack.length > 0 && !roundOpened;
+  const timed = (pickSeconds ?? clock.clock?.pickSeconds ?? 0) > 0;
+  const opening = draft.currentPack.length > 0 && !roundOpened && !timed;
   const activeTab = opening ? "pack" : mobileTab;
   const shortScreen = useIsShortScreen();
   const isTouch = useIsTouch();
@@ -104,6 +119,15 @@ export function DraftWorkspace({
               />
               Quick pick
             </label>
+            <LimitedReferenceButton cards={referenceCards} format={referenceFormat} />
+            {clock.clock && (
+              <LimitedDraftFallback
+                cards={draft.currentPack}
+                nominatedId={clock.nominatedId}
+                onNominate={nominate}
+                disabled={disabled || !clock.seat}
+              />
+            )}
           </header>
           <LimitedCardCanvas
             cards={draft.currentPack}
@@ -194,6 +218,7 @@ export function DraftWorkspace({
               defaultDeckName="Booster Draft Deck"
               format="draft"
               showUtilities={false}
+              referenceFormat={referenceFormat}
             />
           </div>
         </section>

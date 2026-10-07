@@ -7,6 +7,8 @@ import LimitedDeckBuilder from "@/components/limited/LimitedDeckBuilder";
 import { LimitedTableSurface } from "@/components/limited/LimitedTableSurface";
 import { useGameStore } from "@/stores/useGameStore";
 import { useLimitedStore } from "@/stores/useLimitedStore";
+import { useLimitedBuildStore } from "@/components/limited/useLimitedBuildStore";
+import { useLimitedSessionSource } from "@/components/limited/useLimitedSavedSession";
 import { ROUTES } from "@/lib/constants";
 import {
   advanceGauntletProgress,
@@ -59,6 +61,11 @@ export default function Gauntlet() {
   const launchPending = useRef(false);
   const gauntlet = activeGauntlet?.gauntletId === gauntletId ? activeGauntlet : null;
   const currentRound = gauntlet?.currentRound;
+  const progress = gauntlet ? gauntletProgress(gauntlet) : null;
+  const sourceBuild = useLimitedBuildStore((state) =>
+    progress ? state.sessions[progress.sessionKey] : undefined,
+  );
+  const referenceFormat = useLimitedSessionSource(progress?.sessionKey ?? null);
 
   useTopBarOverride({
     onBack: () => navigate(ROUTES.PLAY_OFFLINE_LIMITED),
@@ -107,15 +114,15 @@ export default function Gauntlet() {
           format,
         ),
       ]);
-      armGauntletReturn(gauntlet);
+      await armGauntletReturn(gauntlet);
       const started = startGame(human, format, undefined, [opponent], "Forge");
       navigate(ROUTES.PLAY, { state: { exitTo: `/gauntlet/${gauntlet.gauntletId}` } });
       if (!(await started)) {
-        clearGauntletReturn();
+        await clearGauntletReturn();
         navigate(`/gauntlet/${gauntlet.gauntletId}`, { replace: true });
       }
     } catch (error) {
-      clearGauntletReturn();
+      await clearGauntletReturn();
       toast.error(`Failed to launch game: ${String(error)}`);
     } finally {
       launchPending.current = false;
@@ -141,7 +148,7 @@ export default function Gauntlet() {
     setLaunching(true);
     try {
       const state = await advanceRound(gauntletId);
-      advanceGauntletProgress(state);
+      await advanceGauntletProgress(state);
     } catch (error) {
       toast.error(`Failed to advance round: ${String(error)}`);
     } finally {
@@ -149,14 +156,13 @@ export default function Gauntlet() {
     }
   };
 
-  if (!gauntlet) {
+  if (!gauntlet || !progress) {
     return (
       <LimitedTableSurface className="items-center justify-center text-muted-foreground">
         {lastError ?? "Loading Limited session…"}
       </LimitedTableSurface>
     );
   }
-  const progress = gauntletProgress(gauntlet);
   const score = gauntletScore(gauntlet);
   return (
     <LimitedTableSurface className="gap-2 px-4 py-3 sm:px-6 lg:px-8">
@@ -203,11 +209,13 @@ export default function Gauntlet() {
           <LimitedDeckBuilder
             key={progress.sessionKey}
             sessionKey={progress.sessionKey}
-            pool={[...matchDecks.humanMain, ...matchDecks.humanSideboard]}
+            pool={sourceBuild?.pool ?? [...matchDecks.humanMain, ...matchDecks.humanSideboard]}
             initialMain={matchDecks.humanMain}
             initialSideboard={matchDecks.humanSideboard}
             defaultDeckName={matchDecks.humanDeckName}
             format={gauntlet.kind === "sealed" ? "sealed" : "draft"}
+            reviewSessionId={progress.sessionKey}
+            referenceFormat={referenceFormat}
             onChange={(deck) => setBuiltDeck({ gauntletId: gauntlet.gauntletId, ...deck })}
           />
         ) : (

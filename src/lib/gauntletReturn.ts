@@ -1,7 +1,8 @@
 import type { GauntletState } from "@/types/limited";
+import { limitedStateStorage, LIMITED_STORE_NAMES } from "@/game/limitedStorage";
 
-const MATCH_KEY = "manabrew.pendingGauntletMatch";
-const PROGRESS_KEY = "manabrew.gauntletProgress";
+const MATCH_KEY = LIMITED_STORE_NAMES.pendingGauntletMatch;
+const PROGRESS_KEY = LIMITED_STORE_NAMES.gauntletProgress;
 
 export type LimitedBestOf = 1 | 3;
 
@@ -33,11 +34,11 @@ function readProgress(): Record<string, GauntletProgress> {
   }
 }
 
-export function configureGauntlet(
+export async function configureGauntlet(
   state: GauntletState,
   sessionKey: string,
   bestOf: LimitedBestOf,
-): void {
+): Promise<void> {
   const records = readProgress();
   records[state.gauntletId] = {
     sessionKey,
@@ -46,7 +47,7 @@ export function configureGauntlet(
     baselineWins: state.wins,
     baselineLosses: state.losses,
   };
-  localStorage.setItem(PROGRESS_KEY, JSON.stringify(records));
+  await limitedStateStorage.setItem(PROGRESS_KEY, JSON.stringify(records));
 }
 
 export function gauntletProgress(state: GauntletState): GauntletProgress {
@@ -69,15 +70,15 @@ export function gauntletScore(state: GauntletState) {
   return { wins, losses, matchOver: wins >= required || losses >= required };
 }
 
-export function advanceGauntletProgress(state: GauntletState): void {
+export async function advanceGauntletProgress(state: GauntletState): Promise<void> {
   const progress = gauntletProgress(state);
-  configureGauntlet(state, progress.sessionKey, progress.bestOf);
+  await configureGauntlet(state, progress.sessionKey, progress.bestOf);
 }
 
-export function arm(state: GauntletState): void {
+export async function arm(state: GauntletState): Promise<void> {
   const progress = gauntletProgress(state);
   const score = gauntletScore(state);
-  localStorage.setItem(
+  await limitedStateStorage.setItem(
     MATCH_KEY,
     JSON.stringify({
       gauntletId: state.gauntletId,
@@ -99,6 +100,15 @@ export function peek(): PendingGauntletMatch | null {
   }
 }
 
-export function clear(): void {
-  localStorage.removeItem(MATCH_KEY);
+export async function clear(): Promise<void> {
+  await limitedStateStorage.removeItem(MATCH_KEY);
+}
+
+export async function restoreGauntletProgress(
+  gauntletId: string,
+  progress: GauntletProgress,
+): Promise<void> {
+  const records = readProgress();
+  records[gauntletId] = progress;
+  await limitedStateStorage.setItem(PROGRESS_KEY, JSON.stringify(records));
 }
