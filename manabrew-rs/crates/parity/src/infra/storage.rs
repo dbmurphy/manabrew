@@ -82,80 +82,47 @@ pub struct Storage {
 
 impl Storage {
     /// Open (or create) a SQLite database at the given path.
-    pub fn open(path: &str) -> SqlResult<Self> {
+    pub fn open(path: &str) -> rusqlite_migration::Result<Self> {
         let conn = Connection::open(path)?;
-        let storage = Self { conn };
+        let mut storage = Self { conn };
         storage.init_schema()?;
         Ok(storage)
     }
 
     /// Open an in-memory database (for tests).
     #[cfg(test)]
-    pub fn open_memory() -> SqlResult<Self> {
+    pub fn open_memory() -> rusqlite_migration::Result<Self> {
         let conn = Connection::open_in_memory()?;
-        let storage = Self { conn };
+        let mut storage = Self { conn };
         storage.init_schema()?;
         Ok(storage)
     }
 
-    fn init_schema(&self) -> SqlResult<()> {
-        self.conn.execute_batch(
-            "
-            CREATE TABLE IF NOT EXISTS runs (
-                id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-                batch_id              INTEGER NOT NULL,
-                deck1                 TEXT NOT NULL,
-                deck2                 TEXT NOT NULL,
-                seed                  INTEGER NOT NULL,
-                status                TEXT NOT NULL,
-                snapshots_compared    INTEGER NOT NULL,
-                divergence_count      INTEGER NOT NULL,
-                first_divergence_field TEXT,
-                first_divergence_rust  TEXT,
-                first_divergence_java  TEXT,
-                covered_cards         TEXT NOT NULL DEFAULT '[]',
-                duration_ms           INTEGER NOT NULL,
-                error_message         TEXT,
-                rust_trace            TEXT,
-                java_trace            TEXT,
-                is_fuzz               INTEGER NOT NULL DEFAULT 0,
-                timestamp             TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_runs_timestamp ON runs(timestamp);
-            CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
-            CREATE INDEX IF NOT EXISTS idx_runs_batch ON runs(batch_id);
-            CREATE INDEX IF NOT EXISTS idx_runs_deck_pair ON runs(deck1, deck2);
-
-            CREATE TABLE IF NOT EXISTS analysis_state (
-                key   TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS known_clusters (
-                id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                cluster_key     TEXT NOT NULL UNIQUE,
-                failure_count   INTEGER NOT NULL DEFAULT 0,
-                first_seen      TEXT NOT NULL,
-                last_seen       TEXT NOT NULL,
-                github_issue    INTEGER,
-                last_discord_ts TEXT,
-                llm_analysis    TEXT
-            );
-            ",
-        )?;
-        // Migrate: add columns if they don't exist (for existing DBs)
-        let _ = self.conn.execute_batch(
-            "ALTER TABLE runs ADD COLUMN rust_trace TEXT;
-             ALTER TABLE runs ADD COLUMN java_trace TEXT;",
-        );
-        let _ = self
-            .conn
-            .execute_batch("ALTER TABLE runs ADD COLUMN is_fuzz INTEGER NOT NULL DEFAULT 0;");
-        let _ = self
-            .conn
-            .execute_batch("ALTER TABLE runs ADD COLUMN commit_sha TEXT;");
-        Ok(())
+    fn init_schema(&mut self) -> rusqlite_migration::Result<()> {
+        rusqlite_migration::Migrations::new(vec![rusqlite_migration::M::up_with_hook(
+            include_str!("../../migrations/1_schema.sql"),
+            |tx: &rusqlite::Transaction<'_>| {
+                for (column, declaration) in [
+                    ("rust_trace", "TEXT"),
+                    ("java_trace", "TEXT"),
+                    ("is_fuzz", "INTEGER NOT NULL DEFAULT 0"),
+                    ("commit_sha", "TEXT"),
+                ] {
+                    let exists: bool = tx.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('runs') WHERE name = ?1)",
+                        [column],
+                        |row| row.get(0),
+                    )?;
+                    if !exists {
+                        tx.execute_batch(&format!(
+                            "ALTER TABLE runs ADD COLUMN {column} {declaration}"
+                        ))?;
+                    }
+                }
+                Ok(())
+            },
+        )])
+        .to_latest(&mut self.conn)
     }
 
     /// Return the (deck1, deck2) of the most recently inserted non-fuzz game.

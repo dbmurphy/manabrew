@@ -148,6 +148,7 @@ services:
       - "1"
     volumes:
       - ./scripts/ingest-events.py:/app/ingest-events.py:ro
+      - ./scripts/events-schema.sql:/app/events-schema.sql:ro
       - ./ops/hub-data/dev/events:/events
       - ./ops/hub-data/dev:/hub
     healthcheck:

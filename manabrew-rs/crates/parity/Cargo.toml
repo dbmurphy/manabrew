@@ -10,7 +10,7 @@ path = "src/main.rs"
 
 [features]
 default = []
-storage = ["rusqlite", "chrono"]
+storage = ["rusqlite", "rusqlite_migration", "chrono"]
 serve = ["storage", "tokio", "axum", "tower-http", "tracing", "tracing-subscriber"]
 analyze = ["serve", "reqwest", "futures", "glob"]
 
@@ -28,6 +28,7 @@ memmap2 = "0.9"
 
 # Continuous parity (behind feature flags)
 rusqlite = { version = "0.31", features = ["bundled"], optional = true }
+rusqlite_migration = { version = "=1.2.0", optional = true }
 chrono = { version = "0.4", optional = true }
 tokio = { version = "1", features = ["full"], optional = true }
 axum = { version = "0.7", optional = true }
