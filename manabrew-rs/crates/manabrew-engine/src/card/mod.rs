@@ -3713,13 +3713,15 @@ impl Card {
 
     fn activated_to_spell_abilities(&self, list: &[ActivatedAbility]) -> Vec<SpellAbility> {
         list.iter()
-            .map(|ab| {
+            .enumerate()
+            .map(|(idx, ab)| {
                 let mut sa = crate::spellability::build_spell_ability_from_host_card(
                     self,
                     &ab.ability_text,
                     self.controller,
                 );
                 sa.is_activated = true;
+                sa.set_intrinsic(idx < self.base_ability_count);
                 sa
             })
             .collect()

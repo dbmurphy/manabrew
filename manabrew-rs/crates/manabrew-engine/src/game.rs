@@ -28,11 +28,12 @@ use crate::zone::{CostPaymentStack, Zone, ZoneKey, ZoneStore};
 pub struct TypeRegistry;
 
 static CREATURE_TYPES: OnceLock<Vec<String>> = OnceLock::new();
+static LAND_TYPES: OnceLock<Vec<String>> = OnceLock::new();
 
 impl TypeRegistry {
-    /// Load creature types from the raw contents of `TypeLists.txt`.
+    /// Load creature and land types from the raw contents of `TypeLists.txt`.
     ///
-    /// Parses the `[CreatureTypes]` section. Each line is either `TypeName` or
+    /// Parses the `[CreatureTypes]` and `[LandTypes]` sections. Each line is either `TypeName` or
     /// `TypeName:PluralName`; only the singular (left of `:`) is kept.
     ///
     /// Mirrors Java's `FileSection.parseSections()` + `CardType.Helper.parseTypes()`.
@@ -40,7 +41,8 @@ impl TypeRegistry {
     /// This must be called once before any game starts. Subsequent calls are
     /// silently ignored (first write wins).
     pub fn load(type_lists_content: &str) {
-        let _ = CREATURE_TYPES.set(Self::parse_creature_types(type_lists_content));
+        let _ = CREATURE_TYPES.set(Self::parse_types(type_lists_content, "CreatureTypes"));
+        let _ = LAND_TYPES.set(Self::parse_types(type_lists_content, "LandTypes"));
     }
 
     /// Return the loaded creature types.
@@ -66,8 +68,17 @@ impl TypeRegistry {
         })
     }
 
-    fn parse_creature_types(content: &str) -> Vec<String> {
-        let mut in_creature_section = false;
+    pub fn is_land_type(land_type: &str) -> bool {
+        ["Plains", "Island", "Swamp", "Mountain", "Forest"]
+            .iter()
+            .any(|ty| ty.eq_ignore_ascii_case(land_type))
+            || LAND_TYPES
+                .get()
+                .is_some_and(|types| types.iter().any(|ty| ty.eq_ignore_ascii_case(land_type)))
+    }
+
+    fn parse_types(content: &str, section: &str) -> Vec<String> {
+        let mut in_type_section = false;
         let mut types = Vec::new();
         for line in content.lines() {
             let line = line.trim();
@@ -75,10 +86,10 @@ impl TypeRegistry {
                 continue;
             }
             if line.starts_with('[') && line.ends_with(']') {
-                in_creature_section = &line[1..line.len() - 1] == "CreatureTypes";
+                in_type_section = &line[1..line.len() - 1] == section;
                 continue;
             }
-            if in_creature_section {
+            if in_type_section {
                 // "TypeName" or "TypeName:PluralName" — keep singular only
                 let singular = line.split(':').next().unwrap_or(line);
                 if !singular.is_empty() {
