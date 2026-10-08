@@ -403,6 +403,7 @@ pub const ATTACH_AFTER: &str = "AttachAfter";
 pub const ATTACHED_TO: &str = "AttachedTo";
 pub const ATTACHED_TO_PLAYER: &str = "AttachedToPlayer";
 pub const CLONE_TARGET: &str = "CloneTarget";
+pub const NEW_NAME: &str = "NewName";
 pub const DURATION: &str = "Duration";
 pub const EFFECT_SOURCE: &str = "EffectSource";
 pub const EXCEPTION_SBA: &str = "ExceptionSBA";
