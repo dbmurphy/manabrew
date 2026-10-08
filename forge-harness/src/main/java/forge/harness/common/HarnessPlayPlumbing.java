@@ -14,9 +14,11 @@ import forge.game.cost.Cost;
 import forge.game.cost.CostPayment;
 import forge.game.player.Player;
 import forge.game.player.PlayerController;
+import forge.game.spellability.OptionalCost;
 import forge.game.spellability.OptionalCostValue;
 import forge.game.spellability.Spell;
 import forge.game.spellability.SpellAbility;
+import forge.game.staticability.StaticAbilityAlternativeCost;
 import forge.game.trigger.Trigger;
 import forge.game.trigger.TriggerHandler;
 import forge.game.trigger.TriggerType;
@@ -27,6 +29,7 @@ import forge.game.zone.ZoneType;
 import forge.util.Localizer;
 
 import java.lang.reflect.Field;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -127,6 +130,7 @@ public final class HarnessPlayPlumbing {
     }
 
     public boolean handlePlayingSpellAbility(final Player ai, SpellAbility sa, final Game game) {
+        final Map<String, String> alternativeParameters = alternativeCostParameters(sa, ai);
         sa = chooseOptionalAdditionalCosts(ai, sa);
         if (sa == null) {
             return false;
@@ -181,6 +185,7 @@ public final class HarnessPlayPlumbing {
         }
 
         sa = GameActionUtil.addExtraKeywordCost(sa);
+        alternativeParameters.forEach(sa::putParam);
 
         final Cost cost = sa.getPayCosts();
         final CostPayment pay = new CostPayment(cost, sa);
@@ -240,6 +245,26 @@ public final class HarnessPlayPlumbing {
         // primaryAbility doesn't match the new ability.
         game.getStack().unfreezeStack();
         return false;
+    }
+
+    private static Map<String, String> alternativeCostParameters(final SpellAbility sa, final Player player) {
+        if (!sa.isSpell() || !sa.isOptionalCostPaid(OptionalCost.AltCost)) {
+            return Map.of();
+        }
+        final SpellAbility basic = sa.getCardState().getFirstSpellAbility();
+        for (final SpellAbility alternative : StaticAbilityAlternativeCost.alternativeCosts(basic, sa.getHostCard(), player)) {
+            if (!alternative.getPayCosts().toSimpleString().equals(sa.getPayCosts().toSimpleString())) {
+                continue;
+            }
+            final Map<String, String> parameters = new HashMap<>();
+            for (final String key : List.of("Announce", "XAlternative", "ManaRestriction", "StackDescription")) {
+                if (alternative.hasParam(key)) {
+                    parameters.put(key, alternative.getParam(key));
+                }
+            }
+            return parameters;
+        }
+        return Map.of();
     }
 
     private static SpellAbility chooseOptionalAdditionalCosts(Player p, final SpellAbility original) {
