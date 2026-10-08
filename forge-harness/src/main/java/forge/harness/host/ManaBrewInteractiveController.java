@@ -64,6 +64,7 @@ import org.apache.commons.lang3.tuple.Pair;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -1581,6 +1582,31 @@ public final class ManaBrewInteractiveController extends PlayerController implem
     public String chooseSomeType(
             final String kindOfType, final SpellAbility sa, final Collection<String> validTypes, final boolean isOptional) {
         final List<String> typeOptions = validTypes == null ? new ArrayList<>() : new ArrayList<>(validTypes);
+        if ("Creature".equals(kindOfType)) {
+            final Map<String, Integer> frequencies = new LinkedHashMap<>();
+            final Deck deck = player.getRegisteredPlayer().getDeck();
+            for (final DeckSection section : List.of(DeckSection.Main, DeckSection.Commander)) {
+                final forge.deck.CardPool pool = deck.get(section);
+                if (pool == null) {
+                    continue;
+                }
+                for (final Map.Entry<PaperCard, Integer> entry : pool) {
+                    final CardRules rules = entry.getKey().getRules();
+                    if (rules.hasKeyword("Changeling")) {
+                        continue;
+                    }
+                    final Set<String> cardTypes = new TreeSet<>();
+                    for (final ICardFace face : rules.getAllFaces()) {
+                        cardTypes.addAll(face.getType().getCreatureTypes());
+                    }
+                    for (final String type : cardTypes) {
+                        frequencies.merge(type, entry.getValue(), Integer::sum);
+                    }
+                }
+            }
+            typeOptions.sort(Comparator.<String>comparingInt(type -> frequencies.getOrDefault(type, 0))
+                    .reversed().thenComparing(String.CASE_INSENSITIVE_ORDER));
+        }
         if (isOptional) {
             final List<Integer> chosen = session.awaitModeChoice(me(), typeOptions, 0, 1, sourceName(sa));
             if (chosen.isEmpty()) {

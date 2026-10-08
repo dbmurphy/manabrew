@@ -691,12 +691,25 @@ pub(super) fn choose_type<T: Responder>(
     } else {
         format!("Choose a {type_category} type")
     };
-    send_selection(agent, &title, None, valid_types.to_vec(), 1, 1, None);
+    let mut options = valid_types.to_vec();
+    if type_category == "Creature" {
+        if let Some(frequencies) = &agent.creature_type_frequencies {
+            options.sort_by(|left, right| {
+                frequencies
+                    .get(right)
+                    .copied()
+                    .unwrap_or(0)
+                    .cmp(&frequencies.get(left).copied().unwrap_or(0))
+                    .then_with(|| left.to_lowercase().cmp(&right.to_lowercase()))
+            });
+        }
+    }
+    send_selection(agent, &title, None, options.clone(), 1, 1, None);
     match recv_selection(agent) {
         Some(chosen_indices) => chosen_indices
             .first()
-            .and_then(|index| valid_types.get(*index).cloned()),
-        None => valid_types.first().cloned(),
+            .and_then(|index| options.get(*index).cloned()),
+        None => options.first().cloned(),
     }
 }
 
