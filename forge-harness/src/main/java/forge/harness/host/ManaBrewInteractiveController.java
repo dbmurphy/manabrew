@@ -18,7 +18,6 @@ import com.google.common.collect.Multimap;
 import forge.LobbyPlayer;
 import forge.ai.AiCostDecision;
 import forge.ai.ComputerUtilCombat;
-import forge.ai.ComputerUtilMana;
 import forge.card.CardRules;
 import forge.card.ColorSet;
 import forge.card.ICardFace;
@@ -1485,16 +1484,11 @@ public final class ManaBrewInteractiveController extends PlayerController implem
         }
         bounds[0] = Math.max(bounds[0], min);
         bounds[1] = Math.min(bounds[1], max);
-        final Cost cost = ability.getPayCosts();
-        final boolean manaX = "X".equals(announce)
-                && cost != null
-                && cost.getCostMana() != null
-                && cost.getCostMana().getAmountOfX() > 0;
-        if (manaX) {
-            bounds[1] = Math.min(bounds[1], ComputerUtilMana.determineLeftoverMana(ability, player, false));
+        if (bounds[0] > bounds[1]) {
+            return null;
         }
         final Integer chosen;
-        if (bounds[0] >= bounds[1]) {
+        if (bounds[0] == bounds[1]) {
             chosen = bounds[0];
         } else if (ability.getPayCosts() != null && ability.getPayCosts().isMandatory()) {
             chosen = session.awaitNumberChoice(
