@@ -1019,6 +1019,23 @@ export class PromptLayer extends PromptModalLayer {
     };
   }
 
+  private priorityPassContext(): { label: string; description: string } {
+    const phase = PHASES.find((entry) => entry.id === this.spec!.action.step)?.label ?? "Priority";
+    if (this.spec!.gameView.stack.length > 0) {
+      return {
+        label: "Stack",
+        description: `Pass priority during ${phase}. If every player passes, the top stack object resolves.`,
+      };
+    }
+    return {
+      label: phase,
+      description:
+        this.spec!.action.step === "cleanup"
+          ? "Pass priority during Cleanup. If every player passes with the stack empty, another cleanup step begins."
+          : `Pass priority during ${phase}. If every player passes with the stack empty, the game advances to the next step.`,
+    };
+  }
+
   private buildChooseActionView(
     availableWidth: number,
     minimal: boolean,
@@ -1036,7 +1053,8 @@ export class PromptLayer extends PromptModalLayer {
     const passCombo = resolveCombo("pass-priority", useKeybindingsStore.getState().overrides);
     const morphed = this.endTurnModifiersHeld;
     const counting = this.autopassRemainingMs != null;
-    const passLabel = morphed ? endLabel : counting ? "PASSING" : "PASS";
+    const context = this.priorityPassContext();
+    const passLabel = morphed ? endLabel : `${counting ? "PASSING" : "PASS"}\n${context.label}`;
     const combo = morphed ? endCombo : passCombo;
     const height = minimal ? 44 : 40;
 
@@ -1067,10 +1085,10 @@ export class PromptLayer extends PromptModalLayer {
           width: 120,
           height,
           paddingX: 16,
-          fontSize: 12,
+          fontSize: morphed ? 12 : 11,
           fontWeight: "900",
-          letterSpacing: 1.44,
-          title: morphed ? endTitle : "Pass priority",
+          letterSpacing: morphed ? 1.44 : 0.4,
+          title: morphed ? endTitle : context.description,
         },
       );
       if (counting) {
@@ -1114,15 +1132,15 @@ export class PromptLayer extends PromptModalLayer {
         height,
         width: availableWidth - (end?.buttonWidth ?? 0),
         paddingX: 16,
-        fontSize: 12,
+        fontSize: morphed ? 12 : 11,
         fontWeight: "900",
-        letterSpacing: 1.44,
+        letterSpacing: morphed ? 1.44 : 0.4,
         foreground: this.theme.appTheme["primary-foreground"],
         backgroundColor: this.theme.gameTheme.textOnTinted,
         backgroundAlpha: morphed ? 0.15 : 0,
         hoverBackgroundAlpha: morphed ? 0.2 : 0.1,
         shortcut: combo ? comboSymbols(combo) : undefined,
-        title: morphed ? endTitle : "Pass priority",
+        title: morphed ? endTitle : context.description,
       },
     );
     if (counting) {
@@ -1749,6 +1767,7 @@ export class PromptLayer extends PromptModalLayer {
   private actionContextLines(): string[] {
     const action = this.spec!.action;
     const promptType = promptTypeForView(action.promptType, action.promptActionOverride);
+    if (promptType === "chooseAction") return [this.priorityPassContext().description];
     const lines = getPromptContextLines(promptType, {
       mulliganCount: action.mulliganCount,
       mustAttackHint: action.mustAttackHint,
