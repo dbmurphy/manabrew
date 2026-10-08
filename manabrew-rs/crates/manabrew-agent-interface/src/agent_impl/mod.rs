@@ -1124,6 +1124,7 @@ impl<R: Responder> PlayerAgent for PromptAgent<R> {
         game: &GameState,
         player: PlayerId,
         valid: &[CardId],
+        delayed_reveal: Option<&manabrew_engine::player::DelayedReveal>,
         select_prompt: &str,
         is_optional: bool,
     ) -> Option<CardId> {
@@ -1132,6 +1133,7 @@ impl<R: Responder> PlayerAgent for PromptAgent<R> {
             game,
             player,
             valid,
+            delayed_reveal,
             select_prompt,
             is_optional,
         )

@@ -819,6 +819,7 @@ fn apply_simple_roll_modifiers(
                 game,
                 player,
                 &available,
+                None,
                 "Choose a roll modifier",
                 true,
             );
@@ -1214,6 +1215,7 @@ fn apply_keyword_roll_rerolls(
             ctx.game,
             player,
             &reroll_cards,
+            None,
             "Choose a card to reroll dice",
             true,
         );
@@ -1511,6 +1513,7 @@ mod tests {
             _game: &crate::game::GameState,
             _player: PlayerId,
             valid: &[CardId],
+            _delayed_reveal: Option<&crate::player::DelayedReveal>,
             _select_prompt: &str,
             _is_optional: bool,
         ) -> Option<CardId> {
@@ -1625,6 +1628,7 @@ mod tests {
             _game: &crate::game::GameState,
             _player: PlayerId,
             valid: &[CardId],
+            _delayed_reveal: Option<&crate::player::DelayedReveal>,
             _select_prompt: &str,
             _is_optional: bool,
         ) -> Option<CardId> {

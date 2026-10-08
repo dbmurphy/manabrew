@@ -167,6 +167,7 @@ impl PlayerAgent for RecordingAgent {
         _: &GameState,
         _: PlayerId,
         valid: &[CardId],
+        _delayed_reveal: Option<&crate::player::DelayedReveal>,
         _: &str,
         _: bool,
     ) -> Option<CardId> {

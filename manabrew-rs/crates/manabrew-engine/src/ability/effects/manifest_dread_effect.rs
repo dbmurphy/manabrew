@@ -51,6 +51,7 @@ fn manifest_dread_once(ctx: &mut EffectContext, _sa: &SpellAbility, player: Play
                 ctx.game,
                 player,
                 &top2,
+                None,
                 "Choose a card to manifest",
                 false,
             )

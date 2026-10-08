@@ -1019,9 +1019,27 @@ pub(super) fn choose_single_card_for_zone_change<T: Responder>(
     game: &GameState,
     _player: PlayerId,
     valid: &[CardId],
+    delayed_reveal: Option<&manabrew_engine::player::DelayedReveal>,
     select_prompt: &str,
     is_optional: bool,
 ) -> Option<CardId> {
+    if valid.is_empty() {
+        if let Some(reveal) = delayed_reveal {
+            reveal_cards(
+                agent,
+                game,
+                &reveal.cards,
+                reveal
+                    .zone
+                    .first()
+                    .copied()
+                    .unwrap_or(forge_foundation::ZoneType::Library),
+                reveal.owner.unwrap_or(_player),
+                reveal.message_prefix.as_deref(),
+            );
+        }
+        return None;
+    }
     let view = agent.view();
 
     let all_cards: Vec<&CardDto> = view.all_zone_cards().collect();
@@ -1043,7 +1061,13 @@ pub(super) fn choose_single_card_for_zone_change<T: Responder>(
     let min_choices = if is_optional { 0 } else { 1 };
     agent.send_prompt(
         PromptInput::ChooseCards(manabrew_protocol::prompts::choose_cards::ChooseCardsInput {
-            inspection_cards: None,
+            inspection_cards: delayed_reveal.map(|reveal| {
+                reveal
+                    .cards
+                    .iter()
+                    .map(|&card| card_to_dto(game, card))
+                    .collect()
+            }),
             presentation: card_choice_presentation(select_prompt, None),
             cards: zone_cards,
             min: min_choices,
@@ -1053,7 +1077,10 @@ pub(super) fn choose_single_card_for_zone_change<T: Responder>(
     );
     match agent.recv_action() {
         PromptOutput::ChooseCards(ChooseCardsOutput::ChooseCardsDecision { chosen_card_ids }) => {
-            chosen_card_ids.first().and_then(|id| parse_card_id(id))
+            chosen_card_ids
+                .first()
+                .and_then(|id| parse_card_id(id))
+                .filter(|id| valid.contains(id))
         }
         _ => {
             if is_optional {

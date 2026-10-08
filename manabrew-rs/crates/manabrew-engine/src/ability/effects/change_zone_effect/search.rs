@@ -7,6 +7,7 @@ use forge_foundation::ZoneType;
 use super::super::{resolve_defined_players_with_sa, EffectContext};
 use super::helpers::{get_land_subtypes, matches_with_context};
 use crate::ids::{CardId, PlayerId};
+use crate::player::DelayedReveal;
 use crate::spellability::SpellAbility;
 
 /// EACH clause search: one card per clause separated by "&".
@@ -17,6 +18,7 @@ pub(super) fn resolve_each_search(
     zone_cards: &mut Vec<CardId>,
     chooser: PlayerId,
     _is_optional: bool,
+    mut delayed_reveal: Option<&mut DelayedReveal>,
 ) -> Vec<CardId> {
     let mut out = Vec::new();
     for clause in each_spec
@@ -30,9 +32,6 @@ pub(super) fn resolve_each_search(
             .copied()
             .filter(|&cid| matches_with_context(ctx, sa, cid, Some(&selector)))
             .collect();
-        if candidates.is_empty() {
-            continue;
-        }
         // Java always routes through chooseSingleCardForZoneChange, even for
         // a single candidate, so do not short-circuit here.
         ctx.agents[chooser.index()].snapshot_state(ctx.game, ctx.mana_pools);
@@ -40,10 +39,14 @@ pub(super) fn resolve_each_search(
             ctx.game,
             chooser,
             &candidates,
+            delayed_reveal.as_deref(),
             sa.select_prompt().unwrap_or("Select card for zone change"),
             false,
         );
         if let Some(id) = chosen {
+            if let Some(reveal) = delayed_reveal.as_deref_mut() {
+                reveal.remove(id);
+            }
             out.push(id);
             zone_cards.retain(|&cid| cid != id);
         }
@@ -57,6 +60,7 @@ pub(super) fn resolve_single_search(
     candidates: &[CardId],
     chooser: PlayerId,
     is_optional: bool,
+    delayed_reveal: Option<&DelayedReveal>,
 ) -> Vec<CardId> {
     // Mirrors Java `ChangeZoneEffect.changeZonePlayerInvariant` lines 1208-1221:
     // the chooser is called even when fetchList is empty so the callback is
@@ -68,6 +72,7 @@ pub(super) fn resolve_single_search(
             ctx.game,
             chooser,
             candidates,
+            delayed_reveal,
             sa.select_prompt().unwrap_or("Select card for zone change"),
             is_optional,
         )
@@ -100,9 +105,20 @@ pub(super) fn resolve_multi_search(
     chooser: PlayerId,
     change_num: usize,
     _is_optional: bool,
+    mut delayed_reveal: Option<&mut DelayedReveal>,
 ) -> Vec<CardId> {
     let max = change_num.min(candidates.len());
     if max == 0 {
+        if change_num > 0 {
+            return resolve_single_search(
+                ctx,
+                sa,
+                candidates,
+                chooser,
+                _is_optional,
+                delayed_reveal.as_deref(),
+            );
+        }
         return Vec::new();
     }
 
@@ -132,6 +148,7 @@ pub(super) fn resolve_multi_search(
             share_land,
             budget_cmc,
             budget_power,
+            delayed_reveal,
         );
     }
 
@@ -148,11 +165,15 @@ pub(super) fn resolve_multi_search(
             ctx.game,
             chooser,
             &remaining,
+            delayed_reveal.as_deref(),
             sa.select_prompt().unwrap_or("Select card for zone change"),
             _is_optional,
         ) else {
             break;
         };
+        if let Some(reveal) = delayed_reveal.as_deref_mut() {
+            reveal.remove(chosen);
+        }
         selected.push(chosen);
         remaining.retain(|&cid| cid != chosen);
     }
@@ -172,6 +193,7 @@ fn resolve_constrained_multi(
     share_land: bool,
     budget_cmc: Option<i32>,
     budget_power: Option<i32>,
+    mut delayed_reveal: Option<&mut DelayedReveal>,
 ) -> Vec<CardId> {
     let mut selected = Vec::new();
     let mut remaining: Vec<CardId> = candidates.to_vec();
@@ -188,6 +210,16 @@ fn resolve_constrained_multi(
             remaining.retain(|&cid| ctx.game.card(cid).base_power.unwrap_or(0) + spent_power <= b);
         }
         if remaining.is_empty() {
+            if selected.is_empty() {
+                return resolve_single_search(
+                    ctx,
+                    sa,
+                    &remaining,
+                    chooser,
+                    true,
+                    delayed_reveal.as_deref(),
+                );
+            }
             break;
         }
 
@@ -196,6 +228,7 @@ fn resolve_constrained_multi(
             ctx.game,
             chooser,
             &remaining,
+            delayed_reveal.as_deref(),
             sa.select_prompt().unwrap_or("Select card for zone change"),
             true,
         ) else {
@@ -214,6 +247,9 @@ fn resolve_constrained_multi(
 
         spent_cmc += cmc;
         spent_power += power;
+        if let Some(reveal) = delayed_reveal.as_deref_mut() {
+            reveal.remove(chosen);
+        }
         selected.push(chosen);
 
         remaining.retain(|&cid| {
@@ -237,7 +273,22 @@ pub(super) fn resolve_random_selection(
     ctx: &mut EffectContext,
     candidates: &[CardId],
     count: usize,
+    chooser: PlayerId,
+    delayed_reveal: Option<&DelayedReveal>,
 ) -> Vec<CardId> {
+    if count > 0 {
+        if let Some(reveal) = delayed_reveal {
+            ctx.agents[chooser.index()].snapshot_state(ctx.game, ctx.mana_pools);
+            ctx.agents[chooser.index()].reveal_cards(
+                ctx.game,
+                chooser,
+                &reveal.cards,
+                reveal.zone.first().copied().unwrap_or(ZoneType::Library),
+                reveal.owner.unwrap_or(chooser),
+                reveal.message_prefix.as_deref(),
+            );
+        }
+    }
     let mut pool = candidates.to_vec();
     ctx.rng.shuffle_cards(&mut pool);
     pool.truncate(count);
@@ -293,6 +344,7 @@ pub(super) fn resolve_defined_player_cards(
             ctx.game,
             pid,
             &candidates,
+            None,
             "Select card for zone change",
             false,
         )

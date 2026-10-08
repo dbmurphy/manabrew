@@ -713,6 +713,7 @@ pub trait PlayerAgent {
         _game: &GameState,
         player: PlayerId,
         valid: &[CardId],
+        _delayed_reveal: Option<&crate::player::DelayedReveal>,
         _select_prompt: &str,
         _is_optional: bool,
     ) -> Option<CardId> {

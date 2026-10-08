@@ -18,6 +18,7 @@ use super::search::{
 use crate::ability::ability_ir::DefinedRef;
 use crate::agent::GameEntity;
 use crate::ids::PlayerId;
+use crate::player::DelayedReveal;
 use crate::spellability::SpellAbility;
 
 /// Resolve zone changes from hidden zones (Library, Hand).
@@ -212,7 +213,6 @@ pub(super) fn resolve_hidden_origin(
     //   `decider = chooser; if (decider == null) decider = player;`
     // Without an explicit `Chooser$`, the per-iteration affected fetcher decides
     // (e.g. Assassin's Trophy: the destroyed permanent's controller searches).
-    let chooser = explicit_chooser.unwrap_or(controller);
 
     // DefinedPlayer$ for hidden-origin
     if sa.defined_player().is_some()
@@ -221,8 +221,11 @@ pub(super) fn resolve_hidden_origin(
     {
         for affected_player in resolve_defined_players_for_hidden_origin(ctx, sa) {
             let decider = explicit_chooser.unwrap_or(affected_player);
-            let effective_chooser = if origin_zone == ZoneType::Library {
-                find_opposition_agent(ctx, controller).unwrap_or(decider)
+            let effective_chooser = if origin_zone == ZoneType::Library
+                && !sa.ir.no_looking
+                && decider == affected_player
+            {
+                find_opposition_agent(ctx, decider).unwrap_or(decider)
             } else {
                 decider
             };
@@ -261,12 +264,20 @@ pub(super) fn resolve_hidden_origin(
                 .game
                 .cards_in_zone(origin_zone, affected_player)
                 .to_vec();
-            if origin_zone == ZoneType::Library {
-                if let Some(max) = find_search_limit(ctx, affected_player, controller) {
-                    zone_cards.truncate(max);
+            if origin_zone == ZoneType::Library && !sa.ir.no_looking {
+                if let Some(max) = find_search_limit(ctx, affected_player, decider) {
+                    zone_cards = zone_cards.iter().rev().take(max).copied().collect();
                 }
             }
 
+            if origin_zone == ZoneType::Library
+                && !sa.ir.no_looking
+                && !can_search_library(ctx, sa, decider, affected_player)
+            {
+                zone_cards.clear();
+            }
+            let mut delayed_reveal =
+                delayed_reveal_for_search(ctx, sa, &zone_cards, affected_player, decider);
             let mut cards_to_move = if let Some(each_spec) = change_type.strip_prefix("EACH ") {
                 resolve_each_search(
                     ctx,
@@ -275,6 +286,7 @@ pub(super) fn resolve_hidden_origin(
                     &mut zone_cards,
                     effective_chooser,
                     chooser_optional,
+                    delayed_reveal.as_mut(),
                 )
             } else {
                 let candidates: Vec<_> = zone_cards
@@ -283,15 +295,24 @@ pub(super) fn resolve_hidden_origin(
                     .filter(|&cid| matches_with_context(ctx, sa, cid, sa.change_type_selector()))
                     .collect();
                 if sa.is_at_random() {
-                    if candidates.is_empty() {
-                        Vec::new()
-                    } else {
-                        resolve_random_selection(ctx, &candidates, change_num)
-                    }
+                    resolve_random_selection(
+                        ctx,
+                        &candidates,
+                        change_num,
+                        effective_chooser,
+                        delayed_reveal.as_ref(),
+                    )
                 } else if change_num == 1 {
                     // Mirrors Java line 1208 — call the chooser even with an
                     // empty fetchList so the parity callback is emitted.
-                    resolve_single_search(ctx, sa, &candidates, effective_chooser, chooser_optional)
+                    resolve_single_search(
+                        ctx,
+                        sa,
+                        &candidates,
+                        effective_chooser,
+                        chooser_optional,
+                        delayed_reveal.as_ref(),
+                    )
                 } else {
                     resolve_multi_search(
                         ctx,
@@ -300,6 +321,7 @@ pub(super) fn resolve_hidden_origin(
                         effective_chooser,
                         change_num,
                         chooser_optional,
+                        delayed_reveal.as_mut(),
                     )
                 }
             };
@@ -346,19 +368,13 @@ pub(super) fn resolve_hidden_origin(
         controller
     };
 
-    // Leonin Arbiter check
-    if origin_zone == ZoneType::Library && !can_search_library(ctx, controller) {
-        ctx.game
-            .shuffle_zone_cards(ZoneType::Library, search_player, ctx.rng);
-        return;
-    }
-
-    // Opposition Agent — opponent controls the search
-    let effective_chooser = if origin_zone == ZoneType::Library {
-        find_opposition_agent(ctx, controller).unwrap_or(chooser)
-    } else {
-        chooser
-    };
+    let decider = explicit_chooser.unwrap_or(search_player);
+    let effective_chooser =
+        if origin_zone == ZoneType::Library && !sa.ir.no_looking && decider == search_player {
+            find_opposition_agent(ctx, decider).unwrap_or(decider)
+        } else {
+            decider
+        };
 
     if optional_confirm {
         let _source_name = sa.source.map(|cid| ctx.game.card(cid).card_name.as_str());
@@ -394,8 +410,11 @@ pub(super) fn resolve_hidden_origin(
     let mut zone_cards = collect_search_zone_cards(ctx, &origin_zones, search_player);
 
     // Aven Mindcensor restriction
-    if origin_zones.contains(&ZoneType::Library) {
-        apply_library_search_limit(ctx, search_player, controller, &mut zone_cards);
+    if origin_zones.contains(&ZoneType::Library) && !sa.ir.no_looking {
+        apply_library_search_limit(ctx, search_player, decider, &mut zone_cards);
+        if !can_search_library(ctx, sa, decider, search_player) {
+            zone_cards.retain(|&card| ctx.game.card(card).zone != ZoneType::Library);
+        }
     }
 
     // RememberSearched$
@@ -410,6 +429,8 @@ pub(super) fn resolve_hidden_origin(
         offer_panglacial_cast(ctx, sa, controller, &mut zone_cards);
     }
 
+    let mut delayed_reveal =
+        delayed_reveal_for_search(ctx, sa, &zone_cards, search_player, decider);
     let mut cards_to_move = if let Some(each_spec) = change_type.strip_prefix("EACH ") {
         resolve_each_search(
             ctx,
@@ -418,6 +439,7 @@ pub(super) fn resolve_hidden_origin(
             &mut zone_cards,
             effective_chooser,
             chooser_optional,
+            delayed_reveal.as_mut(),
         )
     } else {
         let candidates: Vec<_> = zone_cards
@@ -426,11 +448,13 @@ pub(super) fn resolve_hidden_origin(
             .filter(|&cid| matches_with_context(ctx, sa, cid, sa.change_type_selector()))
             .collect();
         if sa.is_at_random() {
-            if candidates.is_empty() {
-                Vec::new()
-            } else {
-                resolve_random_selection(ctx, &candidates, change_num)
-            }
+            resolve_random_selection(
+                ctx,
+                &candidates,
+                change_num,
+                effective_chooser,
+                delayed_reveal.as_ref(),
+            )
         } else if sa.ir.reorder
             && !chooser_optional
             && origin_zone == ZoneType::Library
@@ -446,7 +470,14 @@ pub(super) fn resolve_hidden_origin(
             // unconditionally, even when fetchList is empty, so the callback
             // is emitted (returning null). Java line 1215 then breaks without
             // a cancel prompt when the list is empty.
-            resolve_single_search(ctx, sa, &candidates, effective_chooser, chooser_optional)
+            resolve_single_search(
+                ctx,
+                sa,
+                &candidates,
+                effective_chooser,
+                chooser_optional,
+                delayed_reveal.as_ref(),
+            )
         } else {
             resolve_multi_search(
                 ctx,
@@ -455,6 +486,7 @@ pub(super) fn resolve_hidden_origin(
                 effective_chooser,
                 change_num,
                 chooser_optional,
+                delayed_reveal.as_mut(),
             )
         }
     };
@@ -523,14 +555,16 @@ fn apply_library_search_limit(
     let Some(max) = find_search_limit(ctx, search_player, controller) else {
         return;
     };
-    let mut seen_library = 0usize;
-    zone_cards.retain(|&cid| {
-        if ctx.game.card(cid).zone != ZoneType::Library {
-            return true;
-        }
-        seen_library += 1;
-        seen_library <= max
-    });
+    let allowed: std::collections::HashSet<_> = ctx
+        .game
+        .cards_in_zone(ZoneType::Library, search_player)
+        .iter()
+        .rev()
+        .take(max)
+        .copied()
+        .collect();
+    zone_cards
+        .retain(|&cid| ctx.game.card(cid).zone != ZoneType::Library || allowed.contains(&cid));
 }
 
 /// Offer Panglacial Wurm cast during library search (CR 702.113).
@@ -565,4 +599,44 @@ fn offer_panglacial_cast(
             ctx.move_card(pg_id, ZoneType::Stack, controller);
         }
     }
+}
+
+fn delayed_reveal_for_search(
+    ctx: &EffectContext,
+    sa: &SpellAbility,
+    zone_cards: &[crate::ids::CardId],
+    owner: PlayerId,
+    decider: PlayerId,
+) -> Option<DelayedReveal> {
+    if sa.ir.already_revealed {
+        return None;
+    }
+    let cards: Vec<_> = zone_cards
+        .iter()
+        .copied()
+        .filter(|&id| {
+            let zone = ctx.game.card(id).zone;
+            (zone == ZoneType::Library && !sa.ir.no_looking)
+                || (zone == ZoneType::Hand
+                    && crate::player::player_predicates::is_opponent_of(ctx.game, owner, decider))
+        })
+        .collect();
+    if cards.is_empty() {
+        return None;
+    }
+    let mut zones = Vec::new();
+    for &id in &cards {
+        let zone = ctx.game.card(id).zone;
+        if !zones.contains(&zone) {
+            zones.push(zone);
+        }
+    }
+    Some(DelayedReveal {
+        cards,
+        owner: Some(owner),
+        zone: zones,
+        message_prefix: sa
+            .source
+            .map(|source| ctx.game.card(source).card_name.clone()),
+    })
 }

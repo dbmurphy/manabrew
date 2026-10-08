@@ -1783,6 +1783,7 @@ impl PlayerAgent for DeterministicAgent {
         _game: &GameState,
         player: PlayerId,
         valid: &[CardId],
+        _delayed_reveal: Option<&manabrew_engine::player::DelayedReveal>,
         _select_prompt: &str,
         _is_optional: bool,
     ) -> Option<CardId> {

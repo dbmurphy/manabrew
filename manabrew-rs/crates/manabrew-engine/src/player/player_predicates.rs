@@ -49,6 +49,7 @@ pub fn has_keyword(game: &GameState, player: PlayerId, keyword: &str) -> bool {
     game.player(player)
         .changed_keywords
         .iter()
+        .chain(game.player(player).static_keywords.iter())
         .any(|candidate| candidate.eq_ignore_ascii_case(keyword))
 }
 

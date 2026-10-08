@@ -231,6 +231,7 @@ fn resolve_originals(
                 ctx.game,
                 chooser,
                 &candidates,
+                None,
                 "Choose a card",
                 false,
             )
