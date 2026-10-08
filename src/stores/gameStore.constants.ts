@@ -175,6 +175,18 @@ export function applyPrompt(
   if (isPromptLoggingEnabled()) {
     console.log(`[prompt:${source}] ${prompt.input.type}`, JSON.stringify(prompt, null, 2));
   }
+  if (prompt.input.type === "chooseCards" && prompt.input.inspectionCards) {
+    prompt = {
+      ...prompt,
+      input: {
+        ...prompt.input,
+        inspectionCards: prompt.input.inspectionCards.map((card) => ({
+          ...GAME_CARD_DEFAULTS,
+          ...card,
+        })),
+      },
+    };
+  }
   notePromptArrived(prompt.input.type);
   route({ displayEvents: [], gameView: null, prompt }, `${source}: ${prompt.input.type}`, set, get);
 }

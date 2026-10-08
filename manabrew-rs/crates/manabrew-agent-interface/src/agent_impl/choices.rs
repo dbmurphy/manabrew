@@ -945,6 +945,7 @@ pub(super) fn choose_discard<T: Responder>(
     let cards = zone_cards_for(agent, hand);
     agent.send_prompt(
         PromptInput::ChooseCards(manabrew_protocol::prompts::choose_cards::ChooseCardsInput {
+            inspection_cards: None,
             presentation: card_choice_presentation("Discard", None),
             cards,
             min: num,
@@ -994,6 +995,7 @@ pub(super) fn choose_cards_for_effect<T: Responder>(
     let cards = zone_cards_for(agent, valid);
     agent.send_prompt(
         PromptInput::ChooseCards(manabrew_protocol::prompts::choose_cards::ChooseCardsInput {
+            inspection_cards: None,
             presentation: card_choice_presentation("Choose cards", None),
             cards,
             min,
@@ -1041,6 +1043,7 @@ pub(super) fn choose_single_card_for_zone_change<T: Responder>(
     let min_choices = if is_optional { 0 } else { 1 };
     agent.send_prompt(
         PromptInput::ChooseCards(manabrew_protocol::prompts::choose_cards::ChooseCardsInput {
+            inspection_cards: None,
             presentation: card_choice_presentation(select_prompt, None),
             cards: zone_cards,
             min: min_choices,
@@ -1090,6 +1093,7 @@ pub(super) fn choose_cards_for_zone_change<T: Responder>(
 
     agent.send_prompt(
         PromptInput::ChooseCards(manabrew_protocol::prompts::choose_cards::ChooseCardsInput {
+            inspection_cards: None,
             presentation: card_choice_presentation(select_prompt, None),
             cards: zone_cards,
             min,

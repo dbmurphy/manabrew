@@ -91,6 +91,7 @@ pub(super) fn choose_dig<T: Responder>(
     let min = if optional { 0 } else { max.min(1) };
     agent.send_prompt(
         PromptInput::ChooseCards(manabrew_protocol::prompts::choose_cards::ChooseCardsInput {
+            inspection_cards: None,
             presentation: PromptPresentation {
                 title: "Dig".to_string(),
                 description: Some("Choose cards to put into your hand.".to_string()),

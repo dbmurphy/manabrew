@@ -1650,6 +1650,7 @@ impl BotAgent for SimpleAi {
                 Some(PromptOutput::PayManaCost(payment))
             }
             PromptInput::ChooseCards(manabrew_protocol::prompts::choose_cards::ChooseCardsInput {
+                inspection_cards: _,
                 presentation,
                 mut cards,
                 min,

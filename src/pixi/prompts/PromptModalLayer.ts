@@ -24,6 +24,7 @@ import type {
   CardDto,
   ChooseCombatDamageAssignmentInput,
   PromptPresentation,
+  Prompt,
   ReorderItem,
   ScryDestination,
   SelectionOption,
@@ -71,6 +72,19 @@ const MODAL_SCROLL_SNAP_PIXELS = 0.5;
 type PromptModalHeaderLayout = "stacked" | "inline-guidance";
 
 export abstract class PromptModalLayer extends PromptLayerBase {
+  protected inspectionPrompt: Prompt | null = null;
+  protected inspectionActive = false;
+
+  protected get isInspectingCards(): boolean {
+    const prompt = this.spec?.currentPrompt;
+    return Boolean(
+      prompt?.input.type === "chooseCards" &&
+      prompt.input.inspectionCards?.length &&
+      this.inspectionPrompt === prompt &&
+      this.inspectionActive,
+    );
+  }
+
   protected renderModal(): void {
     const input = this.spec!.currentPrompt!.input;
     const boardContext =
@@ -96,7 +110,14 @@ export abstract class PromptModalLayer extends PromptLayerBase {
         this.renderCards(input.presentation, input.cards, 0, 0, true);
         break;
       case "chooseCards":
-        this.renderCards(input.presentation, input.cards, input.min, input.max, false);
+        this.renderCards(
+          input.presentation,
+          input.cards,
+          input.min,
+          input.max,
+          false,
+          input.inspectionCards,
+        );
         break;
       case "chooseColor":
         this.renderColors(input.presentation, input.validColors, input.amount, input.repeatAllowed);
@@ -1045,7 +1066,11 @@ export abstract class PromptModalLayer extends PromptLayerBase {
     min: number,
     max: number,
     reveal: boolean,
+    inspectionCards?: CardDto[],
   ): void {
+    const inspecting = this.isInspectingCards;
+    const selectableCount = cards.length;
+    if (inspecting) cards = inspectionCards ?? cards;
     const showFilter = !reveal && cards.length > 1;
     const normalizedFilter = this.selectionFilter.toLocaleLowerCase();
     const visibleIndices = showFilter
@@ -1104,7 +1129,7 @@ export abstract class PromptModalLayer extends PromptLayerBase {
             );
     const height = Math.min(
       this.viewportHeight - 24,
-      244 + rows * (cardHeight + PROMPT_CARD_ROW_GAP),
+      244 + (inspectionCards?.length ? 44 : 0) + rows * (cardHeight + PROMPT_CARD_ROW_GAP),
     );
     const { panel, body, footer } = this.createModalShell(
       width,
@@ -1122,6 +1147,29 @@ export abstract class PromptModalLayer extends PromptLayerBase {
       36,
       true,
     );
+    if (inspectionCards?.length) {
+      const state = this.modalBody!;
+      const toggle = this.makeButton(
+        inspecting
+          ? `CAN CHOOSE (${selectableCount})`
+          : `INSPECT CARDS (${inspectionCards.length})`,
+        () => {
+          this.inspectionPrompt = this.spec!.currentPrompt!;
+          this.inspectionActive = !inspecting;
+          this.selectionFilter = "";
+          this.modalScrollOffset = 0;
+          this.modalScrollTarget = 0;
+          this.compactScrollPan = null;
+          this.rebuild();
+        },
+        { width: Math.min(240, width - PANEL_PADDING * 2) },
+      );
+      toggle.position.set(PANEL_PADDING, state.bodyTop);
+      panel.addChild(toggle);
+      state.bodyTop += 44;
+      this.resizeModalShell(state, state.height);
+      body.position.set(PANEL_PADDING, state.bodyTop);
+    }
     if (showFilter) {
       const state = this.modalBody!;
       this.renderChoiceFilter(
@@ -1160,8 +1208,9 @@ export abstract class PromptModalLayer extends PromptLayerBase {
     for (let position = 0; position < visibleCount; position++) {
       const index = visibleIndices?.[position] ?? position;
       const card = cards[index]!;
-      const selected = this.selectedIds.has(card.id);
-      const disabled = !reveal && max !== 1 && this.selectedIds.size >= max && !selected;
+      const selected = !inspecting && this.selectedIds.has(card.id);
+      const disabled =
+        !reveal && !inspecting && max !== 1 && this.selectedIds.size >= max && !selected;
       const cardSize = cardSizes[index]!;
       const tile = this.createCardTile(
         card,
@@ -1169,7 +1218,7 @@ export abstract class PromptModalLayer extends PromptLayerBase {
         disabled,
         cardSize.width,
         cardSize.height,
-        reveal
+        reveal || inspecting
           ? undefined
           : () => {
               if (disabled) return;
@@ -1288,29 +1337,49 @@ export abstract class PromptModalLayer extends PromptLayerBase {
       updatePanStatus();
     }
     const chosen = [...this.selectedIds];
-    const canConfirm = reveal || (chosen.length >= min && chosen.length <= max);
+    const canConfirm = !inspecting && (reveal || (chosen.length >= min && chosen.length <= max));
     const status = promptText(
-      reveal
-        ? `${cards.length} card${cards.length === 1 ? "" : "s"} revealed`
-        : `${chosen.length} of ${max} selected`,
+      inspecting
+        ? `${cards.length} cards to inspect`
+        : reveal
+          ? `${cards.length} card${cards.length === 1 ? "" : "s"} revealed`
+          : `${chosen.length} of ${max} selected`,
       11,
       canConfirm ? this.theme.gameTheme.success : this.theme.appTheme["muted-foreground"],
       { weight: "600" },
     );
     status.position.set(0, 10);
     footer.addChild(status);
-    const label = reveal ? "CONTINUE" : chosen.length === 0 && min === 0 ? "SKIP" : "CONFIRM";
+    const label = inspecting
+      ? "CAN CHOOSE"
+      : reveal
+        ? "CONTINUE"
+        : chosen.length === 0 && min === 0
+          ? "SKIP"
+          : "CONFIRM";
     const confirm = this.makeButton(
       label,
       () => {
-        if (reveal) this.spec!.respond({ type: "revealCardsAcknowledged" });
+        if (inspecting) {
+          this.inspectionActive = false;
+          this.selectionFilter = "";
+          this.modalScrollOffset = 0;
+          this.modalScrollTarget = 0;
+          this.compactScrollPan = null;
+          this.rebuild();
+        } else if (reveal) this.spec!.respond({ type: "revealCardsAcknowledged" });
         else this.spec!.respond({ type: "chooseCardsDecision", chosenCardIds: chosen });
       },
-      { disabled: !canConfirm, width: 136 },
+      { disabled: !inspecting && !canConfirm, width: 136 },
     );
     confirm.position.set(width - PANEL_PADDING * 2 - confirm.buttonWidth, 0);
     footer.addChild(confirm);
-    if (compactScrollRow && compactScrollOverflow && this.spec?.action.onBrowseRevealGrid) {
+    if (
+      reveal &&
+      compactScrollRow &&
+      compactScrollOverflow &&
+      this.spec?.action.onBrowseRevealGrid
+    ) {
       const grid = this.makeButton("GRID", () => this.spec!.action.onBrowseRevealGrid?.(), {
         width: 96,
       });

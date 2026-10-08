@@ -69,6 +69,7 @@ export const singleLegalNumber: PromptResolver<"chooseNumber"> = (prompt) => {
 };
 
 export const forcedCardChoice: PromptResolver<"chooseCards"> = (prompt) => {
+  if (prompt.input.inspectionCards?.length) return { kind: "force-show" };
   const ids = prompt.input.cards.map((c) => c.id);
   const { min, max } = prompt.input;
   if (max <= 0) {
