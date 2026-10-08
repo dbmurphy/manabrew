@@ -418,7 +418,7 @@ public final class ManaBrewInteractiveController extends PlayerController implem
         String error = null;
         while (true) {
             final List<Pair<Card, Card>> assignments =
-                    session.awaitBlockers(defenderIndex, attackers, blockers, validByAttacker, error);
+                    session.awaitBlockers(me(), defenderIndex, attackers, blockers, validByAttacker, error);
             error = EngineHandler.applyBlockerAssignments(combat, defender, assignments);
             if (error == null || session.isClosed() || game.isGameOver()) {
                 return;

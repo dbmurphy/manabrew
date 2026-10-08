@@ -1006,13 +1006,14 @@ public final class ManaBrewInteractiveSession {
 
     List<Pair<Card, Card>> awaitBlockers(
             final int playerId,
+            final int defenderId,
             final List<Card> attackers,
             final List<Card> availableBlockers,
             final Map<Card, List<Card>> validBlockersByAttacker,
             final String error
     ) {
         requireAttached();
-        publishBlockersPrompt(playerId, attackers, availableBlockers, validBlockersByAttacker, error);
+        publishBlockersPrompt(playerId, defenderId, attackers, availableBlockers, validBlockersByAttacker, error);
         while (!closed && !game.isGameOver()) {
             final JsonObject action = takeActionOrNull();
             if (action == null) {
@@ -2591,12 +2592,13 @@ public final class ManaBrewInteractiveSession {
 
     private void publishBlockersPrompt(
             final int playerId,
+            final int defenderId,
             final List<Card> attackers,
             final List<Card> availableBlockers,
             final Map<Card, List<Card>> validBlockersByAttacker,
             final String error
     ) {
-        final Player defendingPlayer = game.getRegisteredPlayers().get(playerId);
+        final Player defendingPlayer = game.getRegisteredPlayers().get(defenderId);
         final List<BlockableAttackerDto> attackerOptions = new java.util.ArrayList<>();
         for (final Card attacker : attackers) {
             final List<String> validBlockerIds = new java.util.ArrayList<>();
