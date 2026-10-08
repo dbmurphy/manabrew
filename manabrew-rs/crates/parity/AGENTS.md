@@ -85,3 +85,7 @@ If divergence reports look wrong (e.g. spurious differences in unrelated fields)
 - A `FORGE_*_TRACE` env var leaking ordering information into the snapshot.
 
 Rebuild the harness and rerun before assuming the engine is wrong.
+
+## Storage migrations
+
+Parity storage embeds `migrations/1_schema.sql` and uses `rusqlite_migration` with SQLite `user_version`. Migration 1 upgrades the four historical optional `runs` columns inside its transaction. Keep applied migration SQL immutable and append newer versions in order. Migration errors must propagate; do not ignore ALTER failures. Hub migrations use their existing `schema_version` runner and have a separate version sequence.

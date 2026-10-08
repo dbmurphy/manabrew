@@ -278,6 +278,7 @@ services:
       - "300"
     volumes:
       - ./scripts/ingest-events.py:/app/ingest-events.py:ro
+      - ./scripts/events-schema.sql:/app/events-schema.sql:ro
       - ./ops/observability/data/events:/var/manabrew/events
       - ./ops/hub-data:/var/manabrew/hub
     restart: unless-stopped

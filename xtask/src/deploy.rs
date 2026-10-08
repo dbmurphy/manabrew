@@ -43,12 +43,13 @@ const RELEASED_MANIFEST_URL: &str =
 const DEPLOY_TOOL_VERSION: u32 = 2;
 
 // The deploy-config subset of the repo, taken from the fetched ref.
-const CONFIG_PATHS: [&str; 5] = [
+const CONFIG_PATHS: [&str; 6] = [
     "compose.production.yml",
     "compose.staging.yml",
     "compose.selfhost.yml",
     "ops",
     "scripts/ingest-events.py",
+    "scripts/events-schema.sql",
 ];
 // Codeload tarballs contain only tracked files, so the box's data dirs can
 // never be in the set; these excludes matter for --config-from, where the
@@ -694,7 +695,11 @@ fn deploy(root: &Path, opts: &Opts) -> Result<()> {
 fn recreate_observability_if_changed(root: &Path, opts: &Opts, itemized: &str) -> Result<String> {
     let changed = changed_in_sync(
         itemized,
-        &["ops/observability/", "scripts/ingest-events.py"],
+        &[
+            "ops/observability/",
+            "scripts/ingest-events.py",
+            "scripts/events-schema.sql",
+        ],
     );
     if !changed && !ingester_script_stale(root, opts)? {
         return Ok(String::new());
@@ -731,25 +736,29 @@ fn recreate_observability_if_changed(root: &Path, opts: &Opts, itemized: &str) -
 }
 
 fn ingester_script_stale(root: &Path, opts: &Opts) -> Result<bool> {
-    let on_disk = ssh(
-        root,
-        &opts.host,
-        &format!(
-            "md5sum '{}/scripts/ingest-events.py' 2>/dev/null | cut -d' ' -f1",
-            opts.path
-        ),
-    )?;
-    let in_container = ssh(
-        root,
-        &opts.host,
-        &compose(
-            &opts.path,
-            &opts.tag,
-            "--profile observability exec -T events-ingester md5sum /app/ingest-events.py 2>/dev/null | cut -d' ' -f1",
-        ),
-    )?;
-    let (on_disk, in_container) = (on_disk.trim(), in_container.trim());
-    Ok(!on_disk.is_empty() && !in_container.is_empty() && on_disk != in_container)
+    for file in ["ingest-events.py", "events-schema.sql"] {
+        let on_disk = ssh(
+            root,
+            &opts.host,
+            &format!(
+                "md5sum '{}/scripts/{file}' 2>/dev/null | cut -d' ' -f1",
+                opts.path
+            ),
+        )?;
+        let in_container = ssh(
+            root,
+            &opts.host,
+            &compose(
+                &opts.path,
+                &opts.tag,
+                &format!("--profile observability exec -T events-ingester md5sum /app/{file} 2>/dev/null | cut -d' ' -f1"),
+            ),
+        )?;
+        if !on_disk.trim().is_empty() && on_disk.trim() != in_container.trim() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn deploy_only(root: &Path, opts: &Opts, services: &[String]) -> Result<()> {
