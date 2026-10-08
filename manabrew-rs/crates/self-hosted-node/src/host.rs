@@ -1511,7 +1511,7 @@ async fn maybe_auto_start_room(
     config: &Config,
     room: &RoomInfo,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    if !config.auto_start || draining() {
+    if !config.auto_start || !config.host_plays || draining() {
         return Ok(());
     }
     if config.format == GameFormat::Any {
