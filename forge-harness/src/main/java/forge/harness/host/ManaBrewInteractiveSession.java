@@ -6,6 +6,7 @@ import forge.harness.common.ParityCardMap;
 import forge.harness.common.ParityOrder;
 import forge.harness.common.SnapshotExtractor;
 
+import com.google.common.eventbus.Subscribe;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -22,6 +23,7 @@ import forge.game.card.CardView;
 import forge.game.combat.Combat;
 import forge.game.combat.CombatUtil;
 import forge.game.cost.Cost;
+import forge.game.event.GameEventTurnPhase;
 import forge.game.phase.PhaseHandler;
 import forge.game.phase.PhaseType;
 import forge.game.player.Player;
@@ -52,12 +54,14 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.locks.ReentrantLock;
 
 public final class ManaBrewInteractiveSession {
 
     private final String sessionId;
     private Match match;
     private Game game;
+    private final ReentrantLock gameAccess = new ReentrantLock(true);
     private final BlockingQueue<JsonObject> actions = new LinkedBlockingQueue<>();
     private volatile String latestPromptJson;
     private volatile int promptedPlayerIndex = -1;
@@ -136,6 +140,18 @@ public final class ManaBrewInteractiveSession {
         this.game = Objects.requireNonNull(game, "game");
         this.botSeats = Set.copyOf(botSeats);
         this.snapshotRecording = snapshotRecording;
+        game.subscribeToEvents(new Object() {
+            @Subscribe
+            public void onPhaseChanged(final GameEventTurnPhase event) {
+                final int holds = gameAccess.getHoldCount();
+                for (int i = 0; i < holds; i++) {
+                    gameAccess.unlock();
+                }
+                for (int i = 0; i < holds; i++) {
+                    gameAccess.lock();
+                }
+            }
+        });
     }
 
     public String getSessionId() {
@@ -155,36 +171,41 @@ public final class ManaBrewInteractiveSession {
         requireAttached();
         Objects.requireNonNull(rng, "rng");
         if (bridge != null) {
-            forge.util.MyRandom.setRandom(rng);
-            try {
-                match.startGame(game);
-            } catch (RuntimeException | Error error) {
-                recordEngineError(error);
-            }
+            runGame(rng);
             return;
         }
-        gameThread = new Thread(() -> {
-            forge.util.MyRandom.setRandom(rng);
-            try {
-                match.startGame(game);
-            } catch (RuntimeException | Error error) {
-                recordEngineError(error);
-            }
-        }, "mana-brew-forge-" + sessionId);
+        gameThread = new Thread(() -> runGame(rng), "mana-brew-forge-" + sessionId);
         gameThread.setDaemon(true);
         gameThread.start();
     }
 
+    private void runGame(final Random rng) {
+        gameAccess.lock();
+        try {
+            forge.util.MyRandom.setRandom(rng);
+            match.startGame(game);
+        } catch (RuntimeException | Error error) {
+            recordEngineError(error);
+        } finally {
+            gameAccess.unlock();
+        }
+    }
+
     public void close() {
-        closed = true;
         JsonObject action = new JsonObject();
         action.addProperty("kind", "pass");
         actions.offer(action);
-        if (game != null && !game.isGameOver()) {
-            game.setGameOver(forge.game.GameEndReason.Draw);
+        gameAccess.lock();
+        try {
+            closed = true;
+            if (game != null && !game.isGameOver()) {
+                game.setGameOver(forge.game.GameEndReason.Draw);
+            }
+        } finally {
+            gameAccess.unlock();
         }
         final Thread thread = gameThread;
-        if (thread != null) {
+        if (thread != null && thread != Thread.currentThread()) {
             try {
                 thread.join(5000);
             } catch (InterruptedException interrupted) {
@@ -216,9 +237,14 @@ public final class ManaBrewInteractiveSession {
 
     public String getSnapshotJson(final int viewer) {
         requireAttached();
-        return InteractiveSnapshotExtractor.snapshotJson(
-                game, castingAbility, sessionId, viewer, secretChoiceVisibility, checkpointViews,
-                restoreVoteView, snapshotRecording);
+        gameAccess.lock();
+        try {
+            return InteractiveSnapshotExtractor.snapshotJson(
+                    game, castingAbility, sessionId, viewer, secretChoiceVisibility, checkpointViews,
+                    restoreVoteView, snapshotRecording);
+        } finally {
+            gameAccess.unlock();
+        }
     }
 
     void rememberSecretNumberViewer(final String sourceCardId, final Player viewer) {
@@ -242,7 +268,12 @@ public final class ManaBrewInteractiveSession {
     }
 
     public boolean isGameOver() {
-        return game != null && game.isGameOver();
+        gameAccess.lock();
+        try {
+            return game != null && game.isGameOver();
+        } finally {
+            gameAccess.unlock();
+        }
     }
 
     public long getStateRevision() {
@@ -1940,10 +1971,7 @@ public final class ManaBrewInteractiveSession {
 
     private JsonObject takeAction() throws InterruptedException {
         while (true) {
-            if (bridge != null && actions.isEmpty() && !closed && !game.isGameOver()) {
-                submitAction(bridge.exchange(promptedPlayerIndex, latestPromptJson));
-            }
-            final JsonObject action = actions.poll(1, java.util.concurrent.TimeUnit.SECONDS);
+            final JsonObject action = awaitAction();
             if (action == null) {
                 if (closed || game.isGameOver()) {
                     return syntheticPass();
@@ -1984,6 +2012,24 @@ public final class ManaBrewInteractiveSession {
                 continue;
             }
             return syntheticPass();
+        }
+    }
+
+    private JsonObject awaitAction() throws InterruptedException {
+        final boolean exchange = bridge != null && actions.isEmpty() && !closed && !game.isGameOver();
+        final int holds = gameAccess.getHoldCount();
+        for (int i = 0; i < holds; i++) {
+            gameAccess.unlock();
+        }
+        try {
+            if (exchange) {
+                submitAction(bridge.exchange(promptedPlayerIndex, latestPromptJson));
+            }
+            return actions.poll(1, java.util.concurrent.TimeUnit.SECONDS);
+        } finally {
+            for (int i = 0; i < holds; i++) {
+                gameAccess.lock();
+            }
         }
     }
 
