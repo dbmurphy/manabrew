@@ -62,6 +62,7 @@ import type { PlayerHudSpec as PlayerBarSpec } from "@/pixi/hud/playerHud.types"
 import { isAttackerTap } from "./combatRouting";
 import { BattlefieldOverlay } from "./BattlefieldOverlay";
 import { HandController } from "./HandController";
+import { OpponentHandFan } from "./OpponentHandFan";
 import { SelectionController } from "./SelectionController";
 import {
   collapsedOpponentWidth,
@@ -134,6 +135,7 @@ export class BoardScene {
   private perfSessionStarted = performance.now();
 
   private regions = new Map<string, RegionRecord>();
+  private opponentHands = new Map<string, OpponentHandFan>();
   private localPlayerId: string | null = null;
   private opponentIds: string[] = [];
   private cardScale = 1;
@@ -472,6 +474,11 @@ export class BoardScene {
     this.recomputeDelimTarget();
     this.applyDelimiters();
 
+    for (const [id, fan] of [...this.opponentHands]) {
+      if (oppIds.includes(id)) continue;
+      fan.destroy();
+      this.opponentHands.delete(id);
+    }
     for (const [id, rec] of [...this.regions]) {
       if (seen.has(id)) continue;
       rec.region.destroy();
@@ -615,6 +622,7 @@ export class BoardScene {
         if (!rec) continue;
         const zone = rec.zone;
         rec.region.setClip(zone.x, zone.width);
+        this.opponentHands.get(id)?.setBand(zone.x, zone.y, zone.width, zone.height, true);
         if (this.barsEnabled) {
           const field = rec.region.getPlaymatRect();
           const availableWidth = Math.max(1, field.width);
@@ -642,6 +650,9 @@ export class BoardScene {
       const right = Math.round((i === n - 1 ? 1 : this.delimCurrent[i]!) * W);
       const bandW = Math.max(0, right - left);
       rec.region.setClip(left, bandW);
+      this.opponentHands
+        .get(this.opponentIds[i]!)
+        ?.setBand(left, rec.zone.y, bandW, rec.zone.height, bandW >= veilStart);
       if (this.barsEnabled) {
         // Solid veil opacity ramps 0→1 as the band narrows from `veilStart` down
         // to its collapsed width — fully in sync with the ease, no separate tween.
@@ -927,6 +938,32 @@ export class BoardScene {
 
   updateBattlefield(playerId: string, cards: CardDto[]): void {
     this.regions.get(playerId)?.region.updateBattlefield({ cards } as BattlefieldState);
+  }
+
+  setOpponentHand(playerId: string, cards: CardDto[]): void {
+    if (!this.presentation.showsOpponentHands) return;
+    const existing = this.opponentHands.get(playerId);
+    if (existing) {
+      existing.setCards(cards);
+      return;
+    }
+    const fan = new OpponentHandFan(
+      {
+        onHoverCard: (card, bounds, trigger) =>
+          this.callbacks.onHoverCard?.(card, bounds && this.toViewportBounds(bounds), {
+            useAnchor: true,
+            trigger,
+          }),
+        onInspectCard: (card) => {
+          this.callbacks.onDismissHoverPreview?.();
+          this.callbacks.onInspectCard?.(card);
+        },
+      },
+      this.root,
+    );
+    fan.setCards(cards);
+    this.opponentHands.set(playerId, fan);
+    this.applyDelimiters();
   }
 
   updateRegionState(playerId: string, state: BattlefieldState): void {
@@ -2068,6 +2105,7 @@ export class BoardScene {
     for (const rec of this.regions.values()) rec.region.animate(this.app.ticker.deltaMS);
     this.dragHandler.dampenTilt(this.app.ticker.deltaMS);
     this.hand?.animate();
+    for (const fan of this.opponentHands.values()) fan.animate();
     this.playerBars.tick();
     this.phaseStrip.tick();
     this.phaseStrip.setDimAlpha(
@@ -2392,6 +2430,7 @@ export class BoardScene {
       this.phaseStrip.destroy();
       this.playerBars.destroy();
       this.hand?.destroy();
+      for (const fan of this.opponentHands.values()) fan.destroy();
       this.selection?.destroy();
       for (const rec of this.regions.values()) rec.region.destroy();
       for (const f of this.floaters) f.text.destroy();
@@ -2400,5 +2439,6 @@ export class BoardScene {
       console.warn("[pixi] BoardScene teardown threw:", err);
     }
     this.regions.clear();
+    this.opponentHands.clear();
   }
 }
