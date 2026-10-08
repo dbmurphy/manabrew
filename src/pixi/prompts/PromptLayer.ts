@@ -599,6 +599,22 @@ export class PromptLayer extends PromptModalLayer {
         const container = new Container();
         let y = 0;
         let width = 0;
+        const error = action.attackError;
+        if (error) {
+          const shown = minimal && error.length > 42 ? `${error.slice(0, 41).trimEnd()}…` : error;
+          const textWidth = minimal ? Math.min(192, availableWidth) : availableWidth;
+          const text = promptText(shown, minimal ? 10 : 12, attackColor, {
+            weight: "600",
+            width: textWidth,
+            align: "center",
+            truncate: minimal,
+          });
+          text.anchor.set(0.5, 0);
+          text.position.set(textWidth / 2, y);
+          container.addChild(text);
+          y += text.height + 6;
+          width = textWidth;
+        }
         if (!minimal && action.mustAttackHint) {
           const text = promptText(action.mustAttackHint, 11, muted, {
             weight: "500",
@@ -1752,6 +1768,7 @@ export class PromptLayer extends PromptModalLayer {
     const lines = getPromptContextLines(promptType, {
       mulliganCount: action.mulliganCount,
       mustAttackHint: action.mustAttackHint,
+      attackError: action.attackError,
       blockRestrictionHint: action.blockRestrictionHint,
       payManaCostInfo: action.payManaCostInfo,
       mulliganPutBackCount: action.mulliganPutBackCount,

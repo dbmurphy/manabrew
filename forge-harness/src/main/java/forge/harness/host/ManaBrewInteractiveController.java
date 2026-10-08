@@ -387,16 +387,13 @@ public final class ManaBrewInteractiveController extends PlayerController implem
         }
         final List<Card> legalAttackers = ChoiceSpace.sortNative(
                 CombatChoiceSpace.legalAttackers(attacker, combat), ParityOrder.cardComparator());
-        final List<Pair<Card, GameEntity>> assignments = session.awaitAttackAssignments(
-                SnapshotExtractor.playerIndex(game, attacker), combat, legalAttackers);
-        final CardCollection selected = new CardCollection();
-        for (final Pair<Card, GameEntity> assignment : assignments) {
-            final Card card = assignment.getLeft();
-            final GameEntity defender = assignment.getRight();
-            if (card != null && defender != null && !selected.contains(card)
-                    && CombatUtil.canAttack(card, defender)) {
-                combat.addAttacker(card, defender);
-                selected.add(card);
+        String error = null;
+        while (true) {
+            final List<Pair<Card, GameEntity>> assignments = session.awaitAttackAssignments(
+                    SnapshotExtractor.playerIndex(game, attacker), combat, legalAttackers, error);
+            error = EngineHandler.applyAttackerAssignments(combat, assignments);
+            if (error == null || session.isClosed() || game.isGameOver()) {
+                return;
             }
         }
     }
