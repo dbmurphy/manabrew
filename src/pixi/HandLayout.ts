@@ -38,6 +38,7 @@ export function computeBaseLayout(
   maxSpread: number,
   minSpread: number,
   spreadWidth: number,
+  straight = false,
 ): BaseCardLayout[] {
   if (count === 0) return [];
   if (count === 1) return [{ x: 0, drop: 0, rot: 0 }];
@@ -52,8 +53,8 @@ export function computeBaseLayout(
   return Array.from({ length: count }, (_, i) => {
     const t = (i / (count - 1)) * 2 - 1;
     const x = -totalWidth / 2 + i * spread;
-    const rot = t * (arcDeg / 2);
-    const drop = (1 - Math.cos((t * Math.PI) / 2)) * (ARC_RADIUS * 0.015);
+    const rot = straight ? 0 : t * (arcDeg / 2);
+    const drop = straight ? 0 : (1 - Math.cos((t * Math.PI) / 2)) * (ARC_RADIUS * 0.015);
     return { x, drop, rot };
   });
 }
@@ -68,8 +69,16 @@ export function computeHandLayout(
   hoveredIndex: number | null,
   hoverLift: number,
   neighborPush: number,
+  straight = false,
 ): HandCardLayout[] {
-  const basePositions = computeBaseLayout(count, cardW, maxSpread, minSpread, spreadWidth);
+  const basePositions = computeBaseLayout(
+    count,
+    cardW,
+    maxSpread,
+    minSpread,
+    spreadWidth,
+    straight,
+  );
   if (basePositions.length === 0) return [];
 
   const hovW = Math.round(cardW * HOVER_SCALE);

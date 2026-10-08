@@ -867,6 +867,24 @@ export default function Settings() {
             </PreferenceCard>
 
             <PreferenceCard
+              title="Desktop hand layout"
+              description="Row shows full cards and mana costs. Scroll over a large hand to reach more cards. Touch layouts keep the fan."
+            >
+              <div className="flex flex-wrap gap-2">
+                {(["fan", "row"] as const).map((layout) => (
+                  <Button
+                    key={layout}
+                    variant={prefs.handLayout === layout ? "selected" : "outline"}
+                    size="sm"
+                    onClick={() => prefs.setHandLayout(layout)}
+                  >
+                    {layout === "fan" ? "Fan" : "Row"}
+                  </Button>
+                ))}
+              </div>
+            </PreferenceCard>
+
+            <PreferenceCard
               title={`Hand Card Style`}
               description={`Printed card shows the card image. Dynamic view uses the card's current rules and game state; each card can still be switched.`}
             >

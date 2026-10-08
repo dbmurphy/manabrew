@@ -1,3 +1,4 @@
+import { isCoarsePointer } from "@/lib/responsive";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useKeybindings } from "@/hooks/useKeybindings";
 import type { CardDto, DayTime } from "@/protocol/game";
@@ -323,8 +324,11 @@ export function GameBoard({
   const toggleSelfStop = usePhaseStopStore((s) => s.toggleSelfStop);
   const vScale = useHandScale();
   const compactBoard = useIsMobileGame();
+  const handLayout = usePreferencesStore((s) => s.handLayout);
+  const handSink =
+    handLayout === "row" && !compactBoard && !isCoarsePointer() ? 0 : HAND_BOTTOM_SINK_FRAC;
   const selfBottomReserve = Math.round(
-    ((1 - HAND_BOTTOM_SINK_FRAC) * HAND_CARD_BASE.cardH * vScale + GAP) * HAND_RESERVE_TRIM,
+    ((1 - handSink) * HAND_CARD_BASE.cardH * vScale + GAP) * HAND_RESERVE_TRIM,
   );
   const opponentLayout = usePreferencesStore((s) => s.opponentLayout);
 
