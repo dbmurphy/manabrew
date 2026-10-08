@@ -791,6 +791,20 @@ public final class HarnessCostPlumbing {
             if (candidates.isEmpty()) {
                 return null;
             }
+            if (humanCostPayment && !cost.payCostFromSource() && !"OriginalHost".equals(cost.getType())) {
+                candidates.removeIf(card -> cost.counter != null
+                        ? card.getCounters(cost.counter) < amount
+                        : card.getCounters().entrySet().stream().noneMatch(entry -> entry.getCount() >= amount));
+                if (candidates.isEmpty()) {
+                    return null;
+                }
+                final CardCollectionView selected = chooseCards(candidates, 1, "Remove counters for cost");
+                if (selected == null || selected.isEmpty()) {
+                    return null;
+                }
+                candidates.clear();
+                candidates.add(selected.get(0));
+            }
             final GameEntityCounterTable table = new GameEntityCounterTable();
             for (final Card card : candidates) {
                 if (cost.counter != null) {
