@@ -15,3 +15,5 @@ CHANGELOG.md
 # generator output, so a prettier pass makes the check permanently stale.
 website/src/generated/
 .agents/skills/
+
+public/forge_decks/index.json

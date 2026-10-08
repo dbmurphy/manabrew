@@ -249,18 +249,19 @@ yarn lint:all
 
 ## Common Commands
 
-| Command                | What it does                                           |
-| ---------------------- | ------------------------------------------------------ |
-| `yarn dev`             | Start the Tauri desktop app in development mode        |
-| `yarn web`             | Build the WASM engine and start the web client         |
-| `yarn build`           | Build the desktop app                                  |
-| `yarn build:web`       | Build the web app                                      |
-| `yarn build:harness`   | Build the Java Forge parity harness                    |
-| `yarn parity`          | Run named parity scenarios                             |
-| `yarn parity:test --`  | Run the parity binary with custom arguments            |
-| `yarn parity:gui`      | Start the engine debugger                              |
-| `yarn lint:all`        | Run frontend lint/typecheck and Rust fmt/clippy checks |
-| `yarn import-deck ...` | Import a deck from Archidekt or Moxfield               |
+| Command                   | What it does                                                      |
+| ------------------------- | ----------------------------------------------------------------- |
+| `yarn dev`                | Start the Tauri desktop app in development mode                   |
+| `yarn web`                | Build the WASM engine and start the web client                    |
+| `yarn build`              | Build the desktop app                                             |
+| `yarn build:web`          | Build the web app                                                 |
+| `yarn build:harness`      | Build the Java Forge parity harness                               |
+| `yarn parity`             | Run named parity scenarios                                        |
+| `yarn parity:test --`     | Run the parity binary with custom arguments                       |
+| `yarn parity:gui`         | Start the engine debugger                                         |
+| `yarn lint:all`           | Run frontend lint/typecheck and Rust fmt/clippy checks            |
+| `yarn forge-deck-catalog` | Refresh the searchable Forge deck index from the pinned submodule |
+| `yarn import-deck ...`    | Import a deck from Archidekt or Moxfield                          |
 
 ---
 
