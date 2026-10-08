@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use forge_foundation::{ManaAtom, ZoneType};
 use manabrew_engine::agent::notification::GameNotification;
@@ -87,6 +87,7 @@ pub struct PromptAgent<R: Responder> {
     pending_prompt: Option<AgentPrompt>,
     pub(crate) latest_view: Option<GameViewDto>,
     source_cards: HashMap<CardId, CardDto>,
+    creature_type_frequencies: Option<HashMap<String, usize>>,
     pub pass_until: Option<manabrew_engine::agent::PassUntilTarget>,
     conceded: bool,
     next_prompt_id: u32,
@@ -103,6 +104,7 @@ impl<R: Responder> PromptAgent<R> {
             pending_prompt: None,
             latest_view: None,
             source_cards: HashMap::new(),
+            creature_type_frequencies: None,
             pass_until: None,
             conceded: false,
             next_prompt_id: 0,
@@ -498,6 +500,30 @@ impl<R: Responder> PlayerAgent for PromptAgent<R> {
     }
 
     fn snapshot_state(&mut self, game: &GameState, mana_pools: &[ManaPool]) {
+        self.creature_type_frequencies.get_or_insert_with(|| {
+            let mut frequencies = HashMap::new();
+            for card in game.cards.iter().filter(|card| {
+                card.owner == self.player_id
+                    && !card.is_token
+                    && matches!(
+                        card.zone,
+                        ZoneType::Library | ZoneType::Hand | ZoneType::Command
+                    )
+            }) {
+                if card.has_intrinsic_keyword("Changeling") {
+                    continue;
+                }
+                let mut types: HashSet<&str> =
+                    card.type_line.subtypes.iter().map(String::as_str).collect();
+                if let Some(other) = &card.other_part {
+                    types.extend(other.type_line.subtypes.iter().map(String::as_str));
+                }
+                for creature_type in types {
+                    *frequencies.entry(creature_type.to_owned()).or_insert(0) += 1;
+                }
+            }
+            frequencies
+        });
         self.source_cards = game
             .cards
             .iter()
