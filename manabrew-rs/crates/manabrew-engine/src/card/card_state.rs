@@ -693,7 +693,7 @@ pub fn apply_keywords(
     layer: &crate::card::card_trait_changes::CardTraitChanges,
     mut list: crate::keyword::keyword_collection::KeywordCollection,
 ) -> crate::keyword::keyword_collection::KeywordCollection {
-    if layer.remove_all {
+    if layer.remove_all || layer.remove_intrinsic {
         list.clear();
     }
     list

@@ -315,6 +315,10 @@ pub(crate) fn assemble_card(
                         "StaticAbility",
                         raw,
                     )
+                    .map(|mut sa| {
+                        sa.base.set_intrinsic(true);
+                        sa
+                    })
                 })
                 .collect();
 
@@ -327,6 +331,10 @@ pub(crate) fn assemble_card(
                         "ReplacementEffect",
                         raw,
                     )
+                    .map(|mut re| {
+                        re.base.card_trait_base.set_intrinsic(true);
+                        re
+                    })
                 })
                 .collect();
 
@@ -355,6 +363,12 @@ pub(crate) fn assemble_card(
     // now all been attached. Refresh the base counts so continuous-layer reset
     // logic does not strip real printed abilities from hidden-zone cards.
     card.refresh_action_specs();
+    for sa in &mut card.static_abilities {
+        sa.base.set_intrinsic(true);
+    }
+    for re in &mut card.replacement_effects {
+        re.base.card_trait_base.set_intrinsic(true);
+    }
     card.base_ability_count = card.activated_abilities.len();
     card.base_trigger_count = card.triggers.len();
 

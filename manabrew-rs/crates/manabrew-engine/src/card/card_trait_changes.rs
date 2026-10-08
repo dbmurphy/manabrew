@@ -17,6 +17,8 @@ pub struct CardTraitChanges {
     /// Java parity subset for predicate removal: true means remove all existing
     /// card traits before applying additions (used by addChangedCardTraitsByText).
     pub remove_all: bool,
+    #[serde(default)]
+    pub remove_intrinsic: bool,
 }
 
 impl CardTraitChanges {
@@ -33,6 +35,7 @@ impl CardTraitChanges {
             replacements,
             static_abilities,
             remove_all: true,
+            remove_intrinsic: false,
         }
     }
 
@@ -63,6 +66,8 @@ impl CardTraitChanges {
     pub fn apply_spell_ability(&self, mut list: Vec<SpellAbility>) -> Vec<SpellAbility> {
         if self.remove_all {
             list.clear();
+        } else if self.remove_intrinsic {
+            list.retain(|sa| !sa.is_intrinsic());
         }
         for removed in &self.removed_abilities {
             list.retain(|sa| {
@@ -78,6 +83,8 @@ impl CardTraitChanges {
     pub fn apply_trigger(&self, mut list: Vec<Trigger>) -> Vec<Trigger> {
         if self.remove_all {
             list.clear();
+        } else if self.remove_intrinsic {
+            list.retain(|trigger| !trigger.is_intrinsic());
         }
         list.extend(self.triggers.iter().cloned());
         list
@@ -89,6 +96,8 @@ impl CardTraitChanges {
     ) -> Vec<ReplacementEffect> {
         if self.remove_all {
             list.clear();
+        } else if self.remove_intrinsic {
+            list.retain(|replacement| !replacement.base.card_trait_base.is_intrinsic());
         }
         list.extend(self.replacements.iter().cloned());
         list
@@ -97,6 +106,8 @@ impl CardTraitChanges {
     pub fn apply_static_ability(&self, mut list: Vec<StaticAbility>) -> Vec<StaticAbility> {
         if self.remove_all {
             list.clear();
+        } else if self.remove_intrinsic {
+            list.retain(|static_ability| !static_ability.base.is_intrinsic());
         }
         list.extend(self.static_abilities.iter().cloned());
         list

@@ -273,6 +273,7 @@ pub struct StaticAbilityIr {
     pub add_power_text: Option<String>,
     pub add_toughness_text: Option<String>,
     pub add_type_text: Option<String>,
+    pub remove_land_types: bool,
     pub set_power_text: Option<String>,
     pub set_toughness_text: Option<String>,
     pub add_keyword_text: Option<String>,
@@ -456,6 +457,7 @@ impl StaticAbilityIr {
             add_power_text: raw.get(keys::ADD_POWER).map(String::to_string),
             add_toughness_text: raw.get(keys::ADD_TOUGHNESS).map(String::to_string),
             add_type_text: raw.get(keys::ADD_TYPE).map(String::to_string),
+            remove_land_types: raw.contains_key(keys::REMOVE_LAND_TYPES),
             set_power_text: raw.get(keys::SET_POWER).map(String::to_string),
             set_toughness_text: raw.get(keys::SET_TOUGHNESS).map(String::to_string),
             add_keyword_text: raw.get(keys::ADD_KEYWORD).map(String::to_string),
@@ -878,6 +880,8 @@ pub struct CardFilter {
     pub nonland_only: bool,
     /// Only match land permanents.
     pub land_only: bool,
+    #[serde(default)]
+    pub basic: Option<bool>,
     /// Only match cards that include this color (e.g. White for Honor of the Pure).
     /// `None` means no color restriction.
     pub required_color: Option<ColorSet>,
@@ -926,6 +930,8 @@ impl CardFilter {
             "Permanent" | "Card" | "" => {}
             "nonLand" | "NonLand" => f.nonland_only = true,
             "Land" => f.land_only = true,
+            "Basic" => f.basic = Some(true),
+            "nonBasic" => f.basic = Some(false),
             "YouControl" | "YouCtrl" => f.controller_only = true,
             "YouOwn" => f.owner_only = true,
             "Other" => f.other_only = true,
@@ -979,6 +985,12 @@ impl CardFilter {
             }
         }
         if self.nonland_only && card.is_land() {
+            return false;
+        }
+        if self
+            .basic
+            .is_some_and(|basic| card.type_line.is_basic() != basic)
+        {
             return false;
         }
         if self.land_only && !card.is_land() {

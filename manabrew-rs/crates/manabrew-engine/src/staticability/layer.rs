@@ -46,6 +46,9 @@ use crate::staticability::{CardFilter, Layer, StaticAbility, StaticMode};
 
 /// An effect ready to be applied to a specific target card.
 struct PendingEffect {
+    source: CardId,
+    static_index: usize,
+    intrinsic: bool,
     /// CR 613 layer (used for sort ordering).
     layer: Layer,
     /// Target card index.
@@ -55,6 +58,13 @@ struct PendingEffect {
 }
 
 enum EffectKind {
+    PlayerRules(Box<StaticAbility>),
+    CantAttack,
+    CantBlock,
+    RemoveLandTypes {
+        timestamp: i64,
+        static_id: i64,
+    },
     SetController {
         controller: PlayerId,
     },
@@ -229,51 +239,8 @@ pub fn apply_continuous_effects(game: &mut GameState) {
         player.max_hand_size = 7;
         player.unlimited_hand_size = false;
     }
-    let player_ids: Vec<PlayerId> = game.player_order.clone();
-    for &pid in &player_ids {
-        let battlefield_cards: Vec<CardId> =
-            game.cards_in_zone(ZoneType::Battlefield, pid).to_vec();
-        for source_id in battlefield_cards {
-            let static_ability_count = game.card(source_id).static_abilities.len();
-            for sa_idx in 0..static_ability_count {
-                let card = game.card(source_id);
-                let sa = &card.static_abilities[sa_idx];
-                if !sa.check_conditions(card, game) {
-                    continue;
-                }
-                if !sa.check_mode(&StaticMode::Continuous) {
-                    continue;
-                }
-                let affected = sa.ir.affected_text.as_deref().unwrap_or("");
-                if !affected.eq_ignore_ascii_case("You") {
-                    continue;
-                }
-                let controller = card.controller;
-                let set_value = sa.ir.set_max_hand_size.clone();
-                let raise_value = sa.ir.raise_max_hand_size.clone();
-                if let Some(value) = set_value {
-                    let player = game.player_mut(controller);
-                    if value.eq_ignore_ascii_case("Unlimited") {
-                        player.unlimited_hand_size = true;
-                    } else if let Ok(n) = value.parse::<i32>() {
-                        player.max_hand_size = n;
-                    }
-                }
-                if let Some(value) = raise_value {
-                    if let Ok(n) = value.parse::<i32>() {
-                        let player = game.player_mut(controller);
-                        player.max_hand_size = player.max_hand_size.saturating_add(n);
-                    }
-                }
-            }
-        }
-    }
-
     // ── 2. Build list of effects-to-apply (deferred to allow sorting) ────
     let mut pending: Vec<PendingEffect> = Vec::new();
-    let mut cant_attack_targets: Vec<CardId> = Vec::new();
-    let mut cant_block_targets: Vec<CardId> = Vec::new();
-    let mut granted_player_rules: Vec<(CardId, StaticAbility)> = Vec::new();
 
     let source_ids: Vec<CardId> = game.cards.iter().map(|card| card.id).collect();
     for source_id in source_ids {
@@ -289,8 +256,19 @@ pub fn apply_continuous_effects(game: &mut GameState) {
                 continue;
             }
 
-            if sa.check_mode(&StaticMode::Continuous) {
-                apply_player_rules_effects(game, source_id, &sa);
+            if sa.check_mode(&StaticMode::Continuous)
+                && (sa.ir.adjust_land_plays_text.is_some()
+                    || sa.ir.set_max_hand_size.is_some()
+                    || sa.ir.raise_max_hand_size.is_some())
+            {
+                pending.push(PendingEffect {
+                    source: source_id,
+                    static_index: sa_idx,
+                    intrinsic: sa.base.is_intrinsic(),
+                    layer: Layer::Rules,
+                    target: source_id,
+                    kind: EffectKind::PlayerRules(Box::new(sa.clone())),
+                });
             }
 
             // CharacteristicDefining statics always affect only the host card.
@@ -316,6 +294,9 @@ pub fn apply_continuous_effects(game: &mut GameState) {
                         };
                         if let Some(controller) = new_controller {
                             pending.push(PendingEffect {
+                                source: source_id,
+                                static_index: sa_idx,
+                                intrinsic: sa.base.is_intrinsic(),
                                 layer: Layer::Control,
                                 target,
                                 kind: EffectKind::SetController { controller },
@@ -329,6 +310,9 @@ pub fn apply_continuous_effects(game: &mut GameState) {
                         let p = resolve_add_pt_value(game, source_id, add_power);
                         let t = resolve_add_pt_value(game, source_id, add_toughness);
                         pending.push(PendingEffect {
+                            source: source_id,
+                            static_index: sa_idx,
+                            intrinsic: sa.base.is_intrinsic(),
                             layer: Layer::ModifyPT,
                             target,
                             kind: EffectKind::AddPT {
@@ -339,9 +323,28 @@ pub fn apply_continuous_effects(game: &mut GameState) {
                     }
 
                     let add_type = sa.ir.add_type_text.as_deref();
+                    if sa.ir.remove_land_types
+                        && (add_type.is_none()
+                            || !resolve_added_types(&source_card, add_type).is_empty())
+                    {
+                        pending.push(PendingEffect {
+                            source: source_id,
+                            static_index: sa_idx,
+                            intrinsic: sa.base.is_intrinsic(),
+                            layer: Layer::Type,
+                            target,
+                            kind: EffectKind::RemoveLandTypes {
+                                timestamp: source_card.zone_timestamp as i64,
+                                static_id: static_layer_trait_id(source_id, sa_idx),
+                            },
+                        });
+                    }
                     let source = game.card(source_id);
                     for added_type in resolve_added_types(source, add_type) {
                         pending.push(PendingEffect {
+                            source: source_id,
+                            static_index: sa_idx,
+                            intrinsic: sa.base.is_intrinsic(),
                             layer: Layer::Type,
                             target,
                             kind: EffectKind::AddType(added_type),
@@ -361,6 +364,9 @@ pub fn apply_continuous_effects(game: &mut GameState) {
                             Layer::SetPT
                         };
                         pending.push(PendingEffect {
+                            source: source_id,
+                            static_index: sa_idx,
+                            intrinsic: sa.base.is_intrinsic(),
                             layer,
                             target,
                             kind: EffectKind::SetPT {
@@ -374,6 +380,9 @@ pub fn apply_continuous_effects(game: &mut GameState) {
                         // AddKeyword$ supports multiple keywords separated by " & ".
                         for kw in kws.split('&').map(str::trim).filter(|s| !s.is_empty()) {
                             pending.push(PendingEffect {
+                                source: source_id,
+                                static_index: sa_idx,
+                                intrinsic: sa.base.is_intrinsic(),
                                 layer: Layer::Ability,
                                 target,
                                 kind: EffectKind::GrantKeyword(kw.to_string()),
@@ -383,6 +392,9 @@ pub fn apply_continuous_effects(game: &mut GameState) {
 
                     if sa.ir.remove_all_abilities {
                         pending.push(PendingEffect {
+                            source: source_id,
+                            static_index: sa_idx,
+                            intrinsic: sa.base.is_intrinsic(),
                             layer: Layer::Ability,
                             target,
                             kind: EffectKind::RemoveAllCardTraits {
@@ -399,6 +411,9 @@ pub fn apply_continuous_effects(game: &mut GameState) {
                     if let Some(svar_name) = sa.ir.add_ability_text.as_deref() {
                         if let Some(ab_text) = source_card.svars.get(svar_name).cloned() {
                             pending.push(PendingEffect {
+                                source: source_id,
+                                static_index: sa_idx,
+                                intrinsic: sa.base.is_intrinsic(),
                                 layer: Layer::Ability,
                                 target,
                                 kind: EffectKind::GrantAbility {
@@ -417,6 +432,9 @@ pub fn apply_continuous_effects(game: &mut GameState) {
                         {
                             if let Some(trig_text) = source_card.svars.get(svar_name).cloned() {
                                 pending.push(PendingEffect {
+                                    source: source_id,
+                                    static_index: sa_idx,
+                                    intrinsic: sa.base.is_intrinsic(),
                                     layer: Layer::Ability,
                                     target,
                                     kind: EffectKind::GrantTrigger {
@@ -438,7 +456,14 @@ pub fn apply_continuous_effects(game: &mut GameState) {
                                 if let Some(granted) =
                                     crate::staticability::parse_static_ability(&static_text)
                                 {
-                                    granted_player_rules.push((target, granted));
+                                    pending.push(PendingEffect {
+                                        source: source_id,
+                                        static_index: sa_idx,
+                                        intrinsic: sa.base.is_intrinsic(),
+                                        layer: Layer::Rules,
+                                        target,
+                                        kind: EffectKind::PlayerRules(Box::new(granted)),
+                                    });
                                 }
                             }
                         }
@@ -447,6 +472,9 @@ pub fn apply_continuous_effects(game: &mut GameState) {
                     for subtype in resolve_added_basic_land_types(&source_card, add_type) {
                         if let Some(ab_text) = basic_land_mana_ability_text(&subtype) {
                             pending.push(PendingEffect {
+                                source: source_id,
+                                static_index: sa_idx,
+                                intrinsic: sa.base.is_intrinsic(),
                                 layer: Layer::Ability,
                                 target,
                                 kind: EffectKind::GrantAbility {
@@ -459,10 +487,24 @@ pub fn apply_continuous_effects(game: &mut GameState) {
                 }
 
                 if sa.check_mode(&StaticMode::CantAttack) {
-                    cant_attack_targets.push(target);
+                    pending.push(PendingEffect {
+                        source: source_id,
+                        static_index: sa_idx,
+                        intrinsic: sa.base.is_intrinsic(),
+                        layer: Layer::Rules,
+                        target,
+                        kind: EffectKind::CantAttack,
+                    });
                 }
                 if sa.check_mode(&StaticMode::CantBlock) {
-                    cant_block_targets.push(target);
+                    pending.push(PendingEffect {
+                        source: source_id,
+                        static_index: sa_idx,
+                        intrinsic: sa.base.is_intrinsic(),
+                        layer: Layer::Rules,
+                        target,
+                        kind: EffectKind::CantBlock,
+                    });
                 }
             };
 
@@ -525,25 +567,50 @@ pub fn apply_continuous_effects(game: &mut GameState) {
         }
     }
 
-    for (source_id, granted) in granted_player_rules {
-        apply_player_rules_effects(game, source_id, &granted);
-    }
-
-    for target in cant_attack_targets {
-        game.cards[target.index()].cant_attack_static = true;
-    }
-    for target in cant_block_targets {
-        game.cards[target.index()].cant_block_static = true;
-    }
-
     // ── 4. Sort by layer then apply ──────────────────────────────────────
     // CR 613.1: apply layers 1→7c in order. Within the same layer, timestamp
     // ordering is preserved by the stable sort (sources were collected in
     // card-declaration order, which approximates timestamp order).
     pending.sort_by_key(|e| e.layer);
 
-    for effect in pending {
+    let overwrite_targets: std::collections::HashSet<_> = pending
+        .iter()
+        .filter(|effect| matches!(effect.kind, EffectKind::RemoveLandTypes { .. }))
+        .map(|effect| effect.target)
+        .collect();
+    let mut pending: std::collections::VecDeque<_> = pending.into();
+    let mut removed_intrinsic_sources = std::collections::HashSet::new();
+    let mut started_abilities = std::collections::HashSet::new();
+    while !pending.is_empty() {
+        let layer = pending[0].layer;
+        let next = pending
+            .iter()
+            .position(|effect| {
+                effect.layer == layer
+                    && (layer != Layer::Type
+                        || !effect.intrinsic
+                        || !overwrite_targets.contains(&effect.source)
+                        || !pending.iter().any(|dependency| {
+                            matches!(dependency.kind, EffectKind::RemoveLandTypes { .. })
+                                && dependency.target == effect.source
+                                && (dependency.source, dependency.static_index)
+                                    != (effect.source, effect.static_index)
+                        }))
+            })
+            .unwrap_or(0);
+        let effect = pending.remove(next).expect("selected pending effect");
+        let ability = (effect.source, effect.static_index);
+        if effect.intrinsic
+            && removed_intrinsic_sources.contains(&effect.source)
+            && !started_abilities.contains(&ability)
+        {
+            continue;
+        }
+        started_abilities.insert(ability);
         match effect.kind {
+            EffectKind::PlayerRules(sa) => apply_player_rules_effects(game, effect.target, &sa),
+            EffectKind::CantAttack => game.cards[effect.target.index()].cant_attack_static = true,
+            EffectKind::CantBlock => game.cards[effect.target.index()].cant_block_static = true,
             EffectKind::SetController { controller } => {
                 game.change_controller(effect.target, controller);
             }
@@ -607,6 +674,27 @@ pub fn apply_continuous_effects(game: &mut GameState) {
                     );
                 }
             }
+            EffectKind::RemoveLandTypes {
+                timestamp,
+                static_id,
+            } => {
+                removed_intrinsic_sources.insert(effect.target);
+                let card = &mut game.cards[effect.target.index()];
+                if card.static_type_line_base.is_none() {
+                    card.static_type_line_base = Some(card.type_line.clone());
+                }
+                card.type_line
+                    .subtypes
+                    .retain(|subtype| !crate::game::TypeRegistry::is_land_type(subtype));
+                card.add_changed_card_traits(
+                    crate::card::card_trait_changes::CardTraitChanges {
+                        remove_intrinsic: true,
+                        ..Default::default()
+                    },
+                    timestamp,
+                    static_id,
+                );
+            }
             EffectKind::AddType(t) => {
                 let card = &mut game.cards[effect.target.index()];
                 if !type_line_has_token(&card.type_line, &t) {
@@ -660,10 +748,25 @@ pub fn apply_continuous_effects(game: &mut GameState) {
 }
 
 fn apply_player_rules_effects(game: &mut GameState, source_id: CardId, sa: &StaticAbility) {
+    let affected_players = affected_players_for_static(game, source_id, sa);
+    for &pid in &affected_players {
+        if let Some(value) = sa.ir.set_max_hand_size.as_deref() {
+            if value.eq_ignore_ascii_case("Unlimited") {
+                game.player_mut(pid).unlimited_hand_size = true;
+            } else if let Ok(n) = value.parse::<i32>() {
+                game.player_mut(pid).max_hand_size = n;
+            }
+        }
+        if let Some(value) = sa.ir.raise_max_hand_size.as_deref() {
+            if let Ok(n) = value.parse::<i32>() {
+                let player = game.player_mut(pid);
+                player.max_hand_size = player.max_hand_size.saturating_add(n);
+            }
+        }
+    }
     let Some(adjust_land_plays) = sa.ir.adjust_land_plays_text.as_deref() else {
         return;
     };
-    let affected_players = affected_players_for_static(game, source_id, sa);
     if affected_players.is_empty() {
         return;
     }
