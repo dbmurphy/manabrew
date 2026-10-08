@@ -769,7 +769,10 @@ public final class HarnessCostPlumbing {
             final boolean shouldAsk = !(source != null && source.isPlaneswalker());
             if (!confirm(cost, shouldAsk)) return null;
             final int amount = cost.getAbilityAmount(ability);
-            if (amount <= 0) {
+            if (amount == 0) {
+                return PaymentDecision.counters(new GameEntityCounterTable());
+            }
+            if (amount < 0) {
                 return null;
             }
 
