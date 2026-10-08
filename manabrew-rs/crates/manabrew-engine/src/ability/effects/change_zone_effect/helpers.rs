@@ -91,6 +91,9 @@ pub(super) fn find_search_limit(
     _search_player: PlayerId,
     searcher: PlayerId,
 ) -> Option<usize> {
+    if crate::player::has_keyword(ctx.game, searcher, "LimitSearchLibrary") {
+        return Some(4);
+    }
     for card in ctx.game.cards.iter() {
         if card.zone != ZoneType::Battlefield || card.controller == searcher {
             continue;
@@ -108,38 +111,57 @@ pub(super) fn find_search_limit(
 
 /// Check for Opposition Agent — redirects search control to an opponent.
 pub(super) fn find_opposition_agent(ctx: &EffectContext, searcher: PlayerId) -> Option<PlayerId> {
-    for card in ctx.game.cards.iter() {
-        if card.zone != ZoneType::Battlefield || card.controller == searcher {
-            continue;
-        }
-        for kw in card.keywords.iter_strings() {
-            if kw.eq_ignore_ascii_case("OppositionAgent") || kw.contains("ControlSearching") {
-                return Some(card.controller);
-            }
-        }
-        if card.card_name == "Opposition Agent" {
-            return Some(card.controller);
-        }
-    }
-    None
+    ctx.game
+        .cards
+        .iter()
+        .flat_map(|card| {
+            card.static_abilities.iter().filter_map(move |ability| {
+                let defined = ability
+                    .ir
+                    .control_opponents_searching_library_text
+                    .as_deref()?;
+                if !ability.check_mode(&crate::staticability::StaticMode::Continuous)
+                    || !ability.check_conditions(card, ctx.game)
+                    || ability.ignore_effect_players.contains(&searcher)
+                    || !crate::card::valid_filter::matches_valid(
+                        ability.ir.affected_text.as_deref()?,
+                        None,
+                        Some(searcher),
+                        card,
+                        card.controller,
+                    )
+                {
+                    return None;
+                }
+                crate::ability::ability_utils::get_defined_players(
+                    ctx.game,
+                    Some(card.id),
+                    defined,
+                    Some(card.controller),
+                )
+                .first()
+                .copied()
+                .map(|declarer| (card.zone_timestamp, declarer))
+            })
+        })
+        .max_by_key(|&(timestamp, _)| timestamp)
+        .map(|(_, declarer)| declarer)
 }
 
 /// Check if a player can search their library (Leonin Arbiter, etc.)
-pub(super) fn can_search_library(ctx: &EffectContext, searcher: PlayerId) -> bool {
-    for card in ctx.game.cards.iter() {
-        if card.zone != ZoneType::Battlefield {
-            continue;
-        }
-        for kw in card.keywords.iter_strings() {
-            if kw.eq_ignore_ascii_case("CantSearchLibrary") {
-                return false;
-            }
-            if kw.starts_with("CantSearchLibraryUnlessPaid") && card.controller != searcher {
-                return false;
-            }
-        }
-    }
-    true
+pub(super) fn can_search_library(
+    ctx: &EffectContext,
+    sa: &SpellAbility,
+    searcher: PlayerId,
+    target_player: PlayerId,
+) -> bool {
+    !crate::player::has_keyword(ctx.game, searcher, "CantSearchLibrary")
+        && (target_player != sa.activating_player
+            || !crate::player::has_keyword(
+                ctx.game,
+                searcher,
+                "Spells and abilities you control can't cause you to search your library.",
+            ))
 }
 
 // ─── Destination Resolution ─────────────────────────────────────────────────
@@ -261,6 +283,7 @@ pub(super) fn apply_pre_move(
                     ctx.game,
                     ctrl,
                     &valid,
+                    None,
                     "Select a card to attach to",
                     false,
                 ) {
@@ -433,6 +456,7 @@ pub(super) fn apply_post_move(
                     ctx.game,
                     controller,
                     &valid,
+                    None,
                     "Select a card to attach to",
                     false,
                 ) {

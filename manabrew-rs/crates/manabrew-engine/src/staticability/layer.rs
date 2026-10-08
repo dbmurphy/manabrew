@@ -210,6 +210,7 @@ pub fn apply_continuous_effects(game: &mut GameState) {
     for player in game.players.iter_mut() {
         player.max_land_plays_per_turn = 1;
         player.unlimited_land_plays = false;
+        player.static_keywords.clear();
     }
 
     // ── 1b. Keyword-derived restrictions ────────────────────────────────
@@ -660,10 +661,21 @@ pub fn apply_continuous_effects(game: &mut GameState) {
 }
 
 fn apply_player_rules_effects(game: &mut GameState, source_id: CardId, sa: &StaticAbility) {
+    let affected_players = affected_players_for_static(game, source_id, sa);
+    if let Some(keywords) = sa.ir.add_keyword_text.as_deref() {
+        for &player in &affected_players {
+            game.player_mut(player).static_keywords.extend(
+                keywords
+                    .split(" & ")
+                    .map(str::trim)
+                    .filter(|keyword| !keyword.is_empty())
+                    .map(str::to_string),
+            );
+        }
+    }
     let Some(adjust_land_plays) = sa.ir.adjust_land_plays_text.as_deref() else {
         return;
     };
-    let affected_players = affected_players_for_static(game, source_id, sa);
     if affected_players.is_empty() {
         return;
     }

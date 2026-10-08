@@ -237,6 +237,8 @@ export class PromptLayer extends PromptModalLayer {
   }
 
   private resetLocalState(spec: PromptOverlaySpec | null): void {
+    this.inspectionPrompt = null;
+    this.inspectionActive = false;
     this.promptCardStates.clear();
     this.activePromptCard = null;
     this.activePromptCardId = null;
@@ -346,7 +348,9 @@ export class PromptLayer extends PromptModalLayer {
       setVirtualTextInputActive(
         this,
         (input.type === "chooseFromSelection" && input.options.length > 5) ||
-          (input.type === "chooseCards" && input.cards.length > 1 && this.selectionFilterFocused),
+          (input.type === "chooseCards" &&
+            (input.cards.length > 1 || (input.inspectionCards?.length ?? 0) > 1) &&
+            this.selectionFilterFocused),
       );
       this.modalOpen = true;
       this.renderModal();
@@ -2187,7 +2191,9 @@ export class PromptLayer extends PromptModalLayer {
       return;
     }
     const input = this.spec.currentPrompt?.input;
-    const searchingCards = input?.type === "chooseCards" && input.cards.length > 1;
+    const searchingCards =
+      input?.type === "chooseCards" &&
+      (input.cards.length > 1 || (input.inspectionCards?.length ?? 0) > 1);
     if (
       ((input?.type === "chooseFromSelection" && input.options.length > 5) ||
         (searchingCards && this.selectionFilterFocused)) &&
@@ -2272,6 +2278,16 @@ export class PromptLayer extends PromptModalLayer {
       event.preventDefault();
       this.spec.respond({ type: "revealCardsAcknowledged" });
     } else if (input.type === "chooseCards") {
+      if (this.isInspectingCards) {
+        event.preventDefault();
+        this.inspectionActive = false;
+        this.selectionFilter = "";
+        this.modalScrollOffset = 0;
+        this.modalScrollTarget = 0;
+        this.compactScrollPan = null;
+        this.rebuild();
+        return;
+      }
       const chosen = [...this.selectedIds];
       if (chosen.length >= input.min && chosen.length <= input.max) {
         event.preventDefault();

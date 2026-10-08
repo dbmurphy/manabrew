@@ -919,17 +919,13 @@ public final class ManaBrewInteractiveController extends PlayerController implem
             final boolean isOptional,
             final Player decider
     ) {
-        if (delayedReveal != null) {
-            reveal(delayedReveal);
+        if (fetchList.isEmpty() || (!isOptional && fetchList.size() == 1)) {
+            if (delayedReveal != null) reveal(delayedReveal);
+            return fetchList.isEmpty() ? null : fetchList.get(0);
         }
-        if (fetchList.isEmpty()) {
-            return null;
-        }
-        if (!isOptional && fetchList.size() == 1) {
-            return fetchList.get(0);
-        }
-        final CardCollection selected = session.awaitCardChoice(
-                "choose_cards_for_effect", me(), fetchList, 1, 1, sourceName(sa), sourceCardId(sa), selectPrompt, isOptional);
+        final CardCollection selected = session.awaitInspectedCardChoice(
+                me(), fetchList, 1, 1, sourceName(sa), sourceCardId(sa), selectPrompt, isOptional,
+                delayedReveal == null ? null : delayedReveal.getCards());
         return selected.isEmpty() ? null : selected.get(0);
     }
 
@@ -945,14 +941,13 @@ public final class ManaBrewInteractiveController extends PlayerController implem
             final String selectPrompt,
             final Player decider
     ) {
-        if (delayedReveal != null) {
-            reveal(delayedReveal);
-        }
         if (fetchList.isEmpty()) {
+            if (delayedReveal != null) reveal(delayedReveal);
             return new ArrayList<>();
         }
-        return new ArrayList<Card>(session.awaitCardChoice(
-                "choose_cards_for_effect", me(), fetchList, min, max, sourceName(sa), sourceCardId(sa), selectPrompt));
+        return new ArrayList<Card>(session.awaitInspectedCardChoice(
+                me(), fetchList, min, max, sourceName(sa), sourceCardId(sa), selectPrompt, false,
+                delayedReveal == null ? null : delayedReveal.getCards()));
     }
 
     @Override

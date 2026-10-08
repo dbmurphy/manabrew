@@ -54,6 +54,7 @@ fn resolve(ctx: &mut EffectContext, sa: &crate::spellability::SpellAbility) {
                 ctx.game,
                 controller,
                 &candidates,
+                None,
                 "Choose a card to meld",
                 false,
             )

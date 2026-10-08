@@ -713,14 +713,49 @@ impl PlayerAgent for CapturingAgent {
         result
     }
 
-    parity_agent_callback! {
-        fn choose_single_card_for_zone_change(&mut self, game: &GameState, player: PlayerId, valid: &[CardId], select_prompt: &str, is_optional: bool) -> Option<CardId> => "choose_single_card_for_zone_change", format_with |result: &Option<CardId>, fmt: Option<FmtCtx<'_>>| {
-            match (result, fmt) {
-                (Some(cid), Some(ctx)) => ctx.card(*cid),
-                (Some(cid), None) => format!("{cid:?}"),
-                (None, _) => "null".to_string(),
-            }
+    fn choose_single_card_for_zone_change(
+        &mut self,
+        game: &GameState,
+        player: PlayerId,
+        valid: &[CardId],
+        delayed_reveal: Option<&manabrew_engine::player::DelayedReveal>,
+        select_prompt: &str,
+        is_optional: bool,
+    ) -> Option<CardId> {
+        self.save_snapshot("choose_single_card_for_zone_change");
+        let fmt = self.fmt_ctx();
+        let cb_args = vec![
+            game.callback_arg_display(fmt.as_ref()),
+            player.callback_arg_display(fmt.as_ref()),
+            valid.callback_arg_display(fmt.as_ref()),
+            select_prompt.callback_arg_display(fmt.as_ref()),
+            is_optional.callback_arg_display(fmt.as_ref()),
+        ];
+        let result = self.inner.choose_single_card_for_zone_change(
+            game,
+            player,
+            valid,
+            delayed_reveal,
+            select_prompt,
+            is_optional,
+        );
+        let outcome = match (result, self.fmt_ctx()) {
+            (Some(cid), Some(ctx)) => ctx.card(cid),
+            (Some(cid), None) => format!("{cid:?}"),
+            (None, _) => "null".to_string(),
         };
+        self.parity_observer.on_callback(
+            "choose_single_card_for_zone_change",
+            &outcome,
+            self.player_id.0,
+            self.current_turn,
+            &self.current_phase,
+            cb_args,
+        );
+        result
+    }
+
+    parity_agent_callback! {
         fn choose_counter_type(&mut self, player: PlayerId, options: &[manabrew_engine::card::CounterType], prompt: &str) -> Option<manabrew_engine::card::CounterType> => "choose_counter_type", format_with |result: &Option<manabrew_engine::card::CounterType>, _fmt: Option<FmtCtx<'_>>| {
             match result {
                 Some(manabrew_engine::card::CounterType::Named(name)) => name.clone(),

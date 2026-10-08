@@ -74,6 +74,7 @@ fn learn_lesson(ctx: &mut EffectContext, _sa: &SpellAbility, player: PlayerId) {
         ctx.game,
         player,
         &all_options,
+        None,
         "Learn: choose a Lesson from sideboard, or a card from hand to discard",
         true, // optional
     );

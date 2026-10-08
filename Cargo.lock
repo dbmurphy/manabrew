@@ -4534,7 +4534,7 @@ dependencies = [
 
 [[package]]
 name = "manabrew-protocol"
-version = "5.13.0"
+version = "5.14.0"
 dependencies = [
  "serde",
  "serde_json",

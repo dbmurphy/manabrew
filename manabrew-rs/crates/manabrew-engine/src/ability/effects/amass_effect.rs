@@ -70,6 +70,7 @@ fn resolve(ctx: &mut EffectContext, sa: &crate::spellability::SpellAbility) {
                 ctx.game,
                 controller,
                 &armies,
+                None,
                 "Choose an Army",
                 false,
             )

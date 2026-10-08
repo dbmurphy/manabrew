@@ -281,6 +281,7 @@ pub struct StaticAbilityIr {
     pub add_trigger_text: Option<String>,
     pub add_static_ability_text: Option<String>,
     pub adjust_land_plays_text: Option<String>,
+    pub control_opponents_searching_library_text: Option<String>,
     pub type_filter: Option<String>,
     pub mana_conversion: Option<String>,
     pub except_cause_text: Option<String>,
@@ -466,6 +467,9 @@ impl StaticAbilityIr {
             add_trigger_text: raw.get(keys::ADD_TRIGGER).map(String::to_string),
             add_static_ability_text: raw.get("AddStaticAbility").map(String::to_string),
             adjust_land_plays_text: raw.get(keys::ADJUST_LAND_PLAYS).map(String::to_string),
+            control_opponents_searching_library_text: raw
+                .get("ControlOpponentsSearchingLibrary")
+                .map(String::to_string),
             type_filter: raw.get(keys::TYPE).map(String::to_string),
             mana_conversion: raw.get(keys::MANA_CONVERSION).map(String::to_string),
             except_cause_text: raw.get(keys::EXCEPT_CAUSE).map(String::to_string),

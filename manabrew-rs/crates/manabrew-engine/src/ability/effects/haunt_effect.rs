@@ -43,6 +43,7 @@ fn resolve(ctx: &mut EffectContext, sa: &crate::spellability::SpellAbility) {
                 ctx.game,
                 controller,
                 &creatures,
+                None,
                 "Choose a creature to haunt",
                 false,
             )

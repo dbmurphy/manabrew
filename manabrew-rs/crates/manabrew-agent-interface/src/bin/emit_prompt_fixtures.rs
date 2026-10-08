@@ -241,6 +241,7 @@ fn main() {
             }],
         }),
         ChooseCards(choose_cards::ChooseCardsInput {
+            inspection_cards: None,
             presentation: common::PromptPresentation {
                 title: "Choose cards".to_string(),
                 description: None,

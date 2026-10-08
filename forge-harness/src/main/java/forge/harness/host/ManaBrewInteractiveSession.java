@@ -1114,6 +1114,31 @@ public final class ManaBrewInteractiveSession {
         return awaitCardsFromPublishedPrompt(cards, clampedMin, clampedMax, optionalDecline);
     }
 
+    CardCollection awaitInspectedCardChoice(
+            final int playerId,
+            final CardCollectionView validCards,
+            final int min,
+            final int max,
+            final String sourceName,
+            final String sourceCardId,
+            final String description,
+            final boolean optionalDecline,
+            final List<CardView> inspectionCards
+    ) {
+        requireAttached();
+        final List<Card> cards = ParityOrder.sortCardsByNameThenId(new ArrayList<Card>(validCards));
+        final int clampedMin = Math.min(min, cards.size());
+        final int clampedMax = Math.min(max, cards.size());
+        final ChooseCardsInput input = chooseCardsInput(
+                sourceName == null ? "Choose cards" : sourceName, description, cards, false,
+                optionalDecline ? 0 : clampedMin, clampedMax);
+        if (inspectionCards != null && !inspectionCards.isEmpty()) {
+            input.inspectionCards = cardDtosFromViews(inspectionCards);
+        }
+        publishAgentPrompt("player-" + playerId, sourceCardId, input);
+        return awaitCardsFromPublishedPrompt(cards, clampedMin, clampedMax, optionalDecline);
+    }
+
     void awaitRevealCards(
             final int playerId,
             final CardCollectionView cardsForPrompt,
@@ -2292,7 +2317,7 @@ public final class ManaBrewInteractiveSession {
             final int max
     ) {
         return new ChooseCardsInput(
-                presentation(title, description), richCards(cards, castable), min, max);
+                presentation(title, description), richCards(cards, castable), null, min, max);
     }
 
     private void publishCardChoicePrompt(
@@ -2446,6 +2471,11 @@ public final class ManaBrewInteractiveSession {
         final String ownerPlayerId = owner != null
                 ? "player-view-" + owner.getId()
                 : "player-" + playerId;
+        publishAgentPrompt("player-" + playerId, null, revealInput(
+                zoneKind(zone), messagePrefix, ownerPlayerId, cardDtosFromViews(cards)));
+    }
+
+    private List<CardDto> cardDtosFromViews(final List<CardView> cards) {
         final List<CardDto> cardArray = new java.util.ArrayList<>();
         for (final CardView card : cards) {
             final Card real = game.findById(card.getId());
@@ -2458,8 +2488,7 @@ public final class ManaBrewInteractiveSession {
                 cardArray.add(minimal);
             }
         }
-        publishAgentPrompt("player-" + playerId, null, revealInput(
-                zoneKind(zone), messagePrefix, ownerPlayerId, cardArray));
+        return cardArray;
     }
 
     private RevealCardsInput revealInput(

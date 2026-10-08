@@ -80,6 +80,7 @@ fn ring_tempts(ctx: &mut EffectContext, _sa: &SpellAbility, player: PlayerId) {
             ctx.game,
             player,
             &creatures,
+            None,
             "Choose your Ring-bearer",
             false,
         ) {

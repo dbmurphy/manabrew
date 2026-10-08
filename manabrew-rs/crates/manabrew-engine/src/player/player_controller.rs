@@ -255,6 +255,7 @@ impl<'a, A: PlayerAgent + ?Sized> PlayerController<'a, A> {
     pub fn choose_single_card_for_zone_change(
         &mut self,
         valid: &[CardId],
+        delayed_reveal: Option<&crate::player::DelayedReveal>,
         select_prompt: &str,
         is_optional: bool,
     ) -> Option<CardId> {
@@ -262,6 +263,7 @@ impl<'a, A: PlayerAgent + ?Sized> PlayerController<'a, A> {
             self.game,
             self.player,
             valid,
+            delayed_reveal,
             select_prompt,
             is_optional,
         )

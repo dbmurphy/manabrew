@@ -10,6 +10,9 @@ use crate::prompts::common::PromptPresentation;
 pub struct ChooseCardsInput {
     pub presentation: PromptPresentation,
     pub cards: Vec<CardDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub inspection_cards: Option<Vec<CardDto>>,
     pub min: usize,
     pub max: usize,
 }
