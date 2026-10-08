@@ -1,6 +1,7 @@
 mod capture;
 mod event;
 mod sink;
+pub mod webhook;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -22,6 +23,7 @@ const CHANNEL_CAPACITY: usize = 8192;
 #[derive(Clone)]
 pub struct AnalyticsHandle {
     events: Option<mpsc::Sender<AnalyticsEvent>>,
+    webhooks: std::sync::Arc<webhook::WebhookHandle>,
     capture: Option<std::sync::mpsc::SyncSender<capture::CaptureMessage>>,
 }
 
@@ -29,6 +31,7 @@ impl AnalyticsHandle {
     pub fn disabled() -> Self {
         AnalyticsHandle {
             events: None,
+            webhooks: std::sync::Arc::new(webhook::WebhookHandle::spawn(Vec::new())),
             capture: None,
         }
     }
@@ -50,7 +53,13 @@ impl AnalyticsHandle {
             capture::spawn(rx, PathBuf::from(dir), config.capture_max_bytes());
             tx
         });
-        AnalyticsHandle { events, capture }
+        let webhooks =
+            std::sync::Arc::new(webhook::WebhookHandle::spawn(config.game_webhooks.clone()));
+        AnalyticsHandle {
+            events,
+            capture,
+            webhooks,
+        }
     }
 
     pub fn events_enabled(&self) -> bool {
@@ -187,6 +196,26 @@ pub fn emit_game_ended(
         .iter()
         .filter_map(|slot| replay.username_for_slot(slot))
         .collect();
+    if room.hosted
+        && replay.outcome.reported
+        && replay.outcome.game_over
+        && replay.outcome.fatal_message.is_none()
+    {
+        handle.webhooks.emit(webhook::GameResult {
+            schema_version: 1,
+            event: "game_ended",
+            game_id: replay.game_id.clone(),
+            format: room.format.clone(),
+            winner: winner.clone(),
+            players: replay
+                .player_order
+                .iter()
+                .map(|username| webhook::ResultPlayer {
+                    username: username.clone(),
+                })
+                .collect(),
+        });
+    }
     handle.emit(AnalyticsEvent::GameEnded {
         ts: now_ts(),
         game_id: replay.game_id.clone(),
