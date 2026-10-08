@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { type CSSProperties } from "react";
 import {
   Flag,
   Image as ImageIcon,
@@ -23,7 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useGameStore } from "@/stores/useGameStore";
-import { getPlatformType } from "@/platform";
+import { useFullscreen } from "@/hooks/useFullscreen";
 import { useKeybindings } from "@/hooks/useKeybindings";
 interface MiddleBarDockProps {
   open: boolean;
@@ -58,25 +58,10 @@ export function MiddleBarDock({
   onToggleSidePanel,
   players,
 }: MiddleBarDockProps) {
-  const isWeb = getPlatformType() === "web";
   const hiddenPlaymats = useGameStore((s) => s.hiddenPlaymats);
   const togglePlaymatHidden = useGameStore((s) => s.togglePlaymatHidden);
-  const [isFullscreen, setIsFullscreen] = useState(
-    typeof document !== "undefined" && document.fullscreenElement !== null,
-  );
-  useEffect(() => {
-    const sync = () => setIsFullscreen(document.fullscreenElement !== null);
-    document.addEventListener("fullscreenchange", sync);
-    return () => document.removeEventListener("fullscreenchange", sync);
-  }, []);
-  const toggleFullscreen = useCallback(() => {
-    if (document.fullscreenElement) {
-      void document.exitFullscreen().catch(() => undefined);
-    } else {
-      void document.documentElement.requestFullscreen().catch(() => undefined);
-    }
-  }, []);
-  useKeybindings({ "toggle-fullscreen": toggleFullscreen });
+  const { isFullscreen, toggleFullscreen } = useFullscreen();
+  useKeybindings({ "toggle-fullscreen": () => void toggleFullscreen() });
   const FullscreenIcon = isFullscreen ? Minimize2 : Maximize2;
   const PanelIcon = sidePanelCollapsed ? PanelRightOpen : PanelRightClose;
   return (
@@ -89,12 +74,10 @@ export function MiddleBarDock({
         side="top"
         className="[&_[role=menuitem]]:pointer-coarse:min-h-12"
       >
-        {isWeb && (
-          <DropdownMenuItem onSelect={() => toggleFullscreen()}>
-            <FullscreenIcon className="mr-2 h-4 w-4" />
-            {isFullscreen ? `Exit full screen` : `Full screen`}
-          </DropdownMenuItem>
-        )}
+        <DropdownMenuItem onSelect={() => void toggleFullscreen()}>
+          <FullscreenIcon className="mr-2 h-4 w-4" />
+          {isFullscreen ? `Exit full screen` : `Full screen`}
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => onToggleSidePanel()}>
           <PanelIcon className="mr-2 h-4 w-4" />
           {sidePanelCollapsed ? `Show side panel` : `Hide side panel`}
