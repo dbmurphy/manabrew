@@ -215,7 +215,7 @@ public final class InteractiveSnapshotExtractor {
         view.put("priorityPlayerId", "player-" + asIndex(base.get("priority_player")));
         view.put("players", players);
         view.put("zones", zones);
-        view.put("stack", snapshotStack(game, castingAbility, activePlayerId));
+        view.put("stack", snapshotStack(game, castingAbility, activePlayerId, viewerPlayer));
         view.put("gameOver", base.get("game_over"));
         view.put("dayTime", dayTime(game));
         view.put("checkpoints", checkpoints);
@@ -1045,7 +1045,8 @@ public final class InteractiveSnapshotExtractor {
     private static List<Map<String, Object>> snapshotStack(
             final Game game,
             final SpellAbility castingAbility,
-            final String activePlayerId
+            final String activePlayerId,
+            final Player viewerPlayer
     ) {
         final List<Map<String, Object>> out = new ArrayList<>();
         final List<SpellAbilityStackInstance> entries = new ArrayList<>();
@@ -1080,14 +1081,38 @@ public final class InteractiveSnapshotExtractor {
                     && (source.isDoubleFaced() || source.isModal()));
             stackItem.put("faceIndex", stackFaceIndex(source, sa));
             stackItem.put("targets", stackTargets(game, item.getSpellAbility()));
+            redactFaceDownSpell(stackItem, source, sa, viewerPlayer);
             out.add(stackItem);
             index++;
         }
         final Map<String, Object> casting = castingStackEntry(game, castingAbility, activePlayerId);
         if (casting != null) {
+            redactFaceDownSpell(casting, castingAbility.getHostCard(), castingAbility, viewerPlayer);
             out.add(casting);
         }
         return out;
+    }
+
+    private static void redactFaceDownSpell(
+            final Map<String, Object> stackItem,
+            final Card source,
+            final SpellAbility ability,
+            final Player viewerPlayer
+    ) {
+        if (source == null || ability == null || !ability.isSpell()
+                || (!ability.isCastFaceDown() && !source.isFaceDown())
+                || (viewerPlayer != null && (source.getController() == viewerPlayer
+                        || source.getController().getView().getMindSlaveMaster() == viewerPlayer.getView()
+                        || (source.isFaceDown() && faceShownTo(source, viewerPlayer))))) {
+            return;
+        }
+        stackItem.put("identity", stackIdentity("Face-down spell", null));
+        stackItem.put("text", "Face-down spell");
+        stackItem.remove("sourceAbilityText");
+        stackItem.put("isPermanentSpell", true);
+        stackItem.put("isDoubleFaced", false);
+        stackItem.put("faceIndex", 0);
+        stackItem.put("targets", Collections.emptyList());
     }
 
     private static Map<String, Object> castingStackEntry(
