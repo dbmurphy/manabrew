@@ -335,6 +335,12 @@ export function isAutopassWindow(spec: PromptOverlaySpec | null): boolean {
     spec.action.promptActionOverride == null &&
     !spec.action.isWaitingForResponse &&
     !usePromptPreferencesStore.getState().fullControl &&
+    !(
+      usePromptPreferencesStore.getState().confirmPassWithMana &&
+      Object.values(
+        spec.gameView.players.find((player) => player.id === spec.localPlayerId)?.manaPool ?? {},
+      ).some((amount) => amount > 0)
+    ) &&
     input.actions.every((action) => action.type === "activateAbility" && action.isManaAbility)
   );
 }
