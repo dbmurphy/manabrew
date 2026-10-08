@@ -259,6 +259,7 @@ export class BoardScene {
 
   private hand: HandController | null = null;
   private handRulesViewDefault = false;
+  private handLayout: "fan" | "row" = "fan";
   private selection: SelectionController | null = null;
   private overlay: BattlefieldOverlay | null = null;
   private dragHandler: DragHandler;
@@ -1179,6 +1180,7 @@ export class BoardScene {
   private setupLocalControllers(region: BoardRegion): void {
     this.hand = new HandController(this.makeHandHost(), this.root);
     this.hand.setRulesViewDefault(this.handRulesViewDefault);
+    this.hand.setLayout(this.handLayout);
     this.presentation.configureHand(this.hand);
     this.selection = new SelectionController(this.makeSelectionHost(region), this.root);
     this.overlay = new BattlefieldOverlay(this.makeOverlayHost(region));
@@ -1298,6 +1300,11 @@ export class BoardScene {
   setHandCardStyle(style: InlineCardStyle): void {
     this.handRulesViewDefault = style === "rules";
     this.hand?.setRulesViewDefault(this.handRulesViewDefault);
+  }
+
+  setHandLayout(layout: "fan" | "row"): void {
+    this.handLayout = layout;
+    this.hand?.setLayout(layout);
   }
 
   handUsesRulesView(cardId: string): boolean {

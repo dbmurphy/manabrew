@@ -94,6 +94,16 @@ export function GameSettingsModal({ onClose }: { onClose: () => void }) {
             hint="Manual preserves your placement; automatic modes arrange new cards."
           />
           <Choice
+            label="Desktop hand layout"
+            value={prefs.handLayout}
+            options={[
+              { value: "fan", label: "Fan" },
+              { value: "row", label: "Row" },
+            ]}
+            onChange={prefs.setHandLayout}
+            hint="Row shows full cards and mana costs. Scroll over a large hand to reach more cards. Touch layouts keep the fan."
+          />
+          <Choice
             label="Hand default view"
             value={prefs.handCardStyle}
             options={INLINE_CARD_STYLE_OPTIONS}

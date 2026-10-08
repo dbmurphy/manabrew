@@ -601,6 +601,10 @@ export function BoardCanvasSurface({
   });
   const [handFlipBack, setHandFlipBack] = useState(false);
   const [handRulesView, setHandRulesView] = useState(false);
+  const handLayout = usePreferencesStore((state) => state.handLayout);
+  useEffect(() => {
+    scene?.setHandLayout(handLayout);
+  }, [handLayout, scene]);
   const handCardStyle = usePreferencesStore((state) => state.handCardStyle);
   const hoverCardId = handHover?.card.id ?? null;
   useEffect(() => {

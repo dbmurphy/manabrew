@@ -135,6 +135,8 @@ export interface PreferencesState {
   setCardHoverDelayMs: (ms: number) => void;
   inGameCardPreviewStyle: InGameCardPreviewStyle;
   setInGameCardPreviewStyle: (style: InGameCardPreviewStyle) => void;
+  handLayout: "fan" | "row";
+  setHandLayout: (layout: "fan" | "row") => void;
   handCardStyle: InlineCardStyle;
   setHandCardStyle: (style: InlineCardStyle) => void;
   stackCardStyle: InlineCardStyle;
@@ -206,6 +208,7 @@ const PERSISTED_PREFERENCE_KEYS = [
   "cardPreviewMode",
   "cardHoverDelayMs",
   "inGameCardPreviewStyle",
+  "handLayout",
   "handCardStyle",
   "stackCardStyle",
   "promptCardStyle",
@@ -385,6 +388,8 @@ export const usePreferencesStore = create<PreferencesState>()(
           setCardHoverDelayMs: (ms) => set({ cardHoverDelayMs: ms }),
           inGameCardPreviewStyle: "printed",
           setInGameCardPreviewStyle: (inGameCardPreviewStyle) => set({ inGameCardPreviewStyle }),
+          handLayout: "fan",
+          setHandLayout: (handLayout) => set({ handLayout }),
           handCardStyle: "printed",
           setHandCardStyle: (handCardStyle) => set({ handCardStyle }),
           stackCardStyle: "printed",

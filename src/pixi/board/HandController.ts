@@ -1,6 +1,7 @@
 import { Container, Graphics, type FederatedPointerEvent } from "pixi.js";
 import type { CardDto } from "@/protocol/game";
 import type { HandActionOption } from "@/stores/useGameUIStore";
+import { isCoarsePointer } from "@/lib/responsive";
 import type { PreviewPointerInput } from "@/lib/cardPreview";
 import type { HandCardControlsSpec } from "../HandCardControls";
 import { CardSprite } from "../CardSprite";
@@ -53,6 +54,9 @@ export class HandController {
   private lastState: HandState | null = null;
   private vScale = 1;
   private compact = false;
+  private layout: "fan" | "row" = "fan";
+  private rowOffset = 0;
+  private rowMask: Graphics;
   private sheetOpen = false;
   private peek = false;
   private rulesViewDefault = false;
@@ -68,6 +72,9 @@ export class HandController {
     this.container.sortableChildren = true;
     this.container.zIndex = Z_HAND_CONTAINER;
     parent.addChild(this.container);
+    this.rowMask = new Graphics();
+    this.rowMask.eventMode = "none";
+    parent.addChild(this.rowMask);
     this.reorderIndicator = new HandReorderIndicator();
     this.reorderIndicator.view.zIndex = 0;
     this.container.addChild(this.reorderIndicator.view);
@@ -118,6 +125,17 @@ export class HandController {
     this.compact = compact;
     if (this.lastState) this.updateHand(this.lastState);
   }
+  setLayout(layout: "fan" | "row"): void {
+    if (this.layout === layout) return;
+    this.layout = layout;
+    this.rowOffset = 0;
+    this.relayout();
+  }
+
+  private isRow(): boolean {
+    return this.layout === "row" && !this.compact && !isCoarsePointer();
+  }
+
   setSheetOpen(open: boolean): void {
     if (this.sheetOpen === open) return;
     this.sheetOpen = open;
@@ -131,6 +149,7 @@ export class HandController {
   }
 
   private bottomSinkFrac(): number {
+    if (this.isRow()) return 0;
     if (this.peek) return HAND_BOTTOM_SINK_FRAC_PEEK;
     if (this.sheetOpen) return HAND_BOTTOM_SINK_FRAC_SHEET;
     return this.compact ? HAND_BOTTOM_SINK_FRAC_COMPACT : HAND_BOTTOM_SINK_FRAC;
@@ -182,6 +201,7 @@ export class HandController {
       dims.maxSpread,
       dims.minSpread,
       dims.spreadWidth,
+      this.isRow(),
     );
     const layout = computeHandLayout(
       cards.length,
@@ -193,10 +213,20 @@ export class HandController {
       this.hoveredIndex,
       dims.hoverLift,
       dims.neighborPush,
+      this.isRow(),
     );
 
     const zone = this.host.getPlayZone();
-    const centerX = zone.x + zone.width / 2;
+    const centerX = zone.x + zone.width / 2 + this.rowCenterOffset();
+    if (this.isRow()) {
+      this.rowMask
+        .clear()
+        .rect(zone.x, 0, zone.width, zone.y + zone.height + dims.cardH)
+        .fill();
+      this.container.mask = this.rowMask;
+    } else {
+      this.container.mask = null;
+    }
     const bottomY = this.getBottomY();
     const hitZones: HandHitZone[] = [];
     let reorderIndicatorShown = false;
@@ -206,6 +236,13 @@ export class HandController {
       const l = layout[i]!;
       const base = baseLayout[i]!;
       const isHovered = this.hoveredIndex === i;
+      const cardX =
+        this.isRow() && isHovered
+          ? Math.max(
+              zone.x + l.scaleW / 2,
+              Math.min(zone.x + zone.width - l.scaleW / 2, centerX + l.x),
+            )
+          : centerX + l.x;
       const selectionMode = state.selectionMode === true;
       const isSelected = selectionMode && (state.selectedIds?.has(card.id) ?? false);
       const selectedDrop = isSelected ? Math.round(HAND_SELECTION_DROP_PX * this.vScale) : 0;
@@ -213,7 +250,7 @@ export class HandController {
       let sprite = this.sprites.get(card.id);
       if (!sprite) {
         sprite = this.createSprite(card);
-        sprite.x = centerX + l.x;
+        sprite.x = cardX;
         sprite.y = bottomY + l.y - l.scaleH / 2;
         sprite.scale.set(l.scaleW / CARD_W, l.scaleH / CARD_H);
       } else {
@@ -236,7 +273,7 @@ export class HandController {
       if (verticalInHand) rot -= Math.PI / 2;
       if (isReordering) {
         this.reorderIndicator.show(
-          centerX + l.x,
+          cardX,
           bottomY + l.y - l.scaleH / 2,
           l.scaleW,
           l.scaleH,
@@ -246,7 +283,7 @@ export class HandController {
         reorderIndicatorShown = true;
       }
       this.targets.set(card.id, {
-        x: centerX + l.x,
+        x: cardX,
         y: bottomY + l.y - l.scaleH / 2 + selectedDrop,
         rot,
         scaleX: (l.scaleW / CARD_W) * castScale,
@@ -258,7 +295,7 @@ export class HandController {
           ? {
               index: i,
               card,
-              x: centerX + l.x,
+              x: cardX,
               y: bottomY + l.y - l.scaleH / 2 + selectedDrop,
               width: l.scaleW,
               height: l.scaleH,
@@ -350,9 +387,10 @@ export class HandController {
       dims.maxSpread,
       dims.minSpread,
       dims.spreadWidth,
+      this.isRow(),
     );
     const zone = this.host.getPlayZone();
-    const centerX = zone.x + zone.width / 2;
+    const centerX = zone.x + zone.width / 2 + this.rowCenterOffset();
     let nextIndex = remaining.length;
     for (let i = 0; i < layout.length; i++) {
       if (x < centerX + layout[i]!.x) {
@@ -426,11 +464,43 @@ export class HandController {
     return this.sprites.get(cardId)?.usesHandRulesView === true;
   }
   hitTestRules(x: number, y: number): boolean {
-    return this.rulesSpriteAt(x, y) !== null;
+    return this.rowScrollableAt(x, y) || this.rulesSpriteAt(x, y) !== null;
   }
 
   scrollRulesAt(x: number, y: number, delta: number, mode: number): boolean {
+    if (this.rowScrollableAt(x, y)) {
+      const zone = this.host.getPlayZone();
+      this.rowOffset += mode === 1 ? delta * 16 : mode === 2 ? delta * zone.width : delta;
+      this.resetHover();
+      this.relayout();
+      return true;
+    }
     return this.rulesSpriteAt(x, y)?.scrollHandRules(delta, mode) ?? false;
+  }
+
+  private rowCenterOffset(): number {
+    if (!this.isRow()) return 0;
+    const count = this.lastState?.cards.length ?? 0;
+    const dims = this.getDimensions();
+    const width = count * dims.cardW + Math.max(0, count - 1) * GAP;
+    const overflow = Math.max(0, width - this.host.getPlayZone().width);
+    this.rowOffset = Math.max(0, Math.min(overflow, this.rowOffset));
+    return overflow / 2 - this.rowOffset;
+  }
+
+  private rowScrollableAt(x: number, y: number): boolean {
+    if (!this.isRow() || this.isDraggingPermanent() || this.getDraggingCardId() !== null)
+      return false;
+    const zone = this.host.getPlayZone();
+    const dims = this.getDimensions();
+    const count = this.lastState?.cards.length ?? 0;
+    return (
+      count * dims.cardW + Math.max(0, count - 1) * GAP > zone.width &&
+      x >= zone.x &&
+      x <= zone.x + zone.width &&
+      y >= this.getBottomY() - dims.cardH &&
+      y <= this.getBottomY()
+    );
   }
 
   private rulesSpriteAt(x: number, y: number): CardSprite | null {
@@ -524,8 +594,8 @@ export class HandController {
       cardH,
       hoverLift: Math.max(Math.round(params.hoverLift * scale), Math.ceil(cardH * sink) + GAP),
       neighborPush: Math.round(params.neighborPush * scale),
-      maxSpread: Math.round(params.maxSpread * scale),
-      minSpread: Math.round(params.minSpread * scale),
+      maxSpread: this.isRow() ? cardW + GAP : Math.round(params.maxSpread * scale),
+      minSpread: this.isRow() ? cardW + GAP : Math.round(params.minSpread * scale),
       spreadWidth: Math.min(Math.round(params.spreadWidth * scale), available),
     };
   }
@@ -543,7 +613,9 @@ export class HandController {
             Math.min(dims.maxSpread, Math.floor((dims.spreadWidth - dims.cardW) / (count - 1))),
           );
     const totalSpread = count <= 1 ? 0 : (count - 1) * spread;
-    const handW = totalSpread + dims.cardW;
+    const handW = this.isRow()
+      ? Math.min(this.host.getPlayZone().width, totalSpread + dims.cardW)
+      : totalSpread + dims.cardW;
     const handH = dims.cardH;
     const zone = this.host.getPlayZone();
 
@@ -567,6 +639,8 @@ export class HandController {
     this.sprites.clear();
     this.targets.clear();
     this.hitZones = [];
+    this.container.mask = null;
+    safeDestroy(this.rowMask);
     this.container.destroy({ children: true });
   }
   private cardsForLayout(state: HandState): CardDto[] {
@@ -662,6 +736,8 @@ export class HandController {
   }
 
   private hitAt(x: number, y: number): HandHitZone | null {
+    const playZone = this.host.getPlayZone();
+    if (this.isRow() && (x < playZone.x || x > playZone.x + playZone.width)) return null;
     let best: HandHitZone | null = null;
     let bestDistance = Infinity;
     for (const zone of this.hitZones) {
