@@ -71,6 +71,9 @@ fn resolve(ctx: &mut EffectContext, sa: &crate::spellability::SpellAbility) {
     }
     let target = &mut ctx.game.cards[clone_target_id.index()];
     crate::card::card_copy_service::copy_copiable_characteristics(&src, target);
+    if let Some(new_name) = sa.ir.new_name.as_deref() {
+        target.set_card_name(new_name);
+    }
     target.add_clone_state();
     target.activated_abilities = src.activated_abilities.clone();
     target.static_abilities = src.static_abilities.clone();
