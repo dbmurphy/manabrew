@@ -106,7 +106,11 @@ export class PromptLayer extends PromptModalLayer {
     document.addEventListener("visibilitychange", this.onModifierReset);
     window.addEventListener(ACTION_DRAWER_BUMP_EVENT, this.onActionBump);
     this.unsubscribePromptPreferences = usePromptPreferencesStore.subscribe((state, previous) => {
-      if (state.fullControl === previous.fullControl) return;
+      if (
+        state.fullControl === previous.fullControl &&
+        state.confirmPassWithMana === previous.confirmPassWithMana
+      )
+        return;
       this.resetAutopassState();
       this.rebuild();
     });

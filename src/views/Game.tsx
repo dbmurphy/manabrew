@@ -1,3 +1,4 @@
+import { ConfirmPassWithManaModal } from "@/components/game/modals/ConfirmPassWithManaModal";
 import { CombatBreakdownModal } from "@/components/game/modals/CombatBreakdownModal";
 import { locateVisibleZone, visibleZoneCards, zoneLocationKey } from "@/lib/zoneView";
 import { useGameStore } from "@/stores/useGameStore";
@@ -988,7 +989,14 @@ export default function Game({ exitTo }: GameProps = {}) {
   }, [activePrompt, isWaitingForResponse, promptType, tappableLandIds, untappableLandIds]);
   const _earlyMyPlayerId =
     gameView?.players?.find((p) => p.isHuman)?.id ?? gameView?.players?.[0]?.id ?? "";
-  const { unifiedPass, unifiedPassEndTurn } = usePromptEffects({
+  const {
+    unifiedPass,
+    unifiedPassEndTurn,
+    passConfirmationOpen,
+    confirmPass,
+    cancelPass,
+    floatingMana,
+  } = usePromptEffects({
     currentPrompt: activePrompt,
     gameView,
     isWaitingForResponse,
@@ -2662,6 +2670,13 @@ export default function Game({ exitTo }: GameProps = {}) {
           resolvePlayerName={(playerId) => playerNameById.get(playerId) ?? playerId}
           onConfirm={() => requestRestore(restoreTarget.checkpointId)}
           onClose={closeRestoreModal}
+        />
+      )}
+      {passConfirmationOpen && (
+        <ConfirmPassWithManaModal
+          amount={floatingMana}
+          onConfirm={confirmPass}
+          onCancel={cancelPass}
         />
       )}
       {concedeModalOpen && (
