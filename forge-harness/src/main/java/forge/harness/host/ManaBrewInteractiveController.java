@@ -1718,15 +1718,47 @@ public final class ManaBrewInteractiveController extends PlayerController implem
         if (optionalCostValues == null || optionalCostValues.isEmpty()) {
             return new ArrayList<>();
         }
-        final List<String> labels = new ArrayList<>();
+        final List<OptionalCostValue> available = new ArrayList<>();
+        final Card host = chosen.getHostCard();
+        final boolean specialPayment = player.hasKeyword("PayLifeInsteadOf:B")
+                || host == null || host.hasKeyword(Keyword.CONVOKE)
+                || host.hasKeyword(Keyword.IMPROVISE) || host.hasKeyword(Keyword.DELVE)
+                || host.hasKeyword(Keyword.ASSIST) || host.hasKeyword(Keyword.OFFERING)
+                || host.hasKeyword(Keyword.EMERGE) || chosen.hasParam("TapCreaturesForMana")
+                || (chosen.getMaxWaterbend() != null && chosen.getMaxWaterbend() > 0);
         for (final OptionalCostValue value : optionalCostValues) {
+            if (!specialPayment && value != null
+                    && (value.getType() == OptionalCost.Kicker1 || value.getType() == OptionalCost.Kicker2)
+                    && value.getCost().isOnlyManaCost() && chosen.getPayCosts() != null
+                    && chosen.getPayCosts().isOnlyManaCost()
+                    && chosen.getPayCosts().getTotalMana().countX() == 0
+                    && value.getCost().getTotalMana().countX() == 0) {
+                final SpellAbility kicked = GameActionUtil.addOptionalCosts(chosen, List.of(value));
+                if (new ManaCostBeingPaid(kicked.getPayCosts().getTotalMana()).containsPhyrexianMana()) {
+                    available.add(value);
+                    continue;
+                }
+                probingPayability = true;
+                try {
+                    if (!ActionSpace.canPayCost(kicked.getPayCosts(), kicked, player, false)) {
+                        continue;
+                    }
+                } finally {
+                    probingPayability = false;
+                }
+            }
+            available.add(value);
+        }
+        if (available.isEmpty()) return new ArrayList<>();
+        final List<String> labels = new ArrayList<>();
+        for (final OptionalCostValue value : available) {
             labels.add(value == null ? "Optional cost" : value.toString());
         }
-        final List<Integer> chosenIndices = session.awaitModeChoice(me(), labels, 0, optionalCostValues.size(), sourceName(chosen));
+        final List<Integer> chosenIndices = session.awaitModeChoice(me(), labels, 0, available.size(), sourceName(chosen));
         final List<OptionalCostValue> selected = new ArrayList<>();
         for (final Integer index : chosenIndices) {
-            if (index != null && index >= 0 && index < optionalCostValues.size()) {
-                selected.add(optionalCostValues.get(index));
+            if (index != null && index >= 0 && index < available.size()) {
+                selected.add(available.get(index));
             }
         }
         return selected;
