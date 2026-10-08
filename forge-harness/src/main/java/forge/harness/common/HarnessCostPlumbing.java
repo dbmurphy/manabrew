@@ -40,6 +40,17 @@ public final class HarnessCostPlumbing {
         this.humanCostPayment = humanCostPayment;
     }
 
+    public static String describePayment(final CostPart part, final SpellAbility ability) {
+        if (part instanceof CostPayEnergy) {
+            return "Pay " + part.getAbilityAmount(ability) + " {E}";
+        }
+        final String amount = part.getAmount();
+        if (amount == null || part.convertAmount() != null) {
+            return part.toString();
+        }
+        return part.toString().replace(amount, String.valueOf(part.getAbilityAmount(ability)));
+    }
+
     public static boolean isSpellPaymentContext(final SpellAbility sa) {
         if (sa == null) {
             return false;
@@ -113,15 +124,7 @@ public final class HarnessCostPlumbing {
             if (!shouldAsk || ability == null || isSpellPaymentContext(ability)) {
                 return true;
             }
-            return controller.confirmPayment(part, describePayment(part), ability);
-        }
-
-        private String describePayment(final CostPart part) {
-            final String amount = part.getAmount();
-            if (amount == null || part.convertAmount() != null) {
-                return part.toString();
-            }
-            return part.toString().replace(amount, String.valueOf(part.getAbilityAmount(ability)));
+            return controller.confirmPayment(part, describePayment(part, ability), ability);
         }
 
         private CardCollectionView chooseCards(final CardCollectionView pool, final int amount, final String title) {

@@ -98,7 +98,7 @@ Snapshots are **per-viewer**: `getSnapshot` takes a `viewer` seat index (`-1` = 
 
 ## Boundary API discipline
 
-`common` types are `public` only where genuinely consumed across a package boundary. `HarnessCostPlumbing` / `HarnessPlayPlumbing` / `AutoPay` expose **only** the constructor + methods the two controllers call (`payWithControllerDecision`, `isSpellPaymentContext`, `currentReservedSacrifices`, `playNoStack`, `handlePlayingSpellAbility`, `prepareSingleSa`, `orderAndPlaySimultaneousSa`, `playSaFromPlayEffect`, `payManaCost(WithTrace)`, `manaSources`, `floatManaFromSource`, `floatManaForCost`, `PayManaCostResult.paid/steps`); everything else stays package-private. When adding a member, keep it package-private unless a controller in `parity`/`host` needs it — don't widen the surface by default.
+`common` types are `public` only where genuinely consumed across a package boundary. `HarnessCostPlumbing` / `HarnessPlayPlumbing` / `AutoPay` expose **only** the constructor + methods the two controllers call (`payWithControllerDecision`, `describePayment`, `isSpellPaymentContext`, `currentReservedSacrifices`, `playNoStack`, `handlePlayingSpellAbility`, `prepareSingleSa`, `orderAndPlaySimultaneousSa`, `playSaFromPlayEffect`, `payManaCost(WithTrace)`, `manaSources`, `floatManaFromSource`, `floatManaForCost`, `PayManaCostResult.paid/steps`); everything else stays package-private. When adding a member, keep it package-private unless a controller in `parity`/`host` needs it — don't widen the surface by default.
 
 ## External references (keep in sync)
 
