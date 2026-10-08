@@ -160,6 +160,10 @@ export function GameSettingsModal({ onClose }: { onClose: () => void }) {
               onChange={(e) => prefs.setCardSizeMultiplier(Number(e.target.value) / 100)}
               className="w-full accent-primary"
             />
+            <p className="text-xs text-muted-foreground">
+              Above 150%, desktop fields allow one row of larger cards. Overflow uses stack badges.
+              Hand growth stops at 150%; compact touch fields fit automatically.
+            </p>
           </div>
           <Choice
             label="Battlefield card style"

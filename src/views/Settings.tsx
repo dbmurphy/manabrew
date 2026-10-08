@@ -580,7 +580,7 @@ export default function Settings() {
             <PreferenceCard
               title={`Card Size`}
               value={`${Math.round(prefs.cardSizeMultiplier * 100)}%`}
-              description={`Scales cards on every battlefield and your hand fan. 100% is the classic 3-row board; battlefield cards cap at a 2-row fill so the board stays playable, while the hand keeps growing past them.`}
+              description={`100% fits three desktop battlefield rows. Sizes above 150% allow one row for larger cards; crowded fields group overflow into stack badges. Hand growth stops at 150%. Compact touch battlefields fit cards automatically.`}
             >
               <div className="flex items-start gap-4">
                 <div className="flex-1 space-y-3">
@@ -621,7 +621,7 @@ export default function Settings() {
                       size="sm"
                       onClick={() => prefs.setCardSizeMultiplier(CARD_SIZE_MULTIPLIER_MAX)}
                     >
-                      150%
+                      300%
                     </Button>
                   </div>
                 </div>

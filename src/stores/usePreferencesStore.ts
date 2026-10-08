@@ -29,10 +29,7 @@ export interface LastRoomSetup {
 }
 
 export const CARD_SIZE_MULTIPLIER_MIN = 0.75;
-// Under the 2-rows-minimum battlefield rule, a 2-row fill is only ~1.35-1.5x
-// the classic 3-row size on ANY display — a knob past 150% would be a lie
-// (the old 300% top was one: everything saturated around 150%).
-export const CARD_SIZE_MULTIPLIER_MAX = 1.5;
+export const CARD_SIZE_MULTIPLIER_MAX = 3;
 
 export interface PreferencesState {
   appThemePreset: string;
@@ -74,13 +71,6 @@ export interface PreferencesState {
   opponentHandFan: OpponentHandFanMode;
   setOpponentHandFan: (mode: OpponentHandFanMode) => void;
 
-  // One knob for card size: battlefield cards on ALL fields plus the hand
-  // fan. 1 = the classic 3-row board; 1.5 = the 2-row fill that is the
-  // geometric max under the 2-rows-minimum rule (a 1-row board is
-  // unplayable). Each field clamps against its own height; the hand
-  // (viewport-scaled, following the slider at half rate — useHandScale)
-  // grows past the battlefield's cap, up to a fraction of the field height
-  // (BoardCanvas.reconfigure).
   cardSizeMultiplier: number;
   setCardSizeMultiplier: (multiplier: number) => void;
 
