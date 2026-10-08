@@ -50,6 +50,7 @@ impl std::fmt::Display for SpellAbilityMode {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AbilityDuration {
+    UntilEndOfCombat,
     UntilHostLeavesPlay,
     UntilHostLeavesPlayOrEot,
     UntilLoseControlOfHost,
@@ -66,6 +67,7 @@ pub enum AbilityDuration {
 impl AbilityDuration {
     pub fn parse(raw: &str) -> Self {
         match raw {
+            "UntilEndOfCombat" => Self::UntilEndOfCombat,
             "UntilHostLeavesPlay" => Self::UntilHostLeavesPlay,
             "UntilHostLeavesPlayOrEOT" => Self::UntilHostLeavesPlayOrEot,
             "UntilLoseControlOfHost" => Self::UntilLoseControlOfHost,

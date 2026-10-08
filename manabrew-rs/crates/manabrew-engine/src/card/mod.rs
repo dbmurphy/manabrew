@@ -494,6 +494,8 @@ pub struct Card {
     pub lose_control_condition: Option<LoseControlCondition>,
     /// True if this temporary effect expires at end of turn cleanup.
     pub temp_effect_until_eot: bool,
+    #[serde(default)]
+    pub temp_effect_until_end_of_combat: bool,
     /// Host card this temporary effect is linked to; when host leaves the
     /// battlefield, this effect expires.
     pub temp_effect_host: Option<CardId>,
@@ -862,6 +864,7 @@ impl Card {
             remembered_lki_cards: Vec::new(),
             lose_control_condition: None,
             temp_effect_until_eot: false,
+            temp_effect_until_end_of_combat: false,
             temp_effect_host: None,
             forget_on_moved_origin: None,
             exile_when_no_remembered: false,

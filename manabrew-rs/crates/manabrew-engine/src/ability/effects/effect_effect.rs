@@ -430,6 +430,7 @@ fn apply_chosen_state(
 pub enum EffectDuration {
     #[default]
     EndOfTurn,
+    UntilEndOfCombat,
     Permanent,
     UntilHostLeavesPlay,
     UntilHostLeavesPlayOrEOT,
@@ -437,6 +438,7 @@ pub enum EffectDuration {
 
 fn apply_duration_flags(effect: &mut Card, duration: Option<&AbilityDuration>, source_id: CardId) {
     let d = match duration {
+        Some(AbilityDuration::UntilEndOfCombat) => EffectDuration::UntilEndOfCombat,
         Some(AbilityDuration::UntilHostLeavesPlay) => EffectDuration::UntilHostLeavesPlay,
         Some(AbilityDuration::UntilHostLeavesPlayOrEot) => EffectDuration::UntilHostLeavesPlayOrEOT,
         Some(AbilityDuration::Unsupported(raw)) if raw.eq_ignore_ascii_case("Permanent") => {
@@ -446,6 +448,9 @@ fn apply_duration_flags(effect: &mut Card, duration: Option<&AbilityDuration>, s
     };
     match d {
         EffectDuration::Permanent => {}
+        EffectDuration::UntilEndOfCombat => {
+            effect.temp_effect_until_end_of_combat = true;
+        }
         EffectDuration::UntilHostLeavesPlay => {
             effect.set_temp_effect_host(Some(source_id));
         }
