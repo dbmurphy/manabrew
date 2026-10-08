@@ -224,6 +224,12 @@ public final class ManaBrewEngineAdapter {
         for (CardIdentity card : playerConfig.getDeck()) {
             main.add(cardRequest(card), 1);
         }
+        if (!playerConfig.getSideboard().isEmpty()) {
+            CardPool sideboard = deck.getOrCreate(DeckSection.Sideboard);
+            for (CardIdentity card : playerConfig.getSideboard()) {
+                sideboard.add(cardRequest(card), 1);
+            }
+        }
         for (PaperCard card : main.toFlatList()) {
             mainByName.putIfAbsent(card.getName().toLowerCase(Locale.ROOT), card);
         }
@@ -401,22 +407,17 @@ public final class ManaBrewEngineAdapter {
             if (cardValues == null) {
                 throw new IllegalArgumentException("player deck is required");
             }
-            List<CardIdentity> deck = new ArrayList<>();
-            for (JsonElement cardValue : cardValues) {
-                JsonObject cardObject = cardValue.getAsJsonObject();
-                deck.add(new CardIdentity(
-                        requiredString(cardObject, "name"),
-                        optionalString(cardObject, "setCode"),
-                        optionalString(cardObject, "collectorNumber"),
-                        cardObject.has("foil") && cardObject.get("foil").getAsBoolean()));
-            }
+            List<CardIdentity> deck = parseCardIdentities(cardValues);
+            JsonArray sideboardValues = playerObject.getAsJsonArray("sideboard");
+            List<CardIdentity> sideboard = sideboardValues == null
+                    ? List.of() : parseCardIdentities(sideboardValues);
             boolean ai = playerObject.has("ai")
                     && !playerObject.get("ai").isJsonNull()
                     && playerObject.get("ai").getAsBoolean();
             boolean bot = playerObject.has("bot")
                     && !playerObject.get("bot").isJsonNull()
                     && playerObject.get("bot").getAsBoolean();
-            players.add(new PlayerConfig(name, deck, commanderNames, ai, bot));
+            players.add(new PlayerConfig(name, deck, sideboard, commanderNames, ai, bot));
         }
         final StartGameRequest request = new StartGameRequest(
                 gameId, variant, startingLife, seed, snapshotRecording, players);
@@ -437,6 +438,19 @@ public final class ManaBrewEngineAdapter {
             return null;
         }
         return object.get(key).getAsString();
+    }
+
+    private static List<CardIdentity> parseCardIdentities(final JsonArray cards) {
+        List<CardIdentity> identities = new ArrayList<>();
+        for (JsonElement value : cards) {
+            JsonObject card = value.getAsJsonObject();
+            identities.add(new CardIdentity(
+                    requiredString(card, "name"),
+                    optionalString(card, "setCode"),
+                    optionalString(card, "collectorNumber"),
+                    card.has("foil") && card.get("foil").getAsBoolean()));
+        }
+        return identities;
     }
 
     public static final class StartGameRequest {
@@ -498,6 +512,7 @@ public final class ManaBrewEngineAdapter {
     public static final class PlayerConfig {
         private final String name;
         private final List<CardIdentity> deck;
+        private final List<CardIdentity> sideboard;
         private final List<String> commanderNames;
         private final boolean ai;
         private final boolean bot;
@@ -505,6 +520,17 @@ public final class ManaBrewEngineAdapter {
         public PlayerConfig(
                 final String name,
                 final List<CardIdentity> deck,
+                final List<String> commanderNames,
+                final boolean ai,
+                final boolean bot
+        ) {
+            this(name, deck, List.of(), commanderNames, ai, bot);
+        }
+
+        public PlayerConfig(
+                final String name,
+                final List<CardIdentity> deck,
+                final List<CardIdentity> sideboard,
                 final List<String> commanderNames,
                 final boolean ai,
                 final boolean bot
@@ -517,6 +543,7 @@ public final class ManaBrewEngineAdapter {
             }
             this.name = name;
             this.deck = List.copyOf(deck);
+            this.sideboard = sideboard == null ? List.of() : List.copyOf(sideboard);
             this.commanderNames = commanderNames == null ? List.of() : List.copyOf(commanderNames);
             this.ai = ai;
             this.bot = bot;
@@ -528,6 +555,10 @@ public final class ManaBrewEngineAdapter {
 
         public List<CardIdentity> getDeck() {
             return deck;
+        }
+
+        public List<CardIdentity> getSideboard() {
+            return sideboard;
         }
 
         public List<String> getCommanderNames() {
