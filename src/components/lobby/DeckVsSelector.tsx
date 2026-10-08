@@ -1,3 +1,4 @@
+import { useTutorialStore } from "@/stores/useTutorialStore";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { usePresetDecks } from "@/stores/usePresetDecksStore";
@@ -103,6 +104,11 @@ export function DeckVsSelector({
     preSelectedDeckEntry?.formatId ?? rememberedFormatId,
   );
   const [opponentConfirmed, setOpponentConfirmed] = useState(false);
+  const setTutorialSetupReady = useTutorialStore((s) => s.setSetupReady);
+  useEffect(() => {
+    setTutorialSetupReady(playerDeck !== null && opponentDeck !== null && opponentConfirmed);
+    return () => setTutorialSetupReady(false);
+  }, [playerDeck, opponentDeck, opponentConfirmed, setTutorialSetupReady]);
   const [deckSearch, setDeckSearch] = useState("");
   const [starting, setStarting] = useState(false);
   const [playersDialogOpen, setPlayersDialogOpen] = useState(false);
