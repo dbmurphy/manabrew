@@ -482,6 +482,9 @@ public final class InteractiveSnapshotExtractor {
     }
 
     private static void redact(final CardDto dto) {
+        dto.isDoubleFaced = false;
+        dto.isTransformed = false;
+        dto.foil = false;
         dto.finalChapter = null;
         dto.classLevel = null;
         dto.classLevels = Collections.emptyList();
