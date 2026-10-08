@@ -1,3 +1,4 @@
+import { TutorialStartButton } from "@/components/FirstGameTutorial";
 import { Eye, Github, Layers, Move, Swords, type LucideIcon } from "lucide-react";
 import { GITHUB_REPO_URL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
@@ -52,6 +53,7 @@ export function OnboardingGuide({ compact = false }: { compact?: boolean }) {
   const sections = isTouch ? [...MOBILE_GUIDE_SECTIONS, ...GUIDE_SECTIONS] : GUIDE_SECTIONS;
   return (
     <div className={cn("space-y-3", compact && "space-y-2")}>
+      <TutorialStartButton />
       {sections.map((section) => (
         <section
           key={section.heading}

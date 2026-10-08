@@ -1,3 +1,4 @@
+import { FirstGameTutorial } from "@/components/FirstGameTutorial";
 import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { isFeatureEnabled } from "@/featureFlags";
@@ -156,6 +157,7 @@ export function AppShell() {
           {/* Play cancels in-flight launches on unmount, so keep the outlet stable here. */}
           <Outlet />
         </main>
+        <FirstGameTutorial />
       </div>
     </TopBarOverrideContext.Provider>
   );
