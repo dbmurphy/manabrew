@@ -1239,20 +1239,50 @@ pub fn create_contraption_sprockets(game: &mut GameState, player: PlayerId) {
     game.player_mut(player).contraption_sprocket_effect_card = Some(effect_id);
 }
 
-pub fn add_declares_attackers(game: &mut GameState, player: PlayerId, declarer: PlayerId) {
-    game.player_mut(player).declares_attackers.insert(declarer);
+pub fn add_declares_attackers(
+    game: &mut GameState,
+    player: PlayerId,
+    timestamp: i64,
+    declarer: PlayerId,
+) {
+    game.player_mut(player)
+        .declares_attackers
+        .insert(timestamp, declarer);
 }
 
-pub fn remove_declares_attackers(game: &mut GameState, player: PlayerId, declarer: PlayerId) {
-    game.player_mut(player).declares_attackers.remove(&declarer);
+pub fn remove_declares_attackers(game: &mut GameState, player: PlayerId, timestamp: i64) {
+    game.player_mut(player)
+        .declares_attackers
+        .remove(&timestamp);
 }
 
-pub fn add_declares_blockers(game: &mut GameState, player: PlayerId, declarer: PlayerId) {
-    game.player_mut(player).declares_blockers.insert(declarer);
+pub fn get_declares_attackers(game: &GameState, player: PlayerId) -> Option<PlayerId> {
+    game.player(player)
+        .declares_attackers
+        .last_key_value()
+        .map(|(_, &declarer)| declarer)
 }
 
-pub fn remove_declares_blockers(game: &mut GameState, player: PlayerId, declarer: PlayerId) {
-    game.player_mut(player).declares_blockers.remove(&declarer);
+pub fn add_declares_blockers(
+    game: &mut GameState,
+    player: PlayerId,
+    timestamp: i64,
+    declarer: PlayerId,
+) {
+    game.player_mut(player)
+        .declares_blockers
+        .insert(timestamp, declarer);
+}
+
+pub fn remove_declares_blockers(game: &mut GameState, player: PlayerId, timestamp: i64) {
+    game.player_mut(player).declares_blockers.remove(&timestamp);
+}
+
+pub fn get_declares_blockers(game: &GameState, player: PlayerId) -> Option<PlayerId> {
+    game.player(player)
+        .declares_blockers
+        .last_key_value()
+        .map(|(_, &declarer)| declarer)
 }
 
 pub fn after_static_ability_layer(game: &mut GameState, player: PlayerId) {

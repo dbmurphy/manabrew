@@ -24,7 +24,9 @@ impl GameLoop {
         // EndCombatPhase (issue #22): if requested, exit combat early
         if game.end_combat_requested {
             game.end_combat_requested = false;
+            self.expire_end_of_combat_effects(game);
             self.combat.clear_with_cards(&mut game.cards);
+            apply_continuous_effects(game);
             return;
         }
 
@@ -55,8 +57,10 @@ impl GameLoop {
             combat::attack_requirement::must_attack_ids(&requirements)
         };
 
+        let attacker_declarer =
+            crate::player::get_declares_attackers(game, active).unwrap_or(active);
         let pass_until_skip = must_attackers.is_empty()
-            && agents[active.index()]
+            && agents[attacker_declarer.index()]
                 .get_pass_until()
                 .is_some_and(|target| {
                     let reached = (active == target.player
@@ -75,16 +79,16 @@ impl GameLoop {
             // Keep a very high guard only as a last-resort safety valve.
             let max_attempts = 5000;
             for _attempt in 0..max_attempts {
-                agents[active.index()].snapshot_state(game, &self.mana_pools);
+                agents[attacker_declarer.index()].snapshot_state(game, &self.mana_pools);
                 self.game_log.log(
                     GameLogEntryType::PriorityWaiting,
                     2,
                     format!(
                         "Waiting for {} attacker declaration",
-                        game.player(active).name
+                        game.player(attacker_declarer).name
                     ),
                 );
-                let agent = &mut agents[active.index()];
+                let agent = &mut agents[attacker_declarer.index()];
                 let mut picked =
                     agent.choose_attackers(active, &available_attackers, &possible_defenders);
                 if self.apply_pending_snapshot_restore(game, agents) {
@@ -95,7 +99,7 @@ impl GameLoop {
                     2,
                     format!(
                         "{} declared {} attacker(s)",
-                        game.player(active).name,
+                        game.player(attacker_declarer).name,
                         picked.len()
                     ),
                 );
@@ -169,7 +173,7 @@ impl GameLoop {
 
                 if invalid {
                     // Declaration invalid — re-prompt like Java's PhaseHandler.
-                    agents[active.index()].notify(
+                    agents[attacker_declarer.index()].notify(
                         crate::agent::notification::GameNotification::Event(
                             crate::agent::GameLogEvent::warning("Attack declaration invalid"),
                         ),
@@ -256,7 +260,8 @@ impl GameLoop {
                 .filter(|cid| optional_exert_by_attacker.contains_key(cid))
                 .collect();
             if !possible_exerters.is_empty() {
-                let chosen = agents[active.index()].exert_attackers(active, &possible_exerters);
+                let chosen =
+                    agents[attacker_declarer.index()].exert_attackers(active, &possible_exerters);
                 for attacker in chosen {
                     // Exert is paid unconditionally once chosen via exert_attackers
                     // (mirrors HumanPlay.payCostDuringAbilityResolve's CostExert case).
@@ -291,7 +296,8 @@ impl GameLoop {
             };
 
             if !possible_enlisters.is_empty() {
-                let chosen = agents[active.index()].enlist_attackers(active, &possible_enlisters);
+                let chosen =
+                    agents[attacker_declarer.index()].enlist_attackers(active, &possible_enlisters);
                 for attacker in chosen {
                     if let Some(parts) = optional_enlist_by_attacker.get(&attacker).cloned() {
                         for (resolved, type_filter) in parts {
@@ -684,13 +690,15 @@ impl GameLoop {
             let has_any_legal_blocker = !legal_blockers.is_empty();
 
             if has_any_legal_blocker {
-                agents[defending.index()].snapshot_state(game, &self.mana_pools);
+                let blocker_declarer =
+                    crate::player::get_declares_blockers(game, defending).unwrap_or(defending);
+                agents[blocker_declarer.index()].snapshot_state(game, &self.mana_pools);
                 self.game_log.log(
                     GameLogEntryType::PriorityWaiting,
                     2,
                     format!(
                         "Waiting for {} blocker declaration",
-                        game.player(defending).name
+                        game.player(blocker_declarer).name
                     ),
                 );
                 let max_blockers = {
@@ -706,7 +714,7 @@ impl GameLoop {
                     }
                 };
                 let mut chosen_blockers = {
-                    let def_agent = &mut agents[defending.index()];
+                    let def_agent = &mut agents[blocker_declarer.index()];
                     def_agent.choose_blockers(
                         defending,
                         &attacker_card_ids,
@@ -725,7 +733,7 @@ impl GameLoop {
                     2,
                     format!(
                         "{} declared {} blocker assignment(s)",
-                        game.player(defending).name,
+                        game.player(blocker_declarer).name,
                         chosen_blockers.len()
                     ),
                 );
@@ -1081,6 +1089,7 @@ impl GameLoop {
             }
         }
 
+        self.expire_end_of_combat_effects(game);
         self.combat.clear_with_cards(&mut game.cards);
         game.turn.combat_block_assignments.clear();
         // Recompute continuous effects after combat ends so that stale
@@ -1089,6 +1098,20 @@ impl GameLoop {
         // until the next apply_continuous_effects call, causing snapshot drift.
         apply_continuous_effects(game);
         self.trigger_handler.reset_active_triggers(game);
+    }
+
+    fn expire_end_of_combat_effects(&mut self, game: &mut GameState) {
+        let effect_ids: Vec<CardId> = game
+            .cards
+            .iter()
+            .filter(|card| card.zone == ZoneType::Command && card.temp_effect_until_end_of_combat)
+            .map(|card| card.id)
+            .collect();
+        for effect in effect_ids {
+            let owner = game.card(effect).controller;
+            game.remove_card_from_zone(ZoneType::Command, owner, effect);
+            game.card_mut(effect).set_zone(ZoneType::None);
+        }
     }
 
     fn choose_assign_as_unblocked(

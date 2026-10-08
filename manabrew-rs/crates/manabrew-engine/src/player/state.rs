@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde::{Deserialize, Serialize};
 
@@ -135,8 +135,10 @@ pub struct PlayerState {
     pub additional_optional_votes: HashMap<i64, i32>,
     pub control_votes: BTreeSet<i64>,
     pub additional_villainous_choices: HashMap<i64, i32>,
-    pub declares_attackers: BTreeSet<PlayerId>,
-    pub declares_blockers: BTreeSet<PlayerId>,
+    #[serde(default, deserialize_with = "deserialize_declarers")]
+    pub declares_attackers: BTreeMap<i64, PlayerId>,
+    #[serde(default, deserialize_with = "deserialize_declarers")]
+    pub declares_blockers: BTreeMap<i64, PlayerId>,
     pub elemental_bend_triggers: BTreeSet<String>,
     pub inbound_tokens: Vec<CardId>,
     pub planeswalked_to_this_turn: Vec<CardId>,
@@ -253,8 +255,8 @@ impl PlayerState {
             additional_optional_votes: HashMap::new(),
             control_votes: BTreeSet::new(),
             additional_villainous_choices: HashMap::new(),
-            declares_attackers: BTreeSet::new(),
-            declares_blockers: BTreeSet::new(),
+            declares_attackers: BTreeMap::new(),
+            declares_blockers: BTreeMap::new(),
             elemental_bend_triggers: BTreeSet::new(),
             inbound_tokens: Vec::new(),
             planeswalked_to_this_turn: Vec::new(),
@@ -516,4 +518,36 @@ mod tests {
         p.lands_played_this_turn = 1;
         assert!(!p.can_play_land());
     }
+}
+
+fn deserialize_declarers<'de, D>(deserializer: D) -> Result<BTreeMap<i64, PlayerId>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct Declarers;
+    impl<'de> serde::de::Visitor<'de> for Declarers {
+        type Value = BTreeMap<i64, PlayerId>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("timestamped declarers or an empty legacy array")
+        }
+
+        fn visit_map<M>(self, map: M) -> Result<Self::Value, M::Error>
+        where
+            M: serde::de::MapAccess<'de>,
+        {
+            BTreeMap::deserialize(serde::de::value::MapAccessDeserializer::new(map))
+        }
+
+        fn visit_seq<S>(self, mut sequence: S) -> Result<Self::Value, S::Error>
+        where
+            S: serde::de::SeqAccess<'de>,
+        {
+            if sequence.next_element::<PlayerId>()?.is_some() {
+                return Err(serde::de::Error::custom("declarers lack effect timestamps"));
+            }
+            Ok(BTreeMap::new())
+        }
+    }
+    deserializer.deserialize_any(Declarers)
 }

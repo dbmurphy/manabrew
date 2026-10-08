@@ -210,6 +210,8 @@ pub fn apply_continuous_effects(game: &mut GameState) {
     for player in game.players.iter_mut() {
         player.max_land_plays_per_turn = 1;
         player.unlimited_land_plays = false;
+        player.declares_attackers.clear();
+        player.declares_blockers.clear();
     }
 
     // ── 1b. Keyword-derived restrictions ────────────────────────────────
@@ -660,22 +662,50 @@ pub fn apply_continuous_effects(game: &mut GameState) {
 }
 
 fn apply_player_rules_effects(game: &mut GameState, source_id: CardId, sa: &StaticAbility) {
-    let Some(adjust_land_plays) = sa.ir.adjust_land_plays_text.as_deref() else {
-        return;
-    };
     let affected_players = affected_players_for_static(game, source_id, sa);
-    if affected_players.is_empty() {
-        return;
-    }
-    if adjust_land_plays.eq_ignore_ascii_case("Unlimited") {
-        for player in affected_players {
-            game.player_mut(player).unlimited_land_plays = true;
-        }
-        return;
-    }
-    let amount = resolve_rules_amount(game, source_id, adjust_land_plays);
+    let source = game.card(source_id);
+    let controller = source.controller;
+    let timestamp = source.zone_timestamp as i64;
+    let attackers = sa
+        .ir
+        .declares_attackers_text
+        .as_deref()
+        .and_then(|defined| {
+            crate::ability::ability_utils::get_defined_players(
+                game,
+                Some(source_id),
+                defined,
+                Some(controller),
+            )
+            .first()
+            .copied()
+        });
+    let blockers = sa.ir.declares_blockers_text.as_deref().and_then(|defined| {
+        crate::ability::ability_utils::get_defined_players(
+            game,
+            Some(source_id),
+            defined,
+            Some(controller),
+        )
+        .first()
+        .copied()
+    });
+    let land_plays = sa.ir.adjust_land_plays_text.as_deref();
+    let additional_land_plays = land_plays
+        .filter(|value| !value.eq_ignore_ascii_case("Unlimited"))
+        .map(|value| resolve_rules_amount(game, source_id, value));
     for player in affected_players {
-        game.player_mut(player).max_land_plays_per_turn += amount;
+        if let Some(declarer) = attackers {
+            crate::player::add_declares_attackers(game, player, timestamp, declarer);
+        }
+        if let Some(declarer) = blockers {
+            crate::player::add_declares_blockers(game, player, timestamp, declarer);
+        }
+        if land_plays.is_some_and(|value| value.eq_ignore_ascii_case("Unlimited")) {
+            game.player_mut(player).unlimited_land_plays = true;
+        } else if let Some(amount) = additional_land_plays {
+            game.player_mut(player).max_land_plays_per_turn += amount;
+        }
     }
 }
 
