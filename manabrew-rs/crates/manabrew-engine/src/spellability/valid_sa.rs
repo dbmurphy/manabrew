@@ -95,6 +95,7 @@ fn matches_property_token_positive(
     ability_host: Option<&Card>,
 ) -> bool {
     match token.to_ascii_lowercase().as_str() {
+        "modal" => sa.api == Some(ApiType::Charm),
         "self" => ability_host.is_some_and(|host| host.id == source.id),
         "youctrl" => sa.activating_player == source.controller,
         "oppctrl" => sa.activating_player != source.controller,
