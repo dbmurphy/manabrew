@@ -1,4 +1,4 @@
-import { BATTLEFIELD_MIN_ROWS_LARGEST, FIELD_INNER_EDGE_PAD_PX } from "../constants";
+import { FIELD_INNER_EDGE_PAD_PX } from "../constants";
 import { battlefieldScaleForMultiplier, scaleForRowsWithCombatRow } from "../GridLayout";
 import { computeBoardLayout } from "./boardLayout";
 import type { BattlefieldLayoutPolicy, BattlefieldLayoutResult } from "./battlefieldLayoutPolicy";
@@ -27,10 +27,7 @@ export const DESKTOP_BATTLEFIELD_LAYOUT: BattlefieldLayoutPolicy = {
     const selfUsable = playmatTrim(Math.max(1, layout.self.height - input.requestedBottomReserve));
     const selfScale = Math.max(
       Number.EPSILON,
-      Math.min(
-        battlefieldScaleForMultiplier(selfUsable, input.cardSizeMultiplier),
-        scaleForRowsWithCombatRow(selfUsable, BATTLEFIELD_MIN_ROWS_LARGEST),
-      ),
+      battlefieldScaleForMultiplier(selfUsable, input.cardSizeMultiplier),
     );
     const opponentUsables = layout.opponents.map((opponent) =>
       playmatTrim(Math.max(1, opponent.rect.height)),
@@ -40,10 +37,7 @@ export const DESKTOP_BATTLEFIELD_LAYOUT: BattlefieldLayoutPolicy = {
       Number.EPSILON,
       layout.opponentLayout === "overview"
         ? scaleForRowsWithCombatRow(opponentUsable, 1)
-        : Math.min(
-            battlefieldScaleForMultiplier(opponentUsable, input.cardSizeMultiplier),
-            scaleForRowsWithCombatRow(opponentUsable, BATTLEFIELD_MIN_ROWS_LARGEST),
-          ),
+        : battlefieldScaleForMultiplier(opponentUsable, input.cardSizeMultiplier),
     );
     return {
       layout,

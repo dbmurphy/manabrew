@@ -28,13 +28,12 @@ function getSnapshot() {
   return getScale();
 }
 
-/** The hand follows the card-size slider at HALF rate: full-rate growth made
- *  the fan so wide/tall that its grid blocker swallowed the whole bottom
- *  battlefield row, and it dwarfed the (2-row-capped) battlefield cards. */
+/** The hand follows card sizes through 150% at half rate, then stops growing
+ *  so larger battlefield sizes do not consume more of the bottom field. */
 const HAND_GROWTH_DAMP = 0.5;
 
 export function handSizeMultiplier(cardSizeMultiplier: number): number {
-  return 1 + (cardSizeMultiplier - 1) * HAND_GROWTH_DAMP;
+  return 1 + (Math.min(cardSizeMultiplier, 1.5) - 1) * HAND_GROWTH_DAMP;
 }
 
 /** Viewport-derived hand scale times the (damped) card-size multiplier.
