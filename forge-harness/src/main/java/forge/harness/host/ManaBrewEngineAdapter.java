@@ -251,6 +251,9 @@ public final class ManaBrewEngineAdapter {
             main.remove(commander, 1);
             deck.getOrCreate(DeckSection.Commander).add(commander, 1);
         }
+        for (CardIdentity card : playerConfig.attractions) {
+            deck.getOrCreate(DeckSection.Attractions).add(cardRequest(card), 1);
+        }
         return deck;
     }
 
@@ -421,6 +424,20 @@ public final class ManaBrewEngineAdapter {
         final StartGameRequest request = new StartGameRequest(
                 gameId, variant, startingLife, seed, snapshotRecording, players);
         request.checkpointMetrics = root.has("checkpointMetrics") && root.get("checkpointMetrics").getAsBoolean();
+        for (int index = 0; index < players.size(); index++) {
+            JsonObject playerObject = playerValues.get(index).getAsJsonObject();
+            if (playerObject.has("attractions") && !playerObject.get("attractions").isJsonNull()) {
+                List<CardIdentity> attractions = new ArrayList<>();
+                for (JsonElement value : playerObject.getAsJsonArray("attractions")) {
+                    JsonObject card = value.getAsJsonObject();
+                    attractions.add(new CardIdentity(
+                            requiredString(card, "name"), optionalString(card, "setCode"),
+                            optionalString(card, "collectorNumber"),
+                            card.has("foil") && card.get("foil").getAsBoolean()));
+                }
+                players.get(index).attractions = List.copyOf(attractions);
+            }
+        }
         return request;
     }
 
@@ -501,6 +518,7 @@ public final class ManaBrewEngineAdapter {
         private final List<String> commanderNames;
         private final boolean ai;
         private final boolean bot;
+        private List<CardIdentity> attractions = List.of();
 
         public PlayerConfig(
                 final String name,

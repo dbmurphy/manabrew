@@ -229,6 +229,10 @@ pub fn run_self_play(
         ));
     }
 
+    for (player, seat) in players.iter_mut().zip(seats) {
+        player.set_attractions(&seat.deck);
+    }
+
     for game_index in 0..games.max(1) {
         let request = StartGameRequest::new(
             format!("self-hosted-java-self-play-{game_index}"),
@@ -1098,6 +1102,10 @@ pub fn run_concurrent_self_play(
         ));
     }
 
+    for (player, seat) in players.iter_mut().zip(seats) {
+        player.set_attractions(&seat.deck);
+    }
+
     let mut joins = Vec::with_capacity(concurrency.max(1));
     for game_index in 0..concurrency.max(1) {
         let handle = pool.handle();
@@ -1568,6 +1576,9 @@ fn run_hosted_engine_game_inner(
             &identities,
             seat_commander_names,
         ));
+    }
+    for (player, deck) in players.iter_mut().zip(&decks) {
+        player.set_attractions(deck);
     }
     for &idx in &ai_player_indices {
         if let Some(player) = players.get_mut(idx) {
@@ -3046,6 +3057,8 @@ pub struct PlayerConfig {
     commander_names: Vec<String>,
     ai: bool,
     bot: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    attractions: Vec<CardIdentityForJava>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -3089,6 +3102,15 @@ impl StartGameRequest {
 }
 
 impl PlayerConfig {
+    fn set_attractions(&mut self, deck: &Deck) {
+        self.attractions = deck
+            .attractions
+            .iter()
+            .flatten()
+            .map(|card| CardIdentityForJava::from(&card.identity))
+            .collect();
+    }
+
     pub fn new(name: String, deck: &[DeckCardIdentity], commander_names: Vec<String>) -> Self {
         Self {
             name,
@@ -3096,6 +3118,7 @@ impl PlayerConfig {
             commander_names,
             ai: false,
             bot: false,
+            attractions: Vec::new(),
         }
     }
 }
