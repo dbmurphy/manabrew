@@ -44,8 +44,11 @@ function boot() {
  * identity. Older shapes carried a bare name plus a count, so accept both.
  */
 function flatten(deck) {
+  return flattenCards([...((deck && deck.cards) || []), ...((deck && deck.commanders) || [])]);
+}
+
+function flattenCards(cards) {
   const out = [];
-  const cards = [...((deck && deck.cards) || []), ...((deck && deck.commanders) || [])];
   for (const card of cards) {
     const identity = card.identity || card;
     const name = identity.name;
@@ -53,6 +56,7 @@ function flatten(deck) {
     const entry = { name: frontFace(name) };
     if (identity.setCode) entry.setCode = identity.setCode;
     if (identity.cardNumber) entry.collectorNumber = identity.cardNumber;
+    if (identity.foil != null) entry.foil = identity.foil;
     for (let i = 0; i < (card.count ?? 1); i++) out.push(entry);
   }
   return out;
@@ -148,6 +152,7 @@ async function startGame(requestId, args) {
         name: "You",
         ai: false,
         deck: flatten(humanDeck),
+        sideboard: flattenCards(humanDeck.sideboard || []),
         commanderNames: commanderGame ? commanderNames(humanDeck, args && args.commanderName) : [],
       },
       ...aiDecks.map((deck, i) => ({
@@ -163,6 +168,7 @@ async function startGame(requestId, args) {
         // it to this seat only then.
         bot: !forgeAi,
         deck: flatten(deck),
+        sideboard: flattenCards(deck.sideboard || []),
         commanderNames: commanderGame ? commanderNames(deck, null) : [],
       })),
     ],
@@ -239,6 +245,7 @@ async function startMultiplayerGame(requestId, args) {
       ai: forgeAiSeats.has(index),
       bot: !forgeAiSeats.has(index) && botSeats.has(index),
       deck: flatten(deck),
+      sideboard: flattenCards(deck.sideboard || []),
       commanderNames: commanderGame ? commanderNames(deck, commanders[index] ?? null) : [],
     })),
   };
