@@ -53,6 +53,7 @@ function flatten(deck) {
     const entry = { name: frontFace(name) };
     if (identity.setCode) entry.setCode = identity.setCode;
     if (identity.cardNumber) entry.collectorNumber = identity.cardNumber;
+    if (identity.foil != null) entry.foil = identity.foil;
     for (let i = 0; i < (card.count ?? 1); i++) out.push(entry);
   }
   return out;
@@ -147,6 +148,7 @@ async function startGame(requestId, args) {
       {
         name: "You",
         ai: false,
+        attractions: flatten({ cards: humanDeck && humanDeck.attractions }),
         deck: flatten(humanDeck),
         commanderNames: commanderGame ? commanderNames(humanDeck, args && args.commanderName) : [],
       },
@@ -162,6 +164,7 @@ async function startGame(requestId, args) {
         // A bot reads the board only when prompted, so the engine describes
         // it to this seat only then.
         bot: !forgeAi,
+        attractions: flatten({ cards: deck && deck.attractions }),
         deck: flatten(deck),
         commanderNames: commanderGame ? commanderNames(deck, null) : [],
       })),
@@ -238,6 +241,7 @@ async function startMultiplayerGame(requestId, args) {
       name: playerNames[index] || `Player ${index + 1}`,
       ai: forgeAiSeats.has(index),
       bot: !forgeAiSeats.has(index) && botSeats.has(index),
+      attractions: flatten({ cards: deck && deck.attractions }),
       deck: flatten(deck),
       commanderNames: commanderGame ? commanderNames(deck, commanders[index] ?? null) : [],
     })),
