@@ -1,3 +1,4 @@
+import { ForgeDeckCatalogBrowser } from "./ForgeDeckCatalogBrowser";
 import { useCallback, useMemo, useState } from "react";
 import { ArrowLeft, CheckCircle2, ClipboardPaste, Download } from "lucide-react";
 import { toast } from "sonner";
@@ -44,6 +45,7 @@ export function ImportDeckTextDialog({
   onImport,
   mode = "create",
 }: ImportDeckTextDialogProps) {
+  const [showForgeCatalog, setShowForgeCatalog] = useState(false);
   const [text, setText] = useState("");
   const [customName, setCustomName] = useState<string | null>(null);
   const [formatId, setFormatId] = useState<DeckFormat | "">("");
@@ -51,6 +53,7 @@ export function ImportDeckTextDialog({
   const [progress, setProgress] = useState(0);
   const [reviewing, setReviewing] = useState(false);
   const close = useCallback(() => {
+    setShowForgeCatalog(false);
     setText("");
     setCustomName(null);
     setFormatId("");
@@ -127,7 +130,7 @@ export function ImportDeckTextDialog({
                 : `Building "${name.trim() || DEFAULT_IMPORT_NAME}"…`
               : mode === "add"
                 ? `Paste a deck list to merge its cards into this deck.`
-                : `Copy your deck as text from Moxfield, then paste it below.`}
+                : `Browse Forge decks or paste a deck list below.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -229,6 +232,27 @@ export function ImportDeckTextDialog({
           <>
             <div className="space-y-4">
               {mode === "create" && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowForgeCatalog(!showForgeCatalog)}
+                  >
+                    {showForgeCatalog ? "Hide Forge decks" : "Browse Forge decks"}
+                  </Button>
+                  {showForgeCatalog && (
+                    <ForgeDeckCatalogBrowser
+                      onSelect={(list, deckName) => {
+                        setText(list);
+                        setCustomName(deckName);
+                        setFormatId(list.includes("commander\n") ? "commander" : "");
+                        setShowForgeCatalog(false);
+                      }}
+                    />
+                  )}
+                </>
+              )}
+              {mode === "create" && !showForgeCatalog && (
                 <ol className="space-y-1.5">
                   {GUIDE_STEPS.map((label, i) => (
                     <li key={label} className="flex items-start gap-2.5">
@@ -241,88 +265,95 @@ export function ImportDeckTextDialog({
                 </ol>
               )}
 
-              {mode === "create" && (
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_10rem]">
+              {!showForgeCatalog && (
+                <div className="space-y-4">
+                  {mode === "create" && (
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_10rem]">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium">Deck name</label>
+                        <Input
+                          value={name}
+                          onChange={(e) => setCustomName(e.target.value)}
+                          placeholder={DEFAULT_IMPORT_NAME}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label htmlFor="import-deck-format" className="text-xs font-medium">
+                          Format
+                        </label>
+                        <AppSelect
+                          id="import-deck-format"
+                          value={formatId}
+                          onValueChange={(value) =>
+                            setFormatId(
+                              IMPORT_FORMATS.find((format) => format.id === value)?.id ?? "",
+                            )
+                          }
+                          className="h-9 w-full cursor-pointer rounded-md border bg-background px-2 text-xs pointer-coarse:text-base"
+                        >
+                          <AppSelectOption value="">Auto-detect</AppSelectOption>
+                          {IMPORT_FORMATS.map((format) => (
+                            <AppSelectOption key={format.id} value={format.id}>
+                              {format.name}
+                            </AppSelectOption>
+                          ))}
+                        </AppSelect>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="space-y-1.5">
-                    <label className="text-xs font-medium">Deck name</label>
-                    <Input
-                      value={name}
-                      onChange={(e) => setCustomName(e.target.value)}
-                      placeholder={DEFAULT_IMPORT_NAME}
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-medium">Deck list</label>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 gap-1 px-2 text-xs"
+                        onClick={pasteFromClipboard}
+                      >
+                        <ClipboardPaste className="h-3 w-3" /> Paste
+                      </Button>
+                    </div>
+                    <textarea
+                      autoFocus
+                      value={text}
+                      onChange={(e) => {
+                        setText(e.target.value);
+                        setReviewing(false);
+                      }}
+                      placeholder={"4 Lightning Bolt\n2 Counterspell\n…"}
+                      className={cn(
+                        "flex min-h-[176px] w-full resize-none rounded-md border bg-transparent px-3 py-2 font-mono text-xs shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                        valid ? "border-legality-legal/60" : "border-input",
+                      )}
                     />
                   </div>
-                  <div className="space-y-1.5">
-                    <label htmlFor="import-deck-format" className="text-xs font-medium">
-                      Format
-                    </label>
-                    <AppSelect
-                      id="import-deck-format"
-                      value={formatId}
-                      onValueChange={(value) =>
-                        setFormatId(IMPORT_FORMATS.find((format) => format.id === value)?.id ?? "")
-                      }
-                      className="h-9 w-full cursor-pointer rounded-md border bg-background px-2 text-xs pointer-coarse:text-base"
+
+                  {valid ? (
+                    <div
+                      key={mainCount + sideCount + maybeCount + commanderCount}
+                      className="flex items-center gap-2 rounded-md border border-legality-legal/40 bg-legality-legal/10 px-3 py-2 text-legality-legal"
                     >
-                      <AppSelectOption value="">Auto-detect</AppSelectOption>
-                      {IMPORT_FORMATS.map((format) => (
-                        <AppSelectOption key={format.id} value={format.id}>
-                          {format.name}
-                        </AppSelectOption>
-                      ))}
-                    </AppSelect>
-                  </div>
-                </div>
-              )}
-
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium">Deck list</label>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 gap-1 px-2 text-xs"
-                    onClick={pasteFromClipboard}
-                  >
-                    <ClipboardPaste className="h-3 w-3" /> Paste
-                  </Button>
-                </div>
-                <textarea
-                  autoFocus
-                  value={text}
-                  onChange={(e) => {
-                    setText(e.target.value);
-                    setReviewing(false);
-                  }}
-                  placeholder={"4 Lightning Bolt\n2 Counterspell\n…"}
-                  className={cn(
-                    "flex min-h-[176px] w-full resize-none rounded-md border bg-transparent px-3 py-2 font-mono text-xs shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-                    valid ? "border-legality-legal/60" : "border-input",
+                      <CheckCircle2 className="h-4 w-4 shrink-0" />
+                      <span className="text-sm font-medium">Looks good!</span>
+                      <span className="text-xs text-muted-foreground">
+                        {commanderCount > 0 ? `${commanderCount} commander · ` : ""}
+                        {mainCount} main
+                        {sideCount > 0 ? ` · ${sideCount} sideboard` : ""}
+                        {maybeCount > 0 ? ` · ${maybeCount} maybeboard` : ""} · {entries.length}{" "}
+                        unique
+                      </span>
+                    </div>
+                  ) : dirty ? (
+                    <p className="text-xs text-destructive">No recognizable card entries yet</p>
+                  ) : null}
+                  {mode === "add" && commanderCount > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Commander entries fill an empty command zone. If it already has a commander,
+                      they are added to the main deck instead.
+                    </p>
                   )}
-                />
-              </div>
-
-              {valid ? (
-                <div
-                  key={mainCount + sideCount + maybeCount + commanderCount}
-                  className="flex items-center gap-2 rounded-md border border-legality-legal/40 bg-legality-legal/10 px-3 py-2 text-legality-legal"
-                >
-                  <CheckCircle2 className="h-4 w-4 shrink-0" />
-                  <span className="text-sm font-medium">Looks good!</span>
-                  <span className="text-xs text-muted-foreground">
-                    {commanderCount > 0 ? `${commanderCount} commander · ` : ""}
-                    {mainCount} main
-                    {sideCount > 0 ? ` · ${sideCount} sideboard` : ""}
-                    {maybeCount > 0 ? ` · ${maybeCount} maybeboard` : ""} · {entries.length} unique
-                  </span>
                 </div>
-              ) : dirty ? (
-                <p className="text-xs text-destructive">No recognizable card entries yet</p>
-              ) : null}
-              {mode === "add" && commanderCount > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  Commander entries fill an empty command zone. If it already has a commander, they
-                  are added to the main deck instead.
-                </p>
               )}
             </div>
 
@@ -334,7 +365,7 @@ export function ImportDeckTextDialog({
                 variant="primary"
                 size="sm"
                 onClick={() => setReviewing(true)}
-                disabled={!valid}
+                disabled={!valid || showForgeCatalog}
                 className={cn("gap-1 transition-all", valid && "ring-2 ring-primary/40")}
               >
                 <Download className="h-3.5 w-3.5" />
