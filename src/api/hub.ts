@@ -1,3 +1,4 @@
+import type { CommanderBracket } from "@/protocol/deck";
 import type { EngineGameStats } from "@/lib/engineTelemetry";
 import type { OfflinePlayGame } from "@/lib/offlinePlayRecord";
 import { getHubApiUrl } from "@/config/webRuntimeConfig";
@@ -29,12 +30,13 @@ import type {
 } from "@/api/hubTypes";
 import type { EngineKind } from "@/protocol";
 
-export type DeckHubSort = "community" | "newest" | "name" | "favorites";
+export type DeckHubSort = "community" | "newest" | "name" | "favorites" | "bracket";
 export type DeckHubColorMatch = "exact" | "includes";
 export type DeckHubTagMatch = "any" | "all";
 export type DeckHubSource = "all" | "community" | "presets";
 
 export interface DeckHubEntryListParams {
+  commanderBracket?: CommanderBracket;
   search?: string;
   source?: DeckHubSource;
   formats?: string[];
@@ -218,6 +220,7 @@ export function fetchDeckVersion(id: string, versionNo: number): Promise<DeckVer
 
 export function fetchDeckHubEntries(params: DeckHubEntryListParams): Promise<DeckHubEntryList> {
   const query = new URLSearchParams();
+  if (params.commanderBracket) query.set("commanderBracket", params.commanderBracket);
   if (params.search) query.set("search", params.search);
   if (params.source && params.source !== "all") query.set("source", params.source);
   if (params.formats?.length) query.set("formats", params.formats.join(","));

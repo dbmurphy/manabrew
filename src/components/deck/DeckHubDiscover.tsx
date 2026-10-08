@@ -1,3 +1,4 @@
+import { parseCommanderBracket } from "@/lib/brackets";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -41,6 +42,7 @@ export function DeckHubDiscover({ onOpen }: DeckHubDiscoverProps) {
   const formats = useMemo(() => csv(formatsValue), [formatsValue]);
   const tags = useMemo(() => csv(tagsValue), [tagsValue]);
   const filters: DeckHubDiscoveryFilters = {
+    commanderBracket: parseCommanderBracket(searchParams.get("commanderBracket")),
     search,
     source:
       searchParams.get("source") === "community" || searchParams.get("source") === "presets"
@@ -55,11 +57,13 @@ export function DeckHubDiscover({ onOpen }: DeckHubDiscoverProps) {
     card: searchParams.get("card") ?? "",
     favorites: accountsEnabled && searchParams.get("favorites") === "true",
     sort:
-      searchParams.get("sort") === "name"
-        ? "name"
-        : searchParams.get("sort") === "favorites"
-          ? "favorites"
-          : "newest",
+      searchParams.get("sort") === "bracket"
+        ? "bracket"
+        : searchParams.get("sort") === "name"
+          ? "name"
+          : searchParams.get("sort") === "favorites"
+            ? "favorites"
+            : "newest",
     group:
       searchParams.get("group") === "source" ||
       searchParams.get("group") === "format" ||
@@ -115,6 +119,7 @@ export function DeckHubDiscover({ onOpen }: DeckHubDiscoverProps) {
 
   const entryParams = useMemo<DeckHubEntryListParams>(
     () => ({
+      commanderBracket: filters.commanderBracket,
       search: debouncedSearch || undefined,
       source: filters.source,
       formats,
@@ -131,6 +136,7 @@ export function DeckHubDiscover({ onOpen }: DeckHubDiscoverProps) {
     }),
     [
       debouncedSearch,
+      filters.commanderBracket,
       filters.card,
       filters.colorMatch,
       filters.colors,
@@ -160,6 +166,7 @@ export function DeckHubDiscover({ onOpen }: DeckHubDiscoverProps) {
     }
     const next = new URLSearchParams(searchParams);
     const values: [keyof DeckHubDiscoveryFilters, string, unknown][] = [
+      ["commanderBracket", "commanderBracket", patch.commanderBracket],
       ["formats", "formats", patch.formats],
       ["source", "source", patch.source],
       ["colors", "colors", patch.colors],
@@ -173,7 +180,11 @@ export function DeckHubDiscover({ onOpen }: DeckHubDiscoverProps) {
       ["group", "group", patch.group],
     ];
     for (const [filterKey, queryKey, value] of values) {
-      if (value === undefined) continue;
+      if (value === undefined) {
+        if (filterKey === "commanderBracket" && Object.hasOwn(patch, filterKey))
+          next.delete(queryKey);
+        continue;
+      }
       const defaults =
         (filterKey === "colorMatch" && value === "exact") ||
         (filterKey === "source" && value === "all") ||
@@ -199,6 +210,7 @@ export function DeckHubDiscover({ onOpen }: DeckHubDiscoverProps) {
     changeFilters({
       search: "",
       source: "all",
+      commanderBracket: undefined,
       formats: [],
       colors: "",
       colorMatch: "exact",
@@ -227,6 +239,7 @@ export function DeckHubDiscover({ onOpen }: DeckHubDiscoverProps) {
 
   const activeFilterCount =
     Number(Boolean(search)) +
+    Number(Boolean(filters.commanderBracket)) +
     Number(filters.source !== "all") +
     Number(formats.length > 0) +
     Number(Boolean(filters.colors)) +

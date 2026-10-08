@@ -1,4 +1,4 @@
-import type { Deck } from "@/protocol/deck";
+import type { CommanderBracket, Deck } from "@/protocol/deck";
 import type { SpellbookCombo } from "@/api/commanderSpellbook";
 import { normalizeCardName } from "@/lib/gameChangers";
 
@@ -11,6 +11,27 @@ export const BRACKET_INFO: Record<Bracket, { name: string; blurb: string }> = {
   4: { name: "Optimized", blurb: "High-power; no card restrictions." },
   5: { name: "cEDH", blurb: "Built for the competitive metagame." },
 };
+
+export const COMMANDER_BRACKETS: CommanderBracket[] = ["1", "2", "3", "4", "5"];
+export const COMMANDER_BRACKET_NUMBERS: Record<CommanderBracket, Bracket> = {
+  "1": 1,
+  "2": 2,
+  "3": 3,
+  "4": 4,
+  "5": 5,
+};
+export function parseCommanderBracket(value: string | null): CommanderBracket | undefined {
+  switch (value) {
+    case "1":
+    case "2":
+    case "3":
+    case "4":
+    case "5":
+      return value;
+    default:
+      return undefined;
+  }
+}
 
 const MASS_LAND_DENIAL = new Set<string>([
   "armageddon",

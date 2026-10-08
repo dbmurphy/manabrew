@@ -1,3 +1,9 @@
+import {
+  COMMANDER_BRACKETS,
+  COMMANDER_BRACKET_NUMBERS,
+  BRACKET_INFO,
+  parseCommanderBracket,
+} from "@/lib/brackets";
 import { useEffect, useRef, useState } from "react";
 import { Heart, Search, X } from "lucide-react";
 import { ManaSymbols } from "@/components/game/ManaSymbols";
@@ -114,6 +120,7 @@ export function DeckHubFilterPanel({
         >
           <AppSelectOption value="newest">Newest</AppSelectOption>
           <AppSelectOption value="name">Name</AppSelectOption>
+          <AppSelectOption value="bracket">Declared bracket</AppSelectOption>
           <AppSelectOption value="favorites">Favorites</AppSelectOption>
         </AppSelect>
         <AppSelect
@@ -195,6 +202,19 @@ export function DeckHubFilterPanel({
         </AppSelect>
       </div>
 
+      <AppSelect
+        value={filters.commanderBracket ?? "all"}
+        aria-label="Filter by declared Commander bracket"
+        className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+        onValueChange={(value) => onChange({ commanderBracket: parseCommanderBracket(value) })}
+      >
+        <AppSelectOption value="all">All Commander brackets</AppSelectOption>
+        {COMMANDER_BRACKETS.map((value) => (
+          <AppSelectOption key={value} value={value}>
+            {value} · {BRACKET_INFO[COMMANDER_BRACKET_NUMBERS[value]].name}
+          </AppSelectOption>
+        ))}
+      </AppSelect>
       <div className="grid gap-3">
         <Input
           value={commander}

@@ -24,7 +24,7 @@ use ts_rs::TS;
 
 const PROTOCOL_OUT: &str = "src/protocol";
 const HUB_OUT: &str = "src/api";
-const DECK_IMPORT: &str = "import type { Deck, DeckFormat } from \"@/protocol/deck\";\nimport type { EngineKind } from \"@/protocol\";\n\n";
+const DECK_IMPORT: &str = "import type { CommanderBracket, Deck, DeckFormat } from \"@/protocol/deck\";\nimport type { EngineKind } from \"@/protocol\";\n\n";
 
 pub fn generate(root: &Path) -> Result<()> {
     let hub_path = root.join(HUB_OUT).join("hubTypes.ts");

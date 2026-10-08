@@ -1,3 +1,11 @@
+import { AppSelect, AppSelectOption } from "@/components/ui/AppSelect";
+import { useDeckStore } from "@/stores/useDeckStore";
+import { executeDeckEdit } from "./deckEditor.history";
+import {
+  COMMANDER_BRACKETS,
+  COMMANDER_BRACKET_NUMBERS,
+  parseCommanderBracket,
+} from "@/lib/brackets";
 import { Gauge, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDeckAnalysisStore } from "@/stores/useDeckAnalysisStore";
@@ -17,9 +25,12 @@ const BRACKET_STYLE: Record<
   5: { badge: "bg-destructive/15 text-destructive", text: "text-destructive" },
 };
 export function DeckBracketPanel() {
+  const deck = useDeckStore((state) => state.currentDeck);
+  const readOnly = useDeckStore((state) => state.isReadOnly);
+  const commander = deck.format === "commander";
   const bracket = useDeckAnalysisStore((s) => s.bracket);
   const loading = useDeckAnalysisStore((s) => s.loading);
-  if (!bracket && !loading) return null;
+  if (!bracket && !loading && !commander) return null;
   const info = bracket ? BRACKET_INFO[bracket.bracket] : null;
   const style = bracket ? BRACKET_STYLE[bracket.bracket] : null;
   const advice = bracket ? bracketAdvice(bracket) : null;
@@ -37,12 +48,49 @@ export function DeckBracketPanel() {
                 style.badge,
               )}
             >
-              {bracket.bracket} &middot; {info.name}
+              Estimate {bracket.bracket} &middot; {info.name}
             </span>
           )}
         </div>
       </div>
 
+      {commander && (
+        <div className="mb-4 space-y-2">
+          <label htmlFor="declared-commander-bracket" className="text-sm font-medium">
+            Declared bracket
+          </label>
+          <AppSelect
+            id="declared-commander-bracket"
+            value={deck.editor?.commanderBracket ?? "unset"}
+            disabled={readOnly}
+            className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+            onValueChange={(value) => {
+              const current = useDeckStore.getState();
+              if (current.isReadOnly || current.currentDeck.format !== "commander") return;
+              executeDeckEdit("Set Commander bracket", () =>
+                current.setEditorMetadata({
+                  ...current.currentDeck.editor,
+                  version: 1,
+                  tags: current.currentDeck.editor?.tags ?? [],
+                  layouts: current.currentDeck.editor?.layouts ?? [],
+                  commanderBracket: parseCommanderBracket(value),
+                }),
+              );
+            }}
+          >
+            <AppSelectOption value="unset">Not declared</AppSelectOption>
+            {COMMANDER_BRACKETS.map((value) => (
+              <AppSelectOption key={value} value={value}>
+                {value} · {BRACKET_INFO[COMMANDER_BRACKET_NUMBERS[value]].name}
+              </AppSelectOption>
+            ))}
+          </AppSelect>
+          <p className="text-xs text-muted-foreground">
+            Your declaration is saved with the deck and shown when you publish it. The estimate is
+            separate.
+          </p>
+        </div>
+      )}
       {bracket && info && (
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">{info.blurb}</p>

@@ -357,11 +357,41 @@ pub struct DeckEditorGoals {
     pub tag_targets: Option<BTreeMap<String, u32>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "deck/index.ts")]
+pub enum CommanderBracket {
+    #[serde(rename = "1")]
+    Exhibition,
+    #[serde(rename = "2")]
+    Core,
+    #[serde(rename = "3")]
+    Upgraded,
+    #[serde(rename = "4")]
+    Optimized,
+    #[serde(rename = "5")]
+    Competitive,
+}
+
+impl CommanderBracket {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Exhibition => "1",
+            Self::Core => "2",
+            Self::Upgraded => "3",
+            Self::Optimized => "4",
+            Self::Competitive => "5",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "deck/index.ts")]
 pub struct DeckEditorMetadata {
     pub version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub commander_bracket: Option<CommanderBracket>,
     #[serde(default)]
     pub tags: Vec<DeckEditorTag>,
     #[serde(default)]

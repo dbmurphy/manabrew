@@ -26,6 +26,7 @@ pub struct ChatReportRow<'a> {
 }
 
 pub struct DeckHubListParams {
+    pub commander_bracket: Option<manabrew_protocol::deck_dto::CommanderBracket>,
     pub search: Option<String>,
     pub source_kind: Option<String>,
     pub formats: Vec<String>,
@@ -46,6 +47,7 @@ pub struct DeckHubListParams {
 
 #[derive(Clone, Copy)]
 pub enum DeckHubSortOrder {
+    Bracket,
     CommunityFirst,
     Newest,
     Name,
@@ -1644,6 +1646,13 @@ impl Storage {
                 args.push(Box::new(like_pattern(value)));
             }
         }
+        if let Some(bracket) = params.commander_bracket {
+            args.push(Box::new(bracket.as_str().to_string()));
+            where_clause.push_str(&format!(
+                " AND v.format = 'commander' AND json_extract(v.snapshot_json, '$.editor.commanderBracket') = ?{}",
+                args.len()
+            ));
+        }
         if params.favorites_only {
             if let Some(account_id) = params.viewer_account_id.as_deref() {
                 let index = args.len() + 1;
@@ -1697,6 +1706,7 @@ impl Storage {
         )?;
         let viewer_index = args.len() + 1;
         let order = match params.sort {
+            DeckHubSortOrder::Bracket => "CASE WHEN v.format = 'commander' THEN COALESCE(CAST(json_extract(v.snapshot_json, '$.editor.commanderBracket') AS INTEGER), 6) ELSE 6 END ASC, e.title COLLATE NOCASE ASC, e.id ASC",
             DeckHubSortOrder::CommunityFirst => {
                 "CASE WHEN d.kind = 'preset' THEN 1 ELSE 0 END ASC, \
                  e.published_at DESC, e.id ASC"
@@ -3395,6 +3405,15 @@ fn map_deckhub_entry_summary(row: &Row) -> SqlResult<DeckHubEntrySummary> {
         .or_else(|| deck.cover_card_name.clone());
     let cover_image_url = cover_image(&deck, cover_card_name.as_deref());
     Ok(DeckHubEntrySummary {
+        commander_bracket: if deck.format
+            == Some(manabrew_protocol::deck_dto::DeckFormat::Commander)
+        {
+            deck.editor
+                .as_ref()
+                .and_then(|editor| editor.commander_bracket)
+        } else {
+            None
+        },
         id: row.get(0)?,
         deck_id: row.get(1)?,
         published_version_id: row.get(2)?,

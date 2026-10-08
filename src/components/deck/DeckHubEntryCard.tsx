@@ -159,6 +159,11 @@ export function DeckHubEntryCard({
         <>
           <FormatBadge formatId={entry.format ?? "commander"} />
           {colorCost && <ManaSymbols cost={colorCost} size="sm" />}
+          {entry.commanderBracket && (
+            <span className="rounded-full border border-border/70 bg-background/80 px-1.5 py-0.5 text-xs text-foreground">
+              Bracket {entry.commanderBracket}
+            </span>
+          )}
           {entry.engines?.map((engine) => (
             <span
               key={engine}
