@@ -13,15 +13,11 @@
 // without it. Keep both in sync.
 const ASSET_SERVER_PORT: u16 = 9527;
 
-/// Whether anything is answering `/scryfall-img/`. Set where the route starts
-/// existing, and read by the download UI, so the offer to fill the cache and
-/// the ability to read it back cannot drift apart. Windows keeps the embedded
-/// `http://tauri.localhost` scheme and runs no asset server, and dev hands the
-/// path to vite's proxy, so neither serves the cache and neither offers it.
+/// Whether the app origin serves `/scryfall-img/`. Windows and dev use the
+/// separate loopback cache listener instead.
 static CARD_ART_ROUTE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Gates Settings -> Cache. A machine that cannot read the cache is never
-/// offered the download that fills it.
+/// Reports whether the app origin can read the cache.
 #[tauri::command]
 pub fn card_art_route_available() -> bool {
     CARD_ART_ROUTE.load(std::sync::atomic::Ordering::Relaxed)

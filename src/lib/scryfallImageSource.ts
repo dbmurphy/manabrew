@@ -51,21 +51,18 @@ export function clearScryfallImageCache(): void {
   pending.clear();
 }
 
-/**
- * Whether this build serves `/scryfall-img/`, asked of the shell rather than
- * inferred from the platform. Windows keeps Tauri's embedded scheme and runs no
- * asset server, and that scheme answers any unknown path with `index.html` and
- * a 200, so an unguarded fetch of the route "succeeds" with HTML where an image
- * was expected. Dev hands the path to vite's proxy and serves no cache either.
- */
-let localCardArtRoute: Promise<boolean> | null = null;
+let localCardArtRoute: Promise<string | null> | null = null;
 
-export function localCardArtRouteAvailable(): Promise<boolean> {
-  if (getPlatformType() !== "tauri") return Promise.resolve(false);
+export function localCardArtBaseUrl(): Promise<string | null> {
+  if (getPlatformType() !== "tauri") return Promise.resolve(null);
   localCardArtRoute ??= getPlatform()
-    .invoke<boolean>("card_art_route_available")
-    .catch(() => false);
+    .invoke<string | null>("card_art_base_url")
+    .catch(() => null);
   return localCardArtRoute;
+}
+
+export async function localCardArtRouteAvailable(): Promise<boolean> {
+  return (await localCardArtBaseUrl()) !== null;
 }
 
 // Fetches to a same-origin blob object URL. On desktop the webview runs under
@@ -79,7 +76,8 @@ export function localCardArtRouteAvailable(): Promise<boolean> {
 async function fetchImageBytes(url: string): Promise<Blob> {
   const key = cacheKeyForImage(url);
   if (key) {
-    const local = (await localCardArtRouteAvailable()) ? `/scryfall-img/${key}` : null;
+    const base = await localCardArtBaseUrl();
+    const local = base !== null ? `${base}/scryfall-img/${key}` : null;
     for (const candidate of [local, lanArtUrl(key)]) {
       if (!candidate) continue;
       try {

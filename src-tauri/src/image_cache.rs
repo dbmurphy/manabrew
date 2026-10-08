@@ -11,6 +11,7 @@ pub use manabrew_art_cache::{
 };
 
 static CACHE: OnceLock<Arc<ImageCache>> = OnceLock::new();
+static LOCAL_SERVER: OnceLock<manabrew_art_cache::ArtServer> = OnceLock::new();
 
 pub fn init(app: &tauri::AppHandle) {
     use tauri::Manager;
@@ -22,7 +23,23 @@ pub fn init(app: &tauri::AppHandle) {
     // what makes `stats` a read of two numbers rather than a tree walk.
     let counted = cache.clone();
     std::thread::spawn(move || counted.reconcile());
+    if cfg!(target_os = "windows") || tauri::is_dev() {
+        if let Some(server) = manabrew_art_cache::ArtServer::spawn_local(cache.clone()) {
+            let _ = LOCAL_SERVER.set(server);
+        }
+    }
     let _ = CACHE.set(cache);
+}
+
+#[tauri::command]
+pub fn card_art_base_url() -> Option<String> {
+    if crate::asset_server::card_art_route_available() {
+        Some(String::new())
+    } else {
+        LOCAL_SERVER
+            .get()
+            .map(|server| format!("http://127.0.0.1:{}", server.port))
+    }
 }
 
 pub fn cache() -> Option<Arc<ImageCache>> {
