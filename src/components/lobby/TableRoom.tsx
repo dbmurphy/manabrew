@@ -1,3 +1,4 @@
+import { useLobbySoundAlerts } from "@/hooks/useLobbySoundAlerts";
 import { boardBackgroundUrl } from "@/pixi/board/boardBackgrounds";
 import { Shield, Swords } from "lucide-react";
 import { OpenTableSeats } from "@/components/lobby/OpenTableSeats";
@@ -40,6 +41,7 @@ export function TableRoom({
   onRemoveBot,
   mySpawnedBots = [],
 }: TableRoomProps) {
+  const soundAlerts = useLobbySoundAlerts(room, username);
   const myPlayer = room.players.find((player) => player.username === username);
   const controllerName =
     room.players.find((player) => !player.is_bot)?.username ?? room.players[0]?.username;
@@ -228,6 +230,7 @@ export function TableRoom({
           needsDeck={needsDeck}
           myPlayerReady={myPlayer?.ready === true}
           openSeats={openSeats}
+          soundAlerts={soundAlerts}
           onLeaveRoom={onLeaveRoom}
           onSetReady={onSetReady}
           onSetFormat={onSetFormat}
