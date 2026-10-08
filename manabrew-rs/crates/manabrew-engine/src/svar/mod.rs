@@ -1770,6 +1770,13 @@ pub fn resolve_count_svar_for_sa(
             filter_str
         };
 
+        let count_distinct_names = filter_str.ends_with("$DifferentCardNames");
+        let filter_str = if count_distinct_names {
+            filter_str.trim_end_matches("$DifferentCardNames")
+        } else {
+            filter_str
+        };
+
         // Check for /Times.N multiplier suffix (e.g. "Enchantment.Other/Times.2")
         let (filter_str, multiplier) = crate::parsing::strip_times_multiplier(filter_str);
 
@@ -1805,6 +1812,29 @@ pub fn resolve_count_svar_for_sa(
                 }
             }
             return do_x_math(max_power, operators, game, source_id, controller, sa);
+        } else if count_distinct_names {
+            let mut distinct: Vec<CardId> = Vec::new();
+            for &cid in &cards_to_check {
+                let card = game.card(cid);
+                if !card.has_no_name()
+                    && crate::card::valid_filter::matches_valid_card_selector_in_game(
+                        &selector, card, source, game,
+                    )
+                    && !distinct
+                        .iter()
+                        .any(|&other| card.shares_name_with(game.card(other)))
+                {
+                    distinct.push(cid);
+                }
+            }
+            return do_x_math(
+                distinct.len() as i32 * multiplier,
+                operators,
+                game,
+                source_id,
+                controller,
+                sa,
+            );
         } else if count_distinct_colors {
             let mut mask: u8 = 0;
             for &cid in &cards_to_check {
