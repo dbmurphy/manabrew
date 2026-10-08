@@ -89,12 +89,6 @@ public final class ManaBrewEngineAdapter {
         final GameRules rules = new GameRules(gameType);
         rules.setAppliedVariants(variants);
         rules.setSimTimeout(120);
-        // The client draws its own card faces, so nothing here or in the
-        // protocol ever reads Forge's rendered rules text. Building it asks
-        // every conditional static ability whether it applies, and each of
-        // those filters the whole battlefield, which on a four-player board is
-        // a quarter of the engine's time.
-        rules.setRenderAbilityText(false);
 
         // Resetting global counters under a live session would collide its ids;
         // multiplexed processes only reset between idle periods.
@@ -125,6 +119,7 @@ public final class ManaBrewEngineAdapter {
 
         final Match match = new Match(rules, registeredPlayers, "ManaBrew");
         final Game game = match.createGame();
+        game.setNoGUIUser();
         session.attach(match, game, botSeats, request.isSnapshotRecording());
         if (request.checkpointMetrics) {
             session.enableCheckpointMetrics();

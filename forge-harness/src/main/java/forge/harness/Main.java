@@ -515,6 +515,7 @@ public final class Main {
 
         Match match = new Match(rules, players, "ParityTest");
         Game game = match.createGame();
+        game.setNoGUIUser();
         ParityCardMap.reset();
 
         // Register snapshot subscriber(s).
