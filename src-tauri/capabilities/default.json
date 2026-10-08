@@ -13,6 +13,7 @@
   },
   "permissions": [
     "core:default",
+    "core:window:allow-set-fullscreen",
     "opener:default",
     "core:event:default",
     "updater:default",
