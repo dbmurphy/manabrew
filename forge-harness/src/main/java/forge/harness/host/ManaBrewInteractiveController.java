@@ -1168,6 +1168,18 @@ public final class ManaBrewInteractiveController extends PlayerController implem
     public boolean confirmTrigger(final WrappedAbility sa) {
         final Trigger trigger = sa == null ? null : sa.getTrigger();
         final Card host = sa == null ? null : sa.getHostCard();
+        final SpellAbility effect = sa == null ? null : sa.getWrappedAbility();
+        if (effect != null && effect.getApi() == ApiType.RemoveCounter
+                && "Self".equals(effect.getParam("Defined"))
+                && effect.getSubAbility() == null
+                && effect.getMapParams().keySet().stream().allMatch(Set.of(
+                        "DB", "Defined", "CounterType", "CounterNum", "AILogic", "SpellDescription")::contains)
+                && host != null && effect.hasParam("CounterType")
+                && ("Any".equals(effect.getParam("CounterType")) || "All".equals(effect.getParam("CounterType"))
+                        ? !host.hasCounters()
+                        : host.getCounters(CounterType.getType(effect.getParam("CounterType"))) == 0)) {
+            return false;
+        }
         final String title = host == null
                 ? "Resolve optional trigger?"
                 : "Use triggered ability of " + host.getName() + "?";
