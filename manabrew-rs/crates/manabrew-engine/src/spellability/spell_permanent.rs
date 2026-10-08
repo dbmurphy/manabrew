@@ -65,6 +65,7 @@ pub fn create_permanent_spell(
         optional_generic_cost_paid: false,
         trigger_remembered_amount: 0,
         x_mana_cost_paid: 0,
+        charm_order: 0,
         discarded_cost_cards: Vec::new(),
         optional_costs: Vec::new(),
         paid_hash: HashMap::new(),

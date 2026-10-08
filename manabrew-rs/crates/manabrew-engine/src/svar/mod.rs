@@ -154,6 +154,13 @@ fn spell_ability_x_property(spell_ability: &SpellAbility, expr: &str, game: &Gam
     let operators = parts.get(1).copied().unwrap_or("");
 
     let base = match value {
+        "NumTimesChoseMode" => {
+            let mut tail = spell_ability;
+            while let Some(sub) = tail.sub_ability.as_deref() {
+                tail = sub;
+            }
+            tail.charm_order as i32
+        }
         "CardPower" => source.power(),
         "CardToughness" => source.toughness(),
         _ if value.starts_with("CardCounters.") => {

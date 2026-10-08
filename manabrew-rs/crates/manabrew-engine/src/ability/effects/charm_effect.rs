@@ -380,12 +380,13 @@ pub fn make_choices_precast_with_count(
 
     sa.sub_ability = None;
     let parent_trigger_remembered = sa.trigger_remembered_amount;
-    for idx in chosen_indices {
+    for (order, idx) in chosen_indices.into_iter().enumerate() {
         if idx >= mode_texts.len() {
             continue;
         }
         let mut mode_sa = build_spell_ability(game, source_id, &mode_texts[idx], player);
         mode_sa.source = Some(source_id);
+        mode_sa.charm_order = order + 1;
         // Propagate trigger context from parent SA so effects like Modular
         // can access trigger_remembered_amount at resolution time.
         mode_sa.trigger_remembered_amount = parent_trigger_remembered;

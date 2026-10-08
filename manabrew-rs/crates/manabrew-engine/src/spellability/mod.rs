@@ -201,6 +201,8 @@ pub struct SpellAbility {
     /// The value chosen for X in the mana cost (e.g. Fireball X=5 means 5 damage).
     /// Mirrors Java's `SpellAbility.getXManaCostPaid()`.
     pub x_mana_cost_paid: u32,
+    #[serde(default)]
+    pub charm_order: usize,
     /// Cards discarded as part of the cost payment.
     /// Mirrors Java's `CostPayment.getPaidList("Discarded")`.
     pub discarded_cost_cards: Vec<crate::ids::CardId>,
@@ -621,6 +623,7 @@ impl SpellAbility {
             optional_generic_cost_paid: false,
             trigger_remembered_amount: 0,
             x_mana_cost_paid: 0,
+            charm_order: 0,
             discarded_cost_cards: Vec::new(),
             optional_costs: Vec::new(),
             paid_hash: HashMap::new(),
@@ -1414,6 +1417,7 @@ impl SpellAbility {
     pub fn has_property(&self, property: &str) -> bool {
         match property {
             "Spell" => self.is_spell,
+            "Modal" => self.api == Some(ApiType::Charm),
             "Trigger" => self.is_trigger,
             "Activated" => self.is_activated,
             "ManaAbility" => self.is_mana_ability,
