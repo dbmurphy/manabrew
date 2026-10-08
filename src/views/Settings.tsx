@@ -1,3 +1,4 @@
+import { GameSoundControls } from "@/components/settings/GameSoundControls";
 import { useState } from "react";
 import { toast } from "sonner";
 import {
@@ -577,6 +578,12 @@ export default function Settings() {
               </div>
             </PreferenceCard>
 
+            <PreferenceCard
+              title="Gameplay sounds"
+              description="Choose which game events make a sound."
+            >
+              <GameSoundControls />
+            </PreferenceCard>
             <PreferenceCard
               title={`Card Size`}
               value={`${Math.round(prefs.cardSizeMultiplier * 100)}%`}

@@ -1,3 +1,4 @@
+import { playGameSound } from "@/lib/gameSounds";
 import { useEffect, useRef, useState } from "react";
 import { useGameStore } from "@/stores/useGameStore";
 import type { FlashItem } from "@/components/game/game.types";
@@ -84,6 +85,10 @@ export function useFlashQueue(flashDurationMs: number) {
       setActiveFlash(first);
     }
   }
+
+  useEffect(() => {
+    if (activeFlash) playGameSound(activeFlash.kind === "card" ? "cardPlay" : "turn");
+  }, [activeFlash]);
 
   // The store's `isFlashing` flag and the deferred queue are drained ONLY by
   // this hook. If it unmounts mid-flash (leaving the game), the store would be
