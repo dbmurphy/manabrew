@@ -1,8 +1,10 @@
+import type { CommanderBracket } from "@/protocol/deck";
 import type { DeckHubColorMatch, DeckHubSort, DeckHubSource, DeckHubTagMatch } from "@/api/hub";
 
 export type DeckHubGroup = "none" | "source" | "format" | "color" | "tag";
 
 export interface DeckHubDiscoveryFilters {
+  commanderBracket?: CommanderBracket;
   search: string;
   source: DeckHubSource;
   formats: string[];

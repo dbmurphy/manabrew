@@ -151,6 +151,11 @@ export function DeckGridCard({
           <>
             <FormatBadge formatId={deck.deck.format ?? "standard"} />
             {colorCost && <ManaSymbols cost={colorCost} size="sm" />}
+            {deck.deck.format === "commander" && deck.deck.editor?.commanderBracket && (
+              <span className="rounded-full border border-border/70 bg-background/80 px-1.5 py-0.5 text-xs text-foreground">
+                Bracket {deck.deck.editor?.commanderBracket}
+              </span>
+            )}
             {deck.deck.labels?.map((label) => (
               <DeckLabelBadge key={label.name} label={label} size="sm" />
             ))}

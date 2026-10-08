@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use manabrew_protocol::deck_dto::{Deck, DeckFormat};
+use manabrew_protocol::deck_dto::{CommanderBracket, Deck, DeckFormat};
 use manabrew_protocol::game::EngineKind;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -437,6 +437,9 @@ pub struct UpdateDeckHubEntryRequest {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "hubTypes.ts")]
 pub struct DeckHubEntrySummary {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "CommanderBracket")]
+    pub commander_bracket: Option<CommanderBracket>,
     pub id: String,
     pub deck_id: String,
     pub published_version_id: String,

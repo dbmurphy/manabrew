@@ -654,6 +654,7 @@ async fn deck_version_handler(
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DeckHubListQuery {
+    commander_bracket: Option<manabrew_protocol::deck_dto::CommanderBracket>,
     search: Option<String>,
     source: Option<String>,
     format: Option<String>,
@@ -687,6 +688,7 @@ async fn deckhub_entries_handler(
         .unwrap_or(DEFAULT_PAGE_SIZE)
         .clamp(1, MAX_PAGE_SIZE);
     let params = DeckHubListParams {
+        commander_bracket: query.commander_bracket,
         search: query.search,
         source_kind: match query.source.as_deref() {
             Some("community") => Some("user".into()),
@@ -710,6 +712,7 @@ async fn deckhub_entries_handler(
         owned_only: query.owned.unwrap_or(false),
         engines: Some(csv_values(query.engines)).filter(|values| !values.is_empty()),
         sort: match query.sort.as_deref() {
+            Some("bracket") => DeckHubSortOrder::Bracket,
             Some("name") => DeckHubSortOrder::Name,
             Some("favorites") => DeckHubSortOrder::Favorites,
             Some("newest") => DeckHubSortOrder::Newest,
