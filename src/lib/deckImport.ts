@@ -49,6 +49,7 @@ export interface ParsedDeckEntry {
   setCode?: string;
   collectorNumber?: string;
   foil?: boolean;
+  auxiliary?: string;
 }
 
 export function isDetectedCommander(entry: ParsedDeckEntry): boolean {
@@ -62,12 +63,14 @@ export function suggestedDeckName(entries: ParsedDeckEntry[]): string {
     .join(" / ");
 }
 
+const AUXILIARY_SECTION_LINE_REGEX = /^(attractions|contraptions|schemes|planes)\s*:?$/i;
 const SIDEBOARD_LINE_REGEX = /^(sideboard|side)\s*:?$/i;
 const MAYBEBOARD_LINE_REGEX = /^(maybeboard|maybe)\s*:?$/i;
 const COMMANDER_LINE_REGEX = /^(commander|command)s?\s*:?$/i;
 const MAIN_SECTION_LINE_REGEX = /^(mainboard|main|deck|companion)\s*:?$/i;
 const DECK_LINE_REGEX = /^(\d+)x?\s+(.+)$/i;
-const SET_SUFFIX_REGEX = /\s+\(([A-Za-z0-9]{2,6})\)(?:\s+([\w-]+))?(?:\s+(\*F\*|F))?$/i;
+const SET_SUFFIX_REGEX =
+  /\s+\(([A-Za-z0-9]{2,6})\)(?:\s+((?!\*F\*(?:\s|$))[^\s]+))?(?:\s+(\*F\*|F))?$/i;
 // Archidekt text exports decorate lines with `[Category]` and `^Label,#hex^`
 // suffixes; the category is also how they mark the commander.
 const LABEL_SUFFIX_REGEX = /\s+\^[^^]*\^$/;
@@ -80,9 +83,34 @@ const COMMENT_SUFFIX_REGEX = /\s+#(.*)$/;
 // Only trust that shape for commander-sized lists.
 const HEADERLESS_COMMANDER_MIN_MAIN = 90;
 
+export function unrecognizedDeckListLines(text: string): string[] {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => {
+      if (!line || line.startsWith("//")) return false;
+      if (
+        [
+          SIDEBOARD_LINE_REGEX,
+          MAYBEBOARD_LINE_REGEX,
+          COMMANDER_LINE_REGEX,
+          MAIN_SECTION_LINE_REGEX,
+          AUXILIARY_SECTION_LINE_REGEX,
+        ].some((pattern) => pattern.test(line))
+      )
+        return false;
+      const entries = parseDeckListText(line);
+      return (
+        entries.length === 0 ||
+        entries.some((entry) => !Number.isSafeInteger(entry.count) || entry.count <= 0)
+      );
+    });
+}
+
 export function parseDeckListText(text: string): ParsedDeckEntry[] {
   const lines = text.split("\n").map((l) => l.trim());
   let section: "main" | "side" | "maybe" | "commander" = "main";
+  let auxiliary: string | undefined;
   let sawHeader = false;
   let block = 0;
   const blockOf: number[] = [];
@@ -98,6 +126,22 @@ export function parseDeckListText(text: string): ParsedDeckEntry[] {
     }
     const isComment = rawLine.startsWith("//") && !DECK_LINE_REGEX.test(rawLine);
     const line = isComment ? rawLine.replace(/^\/\/\s*/, "") : rawLine;
+    const auxiliaryHeader = line.match(AUXILIARY_SECTION_LINE_REGEX);
+    if (auxiliaryHeader) {
+      section = "side";
+      auxiliary = auxiliaryHeader[1];
+      sawHeader = true;
+      continue;
+    }
+    if (
+      [
+        SIDEBOARD_LINE_REGEX,
+        MAYBEBOARD_LINE_REGEX,
+        COMMANDER_LINE_REGEX,
+        MAIN_SECTION_LINE_REGEX,
+      ].some((pattern) => pattern.test(line))
+    )
+      auxiliary = undefined;
     if (SIDEBOARD_LINE_REGEX.test(line)) {
       section = "side";
       sawHeader = true;
@@ -147,6 +191,7 @@ export function parseDeckListText(text: string): ParsedDeckEntry[] {
       setCode: setMatch?.[1]?.toLowerCase(),
       collectorNumber: setMatch?.[2],
       foil: setMatch?.[3] ? true : undefined,
+      auxiliary,
     });
   }
   markHeaderlessCommanderBlock(entries, blockOf, sawHeader);
@@ -189,6 +234,47 @@ export interface ResolvedDeckImportSections {
   sideboard: DeckCard[];
   maybeboard: DeckCard[];
   commanders: DeckCard[];
+}
+
+export function replaceDeckImportIntoDeck(
+  deck: EditorDeck,
+  sections: ResolvedDeckImportSections,
+): EditorDeck {
+  const pool = new Map<string, DeckCard[]>();
+  const key = (card: DeckCard) =>
+    JSON.stringify([
+      card.identity.name.toLowerCase(),
+      card.identity.setCode.toLowerCase(),
+      card.identity.cardNumber,
+      !!card.identity.foil,
+    ]);
+  for (const card of [
+    ...deck.cards,
+    ...deck.sideboard,
+    ...(deck.maybeboard ?? []),
+    ...(deck.commanders ?? []),
+    ...(deck.attractions ?? []),
+    ...(deck.contraptions ?? []),
+    ...(deck.schemes ?? []),
+    ...(deck.planes ?? []),
+  ]) {
+    const printing = key(card);
+    const copies = pool.get(printing) ?? [];
+    copies.push(card);
+    pool.set(printing, copies);
+  }
+  const retain = (cards: DeckCard[]) => cards.map((card) => pool.get(key(card))?.shift() ?? card);
+  return {
+    ...deck,
+    cards: retain(sections.cards),
+    sideboard: retain(sections.sideboard),
+    maybeboard: retain(sections.maybeboard),
+    commanders: retain(sections.commanders),
+    attractions: [],
+    contraptions: [],
+    schemes: [],
+    planes: [],
+  };
 }
 
 export function mergeDeckImportIntoDeck(

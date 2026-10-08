@@ -213,3 +213,58 @@ export function useDeckTextImportIntoCurrent() {
     [],
   );
 }
+
+export function useDeckTextReplaceCurrent(openingState?: ReturnType<typeof useDeckStore.getState>) {
+  return useCallback(
+    async (
+      entries: ParsedDeckEntry[],
+      _name: string,
+      _formatId: DeckFormat | undefined,
+      onProgress: (fraction: number) => void,
+    ): Promise<boolean> => {
+      const initial = useDeckStore.getState();
+      if (initial.isReadOnly) return false;
+      if (
+        openingState &&
+        (initial.editorSessionId !== openingState.editorSessionId ||
+          initial.currentDeck !== openingState.currentDeck)
+      ) {
+        throw new Error(
+          "Deck changed since the list was opened. Close it and reopen the current deck list.",
+        );
+      }
+      const result =
+        entries.length > 0
+          ? await resolveDeckTextImport(entries, onProgress)
+          : {
+              cards: [],
+              sideboard: [],
+              maybeboard: [],
+              commanders: [],
+              notFound: [],
+              substitutedPrintings: [],
+            };
+      if (result.notFound.length || result.substitutedPrintings.length) {
+        throw new Error(
+          `Deck unchanged. Could not resolve these cards or printings: ${[
+            ...result.notFound,
+            ...result.substitutedPrintings,
+          ].join(", ")}`,
+        );
+      }
+      const current = useDeckStore.getState();
+      if (
+        current.editorSessionId !== initial.editorSessionId ||
+        current.currentDeck !== initial.currentDeck ||
+        current.isReadOnly
+      ) {
+        throw new Error("Deck changed while the list was being checked. Review it and try again.");
+      }
+      executeDeckEdit("Edit deck list", () => current.replaceCurrentDeckList(result));
+      onProgress(1);
+      toast.success("Updated this deck from the list");
+      return true;
+    },
+    [openingState],
+  );
+}

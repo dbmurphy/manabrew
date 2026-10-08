@@ -115,7 +115,7 @@ import {
 import { useUnsupportedCards } from "@/hooks/useUnsupportedCards";
 import { CommanderSlots } from "./CommanderSlots";
 import { ImportDeckTextDialog } from "./ImportDeckTextDialog";
-import { useDeckTextImportIntoCurrent } from "./useDeckTextImport";
+import { useDeckTextImportIntoCurrent, useDeckTextReplaceCurrent } from "./useDeckTextImport";
 import {
   executeDeckEdit,
   redoDeckEdit,
@@ -212,6 +212,10 @@ export function DeckBuilder({
   const [detailPrinting, setDetailPrinting] = useState<DeckCardIdentity | null>(null);
   const [labelsOpen, setLabelsOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [listEditContext, setListEditContext] = useState<ReturnType<
+    typeof useDeckStore.getState
+  > | null>(null);
+  const openListEditor = () => setListEditContext(useDeckStore.getState());
   const [isSaving, setIsSaving] = useState(false);
   const [syncState, setSyncState] = useState<DeckSyncState>("saved");
   const [saveConflict, setSaveConflict] = useState<Awaited<
@@ -264,6 +268,7 @@ export function DeckBuilder({
   } = useDeckStore();
   const allowIllegalDecks = useGameDevStore((s) => s.allowIllegalDecks);
   const importIntoCurrentDeck = useDeckTextImportIntoCurrent();
+  const replaceCurrentDeckFromList = useDeckTextReplaceCurrent(listEditContext ?? undefined);
   const { selectedCards, toggleCard, rangeSelect, clearSelection, selectCards } =
     useDeckSelection();
   useEffect(() => {
@@ -1232,6 +1237,14 @@ export function DeckBuilder({
       run: () => setImportOpen(true),
     },
     {
+      id: "edit-list",
+      label: "Edit deck list",
+      keywords: ["text", "paste", "replace", "quantities"],
+      disabled: isReadOnly,
+      disabledReason: isReadOnly ? "Read only" : undefined,
+      run: () => openListEditor(),
+    },
+    {
       id: "undo",
       label: `Undo last deck edit`,
       run: undoDeckEdit,
@@ -1924,6 +1937,9 @@ export function DeckBuilder({
                     <UnfoldVertical className="mr-2 h-3.5 w-3.5" /> Expand all sections
                   </DropdownMenuItem>
                   <div className="my-1 border-t" />
+                  <DropdownMenuItem onSelect={() => openListEditor()} disabled={isReadOnly}>
+                    <ListPlus className="mr-2 h-3.5 w-3.5" /> Edit deck list
+                  </DropdownMenuItem>
                   <DropdownMenuItem onSelect={() => setImportOpen(true)}>
                     <ListPlus className="mr-2 h-3.5 w-3.5" /> Import list
                   </DropdownMenuItem>
@@ -2450,6 +2466,17 @@ export function DeckBuilder({
           mode="add"
           onImport={importIntoCurrentDeck}
         />
+        {listEditContext && (
+          <ImportDeckTextDialog
+            open={true}
+            onOpenChange={(open) => {
+              if (!open) setListEditContext(null);
+            }}
+            mode="edit"
+            initialText={exportWithPrintings(listEditContext.currentDeck)}
+            onImport={replaceCurrentDeckFromList}
+          />
+        )}
         <DeckCommandPalette
           open={commandPaletteOpen}
           onOpenChange={setCommandPaletteOpen}

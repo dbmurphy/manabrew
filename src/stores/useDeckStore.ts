@@ -20,7 +20,11 @@ import {
 import { chooseImageUrisForCard, tokenIdentityKey } from "@/stores/useScryfallStore";
 import { collectProducedTokenKeys } from "@/lib/decks";
 import { resolveDeckName } from "@/lib/deckName";
-import { mergeDeckImportIntoDeck } from "@/lib/deckImport";
+import {
+  mergeDeckImportIntoDeck,
+  replaceDeckImportIntoDeck,
+  type ResolvedDeckImportSections,
+} from "@/lib/deckImport";
 /** Migrate legacy "constructed" format id to "standard". */
 function migrateFormatId(id: string): DeckFormat {
   if (id === "constructed") return "standard";
@@ -303,6 +307,7 @@ interface DeckState {
     maybeboard: DeckCard[];
     commanders: DeckCard[];
   }) => void;
+  replaceCurrentDeckList: (sections: ResolvedDeckImportSections) => void;
   saveCurrentDeck: () => void;
   saveDraft: () => void;
   loadSavedDeck: (id: string) => void;
@@ -588,6 +593,16 @@ export const useDeckStore = create<DeckState>()(
               currentDeck: normalizeDeck(mergeDeckImportIntoDeck(deck, sections)),
             };
           }),
+        replaceCurrentDeckList: (sections) =>
+          set((state) =>
+            state.isReadOnly
+              ? state
+              : {
+                  currentDeck: normalizeDeck(
+                    replaceDeckImportIntoDeck(state.currentDeck, sections),
+                  ),
+                },
+          ),
         setCommander: (card) =>
           set((state) => {
             const deck = normalizeDeck(state.currentDeck);
