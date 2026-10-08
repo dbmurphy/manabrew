@@ -33,6 +33,9 @@
       },
       {
         "pattern": "java.base:\\Qjdk/internal/icu/impl/data/icudt72b/nfkc.nrm\\E"
+      },
+      {
+        "pattern": "card-overrides/.*"
       }
     ]
   },
