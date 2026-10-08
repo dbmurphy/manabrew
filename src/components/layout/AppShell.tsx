@@ -1,3 +1,4 @@
+import { useGameSounds } from "@/hooks/useGameSounds";
 import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { isFeatureEnabled } from "@/featureFlags";
@@ -104,6 +105,7 @@ export function AppShell() {
     return () => window.removeEventListener("online", flush);
   }, []);
 
+  useGameSounds();
   useGameSessionResume();
   useStatusBanner();
   useDesktopUpdater();

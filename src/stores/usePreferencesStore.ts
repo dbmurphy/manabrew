@@ -41,6 +41,17 @@ export interface PreferencesState {
   appLanguage: AppLanguagePreference;
   setAppLanguage: (language: AppLanguagePreference) => void;
 
+  gameplaySounds: boolean;
+  setGameplaySounds: (enabled: boolean) => void;
+  gameplaySoundVolume: number;
+  setGameplaySoundVolume: (volume: number) => void;
+  cardPlaySounds: boolean;
+  setCardPlaySounds: (enabled: boolean) => void;
+  turnSounds: boolean;
+  setTurnSounds: (enabled: boolean) => void;
+  decisionSounds: boolean;
+  setDecisionSounds: (enabled: boolean) => void;
+
   flashDurationMs: number;
   setFlashDurationMs: (ms: number) => void;
 
@@ -176,6 +187,11 @@ const PERSISTED_PREFERENCE_KEYS = [
   "appThemePreset",
   "personalThemeName",
   "appLanguage",
+  "gameplaySounds",
+  "gameplaySoundVolume",
+  "cardPlaySounds",
+  "turnSounds",
+  "decisionSounds",
   "flashDurationMs",
   "serverHost",
   "serverPort",
@@ -227,6 +243,12 @@ function pickPersistedPreferences(persistedState: unknown): Partial<PreferencesS
   for (const key of PERSISTED_PREFERENCE_KEYS) {
     if (key in persisted) next[key] = persisted[key];
   }
+  for (const key of ["gameplaySounds", "cardPlaySounds", "turnSounds", "decisionSounds"]) {
+    if (typeof next[key] !== "boolean") delete next[key];
+  }
+  if (typeof next.gameplaySoundVolume !== "number" || !Number.isFinite(next.gameplaySoundVolume))
+    delete next.gameplaySoundVolume;
+  else next.gameplaySoundVolume = Math.max(0, Math.min(1, next.gameplaySoundVolume));
   const appOverrides = next.appThemeColorOverrides;
   if (appOverrides && typeof appOverrides === "object" && !Array.isArray(appOverrides)) {
     const overrides = appOverrides as Record<string, unknown>;
@@ -287,6 +309,19 @@ export const usePreferencesStore = create<PreferencesState>()(
           appLanguage: "system",
           setAppLanguage: (appLanguage) => set({ appLanguage }),
 
+          gameplaySounds: false,
+          setGameplaySounds: (gameplaySounds) => set({ gameplaySounds }),
+          gameplaySoundVolume: 0.3,
+          setGameplaySoundVolume: (volume) =>
+            set({
+              gameplaySoundVolume: Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 0.3,
+            }),
+          cardPlaySounds: true,
+          setCardPlaySounds: (cardPlaySounds) => set({ cardPlaySounds }),
+          turnSounds: true,
+          setTurnSounds: (turnSounds) => set({ turnSounds }),
+          decisionSounds: true,
+          setDecisionSounds: (decisionSounds) => set({ decisionSounds }),
           flashDurationMs: 1000,
           setFlashDurationMs: (ms) => set({ flashDurationMs: ms }),
 

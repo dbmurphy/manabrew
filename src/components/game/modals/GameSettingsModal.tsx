@@ -1,3 +1,4 @@
+import { GameSoundControls } from "@/components/settings/GameSoundControls";
 import { useId, type ReactNode } from "react";
 import { Modal } from "./Modal";
 import { Button } from "@/components/ui/button";
@@ -85,6 +86,9 @@ export function GameSettingsModal({ onClose }: { onClose: () => void }) {
         </p>
       </Modal.Header>
       <Modal.Body className="space-y-4">
+        <Section title="Audio">
+          <GameSoundControls />
+        </Section>
         <Section title="Cards and previews">
           <Choice
             label="Sort hand"
