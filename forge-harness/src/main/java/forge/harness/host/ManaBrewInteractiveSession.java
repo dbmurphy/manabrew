@@ -923,7 +923,7 @@ public final class ManaBrewInteractiveSession {
             final List<Card> availableAttackers
     ) {
         requireAttached();
-        publishAttackersPrompt(playerId, combat, availableAttackers);
+        publishAttackersPrompt(playerId, combat, availableAttackers, null);
         while (!closed && !game.isGameOver()) {
             final JsonObject action;
             try {
@@ -963,10 +963,11 @@ public final class ManaBrewInteractiveSession {
     List<Pair<Card, GameEntity>> awaitAttackAssignments(
             final int playerId,
             final Combat combat,
-            final List<Card> availableAttackers
+            final List<Card> availableAttackers,
+            final String error
     ) {
         requireAttached();
-        publishAttackersPrompt(playerId, combat, availableAttackers);
+        publishAttackersPrompt(playerId, combat, availableAttackers, error);
         while (!closed && !game.isGameOver()) {
             final JsonObject action = takeActionOrNull();
             if (action == null) {
@@ -994,9 +995,7 @@ public final class ManaBrewInteractiveSession {
                             : "";
                     final Card selectedCard = findCardByPublishedId(availableAttackers, attackerId);
                     final GameEntity selectedDefender = findDefenderByPublishedId(combat, selectedDefenderId);
-                    if (selectedCard != null && selectedDefender != null) {
-                        selected.add(ImmutablePair.of(selectedCard, selectedDefender));
-                    }
+                    selected.add(ImmutablePair.of(selectedCard, selectedDefender));
                 }
             }
             return selected;
@@ -2567,7 +2566,8 @@ public final class ManaBrewInteractiveSession {
     private void publishAttackersPrompt(
             final int playerId,
             final Combat combat,
-            final List<Card> availableAttackers
+            final List<Card> availableAttackers,
+            final String error
     ) {
         final List<AttackerOptionDto> attackers = new java.util.ArrayList<>();
         for (final Card a : availableAttackers) {
@@ -2586,7 +2586,7 @@ public final class ManaBrewInteractiveSession {
                     defenderId(defender), defender.getName(),
                     enumFromWire(defenderKind(defender), AttackTargetKind.class)));
         }
-        publishAgentPrompt("player-" + playerId, null, new ChooseAttackersInput(attackers, attackTargets));
+        publishAgentPrompt("player-" + playerId, null, new ChooseAttackersInput(attackers, attackTargets, error));
     }
 
     private void publishBlockersPrompt(

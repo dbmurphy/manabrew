@@ -396,6 +396,7 @@ function sameActionPresentation(
       left.multipleAttackDefenders === right.multipleAttackDefenders &&
       left.attackAssignmentCount === right.attackAssignmentCount &&
       left.mustAttackHint === right.mustAttackHint &&
+      left.attackError === right.attackError &&
       left.pendingAttacker === right.pendingAttacker &&
       left.pendingBlocker === right.pendingBlocker &&
       left.blockError === right.blockError &&

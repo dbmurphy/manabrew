@@ -738,6 +738,7 @@ export default function Game({ exitTo }: GameProps = {}) {
   const {
     pendingAttackers,
     attackAssignments,
+    attackError,
     submitAttack,
     pendingAttacker,
     pendingBlocker,
@@ -2259,6 +2260,7 @@ export default function Game({ exitTo }: GameProps = {}) {
       multipleAttackDefenders,
       attackAssignmentCount: attackAssignments.length,
       mustAttackHint,
+      attackError,
       onDeclareAttackers: (attackerIds, defenderId) =>
         void respond(declareAttackersOutput(activePrompt, attackerIds, defenderId)),
       onBeginAttackTargetPick: selectAllAttackersForPick,

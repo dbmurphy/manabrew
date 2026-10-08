@@ -78,6 +78,8 @@ export function useCombatState({
   const possibleDefenders =
     currentPrompt?.input.type === "chooseAttackers" ? currentPrompt.input.attackTargets : [];
   const multipleAttackDefenders = possibleDefenders.length > 1;
+  const attackError =
+    currentPrompt?.input.type === "chooseAttackers" ? currentPrompt.input.error : undefined;
 
   const attackerOptions =
     currentPrompt?.input.type === "chooseAttackers" ? currentPrompt.input.attackers : [];
@@ -353,6 +355,7 @@ export function useCombatState({
   return {
     pendingAttackers,
     attackAssignments,
+    attackError,
     submitAttack,
     assignAttackPair,
     unassignAttack,
