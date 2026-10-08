@@ -181,6 +181,7 @@ public final class WasmMain {
     }
 
     public static void main(String[] args) throws Exception {
+        System.setProperty("tinylog.configuration", "tinylog-wasm.properties");
         // Must be set before any forge class initializes: ThreadUtil reads it in
         // a static initializer. native-image's own -D only reaches the builder.
         System.setProperty("forge.synchronous", "true");

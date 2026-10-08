@@ -36,6 +36,7 @@ echo "==> compiling WasmMain (@JS bootstrap layer)"
 rm -rf "$WASM_CLASSES"; mkdir -p "$WASM_CLASSES"
 "$GRAALVM_HOME/bin/javac" -parameters --add-modules org.graalvm.webimage.api \
   -cp "$JAR" -d "$WASM_CLASSES" $(find "$WASM_SRC" -name '*.java')
+cp "$WASM_SRC/tinylog-wasm.properties" "$WASM_CLASSES/tinylog-wasm.properties"
 
 echo "==> generating reflect-config (same closure as build-native.sh)"
 rm -rf "$GEN"; mkdir -p "$GEN"
@@ -74,7 +75,7 @@ echo "    embedding assets: $(du -k resources/assets-framed.txt | cut -f1) KiB"
   -H:Name=forgeharness \
   -cp "$CP" \
   -H:IncludeResourceBundles=en-US \
-  -H:IncludeResources='assets-framed\.txt' \
+  -H:IncludeResources='assets-framed\.txt|tinylog-wasm\.properties' \
   --no-fallback \
   --report-unsupported-elements-at-runtime \
   -H:+ReportExceptionStackTraces \
