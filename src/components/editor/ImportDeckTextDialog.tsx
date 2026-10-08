@@ -18,13 +18,15 @@ import {
   isDetectedCommander,
   parseDeckListText,
   suggestedDeckName,
+  unrecognizedDeckListLines,
   type ParsedDeckEntry,
 } from "@/lib/deckImport";
 import type { DeckFormat } from "@/protocol/deck";
 interface ImportDeckTextDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  mode?: "create" | "add";
+  mode?: "create" | "add" | "edit";
+  initialText?: string;
   onImport: (
     entries: ParsedDeckEntry[],
     name: string,
@@ -43,8 +45,9 @@ export function ImportDeckTextDialog({
   onOpenChange,
   onImport,
   mode = "create",
+  initialText = "",
 }: ImportDeckTextDialogProps) {
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialText);
   const [customName, setCustomName] = useState<string | null>(null);
   const [formatId, setFormatId] = useState<DeckFormat | "">("");
   const [importing, setImporting] = useState(false);
@@ -74,16 +77,18 @@ export function ImportDeckTextDialog({
     0,
   );
   const commanderCount = entries.reduce((s, e) => (isDetectedCommander(e) ? s + e.count : s), 0);
-  const valid = entries.length > 0;
+
   const dirty = text.trim().length > 0;
   const unrecognizedLines = useMemo(() => {
+    if (mode === "edit") return unrecognizedDeckListLines(text);
     const parsedNames = new Set(entries.map((entry) => entry.name.toLowerCase()));
     return text
       .split("\n")
       .map((line) => line.trim())
       .filter((line) => /^\d+x?\s+/i.test(line))
       .filter((line) => ![...parsedNames].some((name) => line.toLowerCase().includes(name)));
-  }, [entries, text]);
+  }, [entries, text, mode]);
+  const valid = mode === "edit" ? unrecognizedLines.length === 0 : entries.length > 0;
   const pasteFromClipboard = useCallback(async () => {
     try {
       const clip = await navigator.clipboard.readText();
@@ -119,15 +124,25 @@ export function ImportDeckTextDialog({
     >
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>{mode === "add" ? `Add cards from a list` : `Import a deck`}</DialogTitle>
-          <DialogDescription>
-            {importing
-              ? mode === "add"
-                ? `Adding cards to this deck\u2026`
-                : `Building "${name.trim() || DEFAULT_IMPORT_NAME}"…`
+          <DialogTitle>
+            {mode === "edit"
+              ? `Edit deck list`
               : mode === "add"
-                ? `Paste a deck list to merge its cards into this deck.`
-                : `Copy your deck as text from Moxfield, then paste it below.`}
+                ? `Add cards from a list`
+                : `Import a deck`}
+          </DialogTitle>
+          <DialogDescription>
+            {mode === "edit"
+              ? importing
+                ? `Checking the edited list…`
+                : `Apply replaces the card list, including quantities and removed cards. You can undo the edit.`
+              : importing
+                ? mode === "add"
+                  ? `Adding cards to this deck\u2026`
+                  : `Building "${name.trim() || DEFAULT_IMPORT_NAME}"…`
+                : mode === "add"
+                  ? `Paste a deck list to merge its cards into this deck.`
+                  : `Copy your deck as text from Moxfield, then paste it below.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -178,13 +193,14 @@ export function ImportDeckTextDialog({
                         <td className="px-3 py-2 font-mono">{entry.count}</td>
                         <td className="px-3 py-2 font-medium">{entry.name}</td>
                         <td className="px-3 py-2 text-muted-foreground">
-                          {isDetectedCommander(entry)
-                            ? `Command zone`
-                            : entry.side
-                              ? `Sideboard`
-                              : entry.maybe
-                                ? `Maybeboard`
-                                : `Main deck`}
+                          {entry.auxiliary ??
+                            (isDetectedCommander(entry)
+                              ? `Command zone`
+                              : entry.side
+                                ? `Sideboard`
+                                : entry.maybe
+                                  ? `Maybeboard`
+                                  : `Main deck`)}
                         </td>
                         <td className="px-3 py-2 text-muted-foreground">
                           {entry.setCode
@@ -200,9 +216,11 @@ export function ImportDeckTextDialog({
               </div>
               {unrecognizedLines.length > 0 && (
                 <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
-                  {unrecognizedLines.length === 1
-                    ? `One card line was not recognized and will be skipped.`
-                    : `${unrecognizedLines.length} card lines were not recognized and will be skipped.`}
+                  {mode === "edit"
+                    ? `Fix the unrecognized or invalid lines before applying: ${unrecognizedLines.join("; ")}`
+                    : unrecognizedLines.length === 1
+                      ? `One card line was not recognized and will be skipped.`
+                      : `${unrecognizedLines.length} card lines were not recognized and will be skipped.`}
                 </div>
               )}
               <p className="text-xs text-muted-foreground">
@@ -219,9 +237,14 @@ export function ImportDeckTextDialog({
                 size="sm"
                 className="gap-1"
                 onClick={() => void handleImportClick()}
+                disabled={!valid || importing}
               >
                 <Download className="h-3.5 w-3.5" />
-                {mode === "add" ? `Confirm addition` : `Confirm import`}
+                {mode === "edit"
+                  ? `Apply changes`
+                  : mode === "add"
+                    ? `Confirm addition`
+                    : `Confirm import`}
               </Button>
             </div>
           </>
@@ -301,6 +324,16 @@ export function ImportDeckTextDialog({
                 />
               </div>
 
+              {mode === "edit" && entries.length === 0 && unrecognizedLines.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Applying an empty list removes all cards from the deck. You can undo this edit.
+                </p>
+              )}
+              {mode === "edit" && unrecognizedLines.length > 0 && (
+                <p role="alert" className="text-xs text-destructive">
+                  Fix these lines before applying: {unrecognizedLines.join("; ")}
+                </p>
+              )}
               {valid ? (
                 <div
                   key={mainCount + sideCount + maybeCount + commanderCount}
@@ -338,7 +371,11 @@ export function ImportDeckTextDialog({
                 className={cn("gap-1 transition-all", valid && "ring-2 ring-primary/40")}
               >
                 <Download className="h-3.5 w-3.5" />
-                {mode === "add" ? `Review addition` : `Review import`}
+                {mode === "edit"
+                  ? `Review changes`
+                  : mode === "add"
+                    ? `Review addition`
+                    : `Review import`}
                 {valid ? ` ${mainCount + sideCount + maybeCount + commanderCount} cards` : ""}
               </Button>
             </div>
