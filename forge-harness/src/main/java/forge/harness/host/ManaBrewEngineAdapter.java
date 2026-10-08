@@ -11,6 +11,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import forge.ai.LobbyPlayerAi;
 import forge.StaticData;
+import forge.harness.common.CardScriptOverrides;
 import forge.card.CardDb;
 import forge.card.CardEdition;
 import forge.deck.CardPool;
@@ -74,6 +75,7 @@ public final class ManaBrewEngineAdapter {
         // than a session; these end it as a Draw while the tab is still alive.
         forge.game.Game.setRunawayCardsPerTurnCap(1000);
         forge.game.Game.setRunawayTriggersPerTurnCap(5000);
+        CardScriptOverrides.apply();
         initialized = true;
     }
 
@@ -101,6 +103,7 @@ public final class ManaBrewEngineAdapter {
         if (sessions.isEmpty()) {
             ForgeEngineReset.resetAllIdCounters();
             forge.StaticData.instance().resetLazyLoadedCards();
+            CardScriptOverrides.apply();
             forge.ImageKeys.clearCaches();
         }
         final ManaBrewInteractiveSession session =

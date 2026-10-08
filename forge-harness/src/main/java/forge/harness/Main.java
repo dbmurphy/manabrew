@@ -12,6 +12,7 @@ import forge.harness.common.DecisionLog;
 import forge.harness.common.HeadlessGuiBase;
 import forge.harness.common.ParityCardMap;
 import forge.harness.common.ForgeEngineReset;
+import forge.harness.common.CardScriptOverrides;
 import forge.harness.common.SnapshotExtractor;
 
 import com.google.common.eventbus.Subscribe;
@@ -164,6 +165,7 @@ public final class Main {
             } else {
                 FModel.initialize(null, null);
             }
+            CardScriptOverrides.apply();
         } catch (Exception e) {
             System.err.println("[harness] Failed to initialize Forge: " + e.getMessage());
             e.printStackTrace(System.err);
