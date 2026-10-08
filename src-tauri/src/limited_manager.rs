@@ -4,9 +4,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use forge_foundation::sealed_product::{PaperCard, Rarity, SealedTemplate};
 use forge_foundation::ColorSet;
 use forge_limited::{
-    BoosterDraft, CardRanker, DraftRankCache, GauntletKind, GauntletMini, GauntletOutcome,
-    IBoosterDraft, LimitedDeck, LimitedPoolType, LimitedWinLoseController, SealedCardPoolGenerator,
-    SealedDeckGroup, TickOutcome, WinstonDraft,
+    BoosterDraft, BoosterDraftAI, CardRanker, DraftRankCache, GauntletKind, GauntletMini,
+    GauntletOutcome, HumanLimitedAgent, IBoosterDraft, LimitedDeck, LimitedPlayer, LimitedPoolType,
+    LimitedWinLoseController, SealedCardPoolGenerator, SealedDeckGroup, TickOutcome, WinstonDraft,
 };
 use rand::rngs::StdRng;
 use rand::SeedableRng;
@@ -28,6 +28,38 @@ impl Default for LimitedManager {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn build_draft_seats(
+    pod_size: usize,
+    ranker: Arc<CardRanker>,
+    color_of: Arc<dyn Fn(&PaperCard) -> ColorSet + Send + Sync>,
+    humans: &[(usize, String)],
+) -> Vec<LimitedPlayer> {
+    for (idx, _) in humans {
+        assert!(
+            *idx < pod_size,
+            "human seat {idx} outside pod of {pod_size}"
+        );
+    }
+    let human_lookup: HashMap<usize, &str> = humans
+        .iter()
+        .map(|(idx, name)| (*idx, name.as_str()))
+        .collect();
+    let mut ai_iter =
+        BoosterDraftAI::build_ai_seats(pod_size - humans.len(), 0, ranker, color_of).into_iter();
+    (0..pod_size)
+        .map(|seat_idx| {
+            if let Some(name) = human_lookup.get(&seat_idx) {
+                LimitedPlayer::new(seat_idx, *name, true, Box::new(HumanLimitedAgent::new()))
+            } else {
+                let mut ai = ai_iter.next().expect("AI seat for non-human slot");
+                ai.seat = seat_idx;
+                ai.name = format!("AI {seat_idx}");
+                ai
+            }
+        })
+        .collect()
 }
 
 impl LimitedManager {
@@ -130,7 +162,8 @@ impl LimitedManager {
             Arc::new(|c: &PaperCard| c.colors);
 
         let template = self.template_for_pool(&card_pool, setup.variant.as_deref());
-        let mut draft = BoosterDraft::new(pod_size, rounds, template, card_pool, ranker, color_of);
+        let seats = build_draft_seats(pod_size, ranker, color_of, &[(0, "You".to_string())]);
+        let mut draft = BoosterDraft::with_seats(pod_size, rounds, template, card_pool, seats);
         if let Some(picks) = setup.picks_per_pass {
             draft.set_picks_per_pass(picks);
         }
@@ -218,9 +251,8 @@ impl LimitedManager {
         let color_of: Arc<dyn Fn(&PaperCard) -> ColorSet + Send + Sync> =
             Arc::new(|c: &PaperCard| c.colors);
         let template = self.template_for_pool(&card_pool, setup.variant.as_deref());
-        let mut draft = BoosterDraft::with_human_seats(
-            pod_size, rounds, template, card_pool, ranker, color_of, &humans,
-        );
+        let seats = build_draft_seats(pod_size, ranker, color_of, &humans);
+        let mut draft = BoosterDraft::with_seats(pod_size, rounds, template, card_pool, seats);
         if let Some(picks) = setup.picks_per_pass {
             draft.set_picks_per_pass(picks);
         }

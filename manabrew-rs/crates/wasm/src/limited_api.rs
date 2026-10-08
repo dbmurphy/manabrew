@@ -5,10 +5,11 @@ use std::sync::Arc;
 use forge_foundation::sealed_product::{PaperCard, Rarity, SealedTemplate};
 use forge_foundation::ColorSet;
 use forge_limited::{
-    BoosterDraft, CardRanker, CubeImporter, DraftPack, DraftRankCache, GauntletKind, GauntletMini,
-    GauntletOutcome, IBoosterDraft, LimitedDeck, LimitedPoolType, LimitedWinLoseController,
-    PassDirection, SealedCardPoolGenerator, SealedDeckGroup, ThemedChaosDraft, TickOutcome,
-    WinstonDraft, WinstonOutcome, CONSPIRACY_HOOKS,
+    BoosterDraft, BoosterDraftAI, CardRanker, CubeImporter, DraftPack, DraftRankCache,
+    GauntletKind, GauntletMini, GauntletOutcome, HumanLimitedAgent, IBoosterDraft, LimitedDeck,
+    LimitedPlayer, LimitedPoolType, LimitedWinLoseController, PassDirection,
+    SealedCardPoolGenerator, SealedDeckGroup, ThemedChaosDraft, TickOutcome, WinstonDraft,
+    WinstonOutcome, CONSPIRACY_HOOKS,
 };
 use manabrew_protocol::deck_dto::DeckCardIdentity;
 use rand::rngs::StdRng;
@@ -650,6 +651,38 @@ pub fn limited_get_edition_info(set_code: String) -> Result<JsValue, JsError> {
     serde_wasm_bindgen::to_value(&dto).map_err(|e| JsError::new(&e.to_string()))
 }
 
+fn build_draft_seats(
+    pod_size: usize,
+    ranker: Arc<CardRanker>,
+    color_of: Arc<dyn Fn(&PaperCard) -> ColorSet + Send + Sync>,
+    humans: &[(usize, String)],
+) -> Vec<LimitedPlayer> {
+    for (idx, _) in humans {
+        assert!(
+            *idx < pod_size,
+            "human seat {idx} outside pod of {pod_size}"
+        );
+    }
+    let human_lookup: HashMap<usize, &str> = humans
+        .iter()
+        .map(|(idx, name)| (*idx, name.as_str()))
+        .collect();
+    let mut ai_iter =
+        BoosterDraftAI::build_ai_seats(pod_size - humans.len(), 0, ranker, color_of).into_iter();
+    (0..pod_size)
+        .map(|seat_idx| {
+            if let Some(name) = human_lookup.get(&seat_idx) {
+                LimitedPlayer::new(seat_idx, *name, true, Box::new(HumanLimitedAgent::new()))
+            } else {
+                let mut ai = ai_iter.next().expect("AI seat for non-human slot");
+                ai.seat = seat_idx;
+                ai.name = format!("AI {seat_idx}");
+                ai
+            }
+        })
+        .collect()
+}
+
 #[wasm_bindgen]
 pub fn limited_start_booster_draft(setup_json: JsValue) -> Result<JsValue, JsError> {
     let setup: BoosterDraftSetupDto =
@@ -677,7 +710,8 @@ pub fn limited_start_booster_draft(setup_json: JsValue) -> Result<JsValue, JsErr
         } else {
             template_for_pool(&card_pool, setup.variant.as_deref())
         };
-        let mut draft = BoosterDraft::new(pod_size, rounds, template, card_pool, ranker, color_of);
+        let seats = build_draft_seats(pod_size, ranker, color_of, &[(0, "You".to_string())]);
+        let mut draft = BoosterDraft::with_seats(pod_size, rounds, template, card_pool, seats);
         draft.set_limited_pool(setup.custom_pool);
         if let Some(n) = setup.picks_per_pass {
             draft.set_picks_per_pass(n);
@@ -798,9 +832,8 @@ pub fn limited_start_multiplayer_draft(
         } else {
             template_for_pool(&card_pool, setup.variant.as_deref())
         };
-        let mut draft = BoosterDraft::with_human_seats(
-            pod_size, rounds, template, card_pool, ranker, color_of, &humans,
-        );
+        let seats = build_draft_seats(pod_size, ranker, color_of, &humans);
+        let mut draft = BoosterDraft::with_seats(pod_size, rounds, template, card_pool, seats);
         draft.set_limited_pool(setup.custom_pool);
         if let Some(n) = setup.picks_per_pass {
             draft.set_picks_per_pass(n);
