@@ -47,6 +47,7 @@ pub struct ServerConfig {
     pub server_key: String,
     pub official_key: Option<String>,
     pub events_dir: Option<String>,
+    pub game_webhooks: Vec<crate::analytics::webhook::WebhookTarget>,
     pub capture_dir: Option<String>,
     pub capture_max_gb: u64,
     pub deck_hub_enabled: bool,
@@ -103,6 +104,7 @@ impl ServerConfig {
             official_key: std::env::var("SECRET_MANABREW_KEY")
                 .ok()
                 .filter(|key| !key.is_empty()),
+            game_webhooks: load_game_webhooks(),
             events_dir: std::env::var("MANABREW_EVENTS_DIR")
                 .ok()
                 .filter(|dir| !dir.is_empty()),
@@ -205,5 +207,21 @@ mod tests {
             manabrew_lan_discovery::LAN_RELAY_KEY
         );
         assert_eq!(default_server_key(false), "forge");
+    }
+}
+
+fn load_game_webhooks() -> Vec<crate::analytics::webhook::WebhookTarget> {
+    let Ok(path) = std::env::var("MANABREW_GAME_WEBHOOKS_FILE") else {
+        return Vec::new();
+    };
+    let targets = std::fs::read_to_string(path)
+        .map_err(|_| "Could not read webhook configuration file".to_string())
+        .and_then(|raw| crate::analytics::webhook::parse_targets(&raw));
+    match targets {
+        Ok(targets) => targets,
+        Err(error) => {
+            tracing::error!(%error, "Game-result webhooks disabled");
+            Vec::new()
+        }
     }
 }

@@ -64,6 +64,19 @@ async fn main() {
         )
         .init();
 
+    if std::env::args().any(|arg| arg == "--generate-integration-token") {
+        use base64::Engine;
+        let mut bytes = [0u8; 32];
+        if aws_lc_rs::rand::fill(&mut bytes).is_err() {
+            tracing::error!("Integration token generation failed");
+            std::process::exit(1);
+        }
+        println!(
+            "{}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+        );
+        return;
+    }
     let config = config::ServerConfig::from_env();
 
     // Filling the cache is a job, not a server. Somebody runs this once when

@@ -69,3 +69,34 @@ An unknown `ClientMessage` is answered with a parse error rather than a disconne
 `SetDeckSelection.avatar_url` and `Deck.playmat_url` carry the image URL the hub handed the uploader, and the relay passes them through untouched — it holds no bucket configuration, resolves nothing, and validates nothing. That is the same trust level the deck's card art already travels at: `Deck.cards[].uris` reaches `useScryfallStore` and renders unvalidated, so a cosmetic URL is not a new surface and a relay-side allowlist would only have covered half of one. Whether a URL is worth loading is the receiving client's call. `Deck.playmat_asset_id` rides along for the hub's foreign key and means nothing to the relay.
 
 The inline `data:image/webp;base64,` encoding these fields used to carry is gone, not deprecated — the fields are URLs and nothing accepts a blob any more.
+
+## Community game-result webhooks
+
+`MANABREW_GAME_WEBHOOKS_FILE` points to an operator-owned JSON file containing up to 16 integrations. Each entry has an HTTPS `url`, a secret `token`, and a `usernames` allowlist. Generate a token with `manabrew-server --generate-integration-token`, keep the configuration readable only by the relay user, and restart the relay after changing it. HTTP is accepted only for loopback development receivers. Invalid configuration disables the webhooks and logs an error without printing secrets.
+
+```json
+[
+  {
+    "url": "https://community.example/game-results",
+    "token": "REPLACE_WITH_A_GENERATED_INTEGRATION_TOKEN",
+    "usernames": ["GoblinKev", "Nix"]
+  }
+]
+```
+
+Only completed, host-reported games in hosted rooms produce a webhook. Unreported outcomes, engine failures, abandoned games and player-hosted rooms do not. A result is sent to an integration when at least one participating username exactly matches its allowlist. Its payload includes every participating username, including opponents and bots, but no decks, chat, private state or credentials.
+
+```json
+{
+  "schema_version": 1,
+  "event": "game_ended",
+  "game_id": "relay-generated-game-id",
+  "format": "Commander",
+  "winner": "GoblinKev",
+  "players": [{"username": "GoblinKev"}, {"username": "Nix"}]
+}
+```
+
+The receiver must authenticate `Authorization: Bearer <token>` and deduplicate by `game_id`, also supplied as `Idempotency-Key`. A draw has a null winner. Delivery happens outside room locks on a separate bounded queue per integration. Each HTTP request times out after five seconds. Network errors, HTTP 429 and 5xx responses are retried twice, after one and two seconds; other unsuccessful responses stop immediately. Redirects are not followed. A full queue drops the result with a warning, and queues do not survive relay restart. This proof of concept provides best-effort delivery, not durable accounting.
+
+Usernames are display/filter identifiers. A result is the engine host's report and is not independently attested. Receivers should treat it as community information rather than verified tournament or ranked results. Provision receiver URLs and secrets through relay operator configuration; clients cannot register outbound targets.
