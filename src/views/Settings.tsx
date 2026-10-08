@@ -22,6 +22,7 @@ import { useServerStore } from "@/stores/useServerStore";
 import { useGameStore } from "@/stores/useGameStore";
 import { useScryfallStore } from "@/stores/useScryfallStore";
 import { PromptPreferencesPanel } from "@/components/prompts/internal/PromptPreferencesPanel";
+import { ChangelogPanel } from "@/components/settings/ChangelogPanel";
 import { KeybindingsPanel } from "@/components/settings/KeybindingsPanel";
 import { AccountSection } from "@/components/settings/AccountSection";
 import { MyAssetsSection } from "@/components/settings/MyAssetsSection";
@@ -113,7 +114,8 @@ type SettingsTab =
   | "keybindings"
   | "cache"
   | "account"
-  | "assets";
+  | "assets"
+  | "changelog";
 
 export default function Settings() {
   const isGameActive = useGameStore((s) => s.isGameActive);
@@ -140,6 +142,7 @@ export default function Settings() {
     { value: "keybindings", label: "Shortcuts" },
     { value: "server", label: "Server" },
     { value: "cache", label: "Cache" },
+    { value: "changelog", label: "Changelog" },
   ];
   const accountTabRequested =
     location.state?.settingsTab === "account" && isFeatureEnabled("accounts");
@@ -309,6 +312,8 @@ export default function Settings() {
       {activeTab === "assets" && <MyAssetsSection />}
 
       {activeTab === "keybindings" && <KeybindingsPanel />}
+
+      {activeTab === "changelog" && <ChangelogPanel />}
 
       {activeTab === "cache" && <CardArtDownloadSection />}
 
