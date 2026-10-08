@@ -1564,7 +1564,7 @@ public final class ManaBrewInteractiveSession {
             final SpellAbility sa = original.get(i);
             final String id = "sa-" + i;
             byId.put(id, sa);
-            final CardDto dto = InteractiveSnapshotExtractor.cardDto(game, sa.getHostCard(), false);
+            final CardDto dto = InteractiveSnapshotExtractor.cardDto(game, sa.getHostCard(), false, playerId);
             items.add(new ReorderItem(id, dto, sa.getStackDescription()));
         }
         publishAgentPrompt("player-" + playerId, sourceCardId, new ReorderInput(
@@ -2284,6 +2284,7 @@ public final class ManaBrewInteractiveSession {
     }
 
     private ChooseCardsInput chooseCardsInput(
+            final int playerId,
             final String title,
             final String description,
             final List<Card> cards,
@@ -2292,7 +2293,7 @@ public final class ManaBrewInteractiveSession {
             final int max
     ) {
         return new ChooseCardsInput(
-                presentation(title, description), richCards(cards, castable), min, max);
+                presentation(title, description), richCards(cards, castable, playerId), min, max);
     }
 
     private void publishCardChoicePrompt(
@@ -2305,9 +2306,9 @@ public final class ManaBrewInteractiveSession {
         final ChooseCardsInput input;
         if ("choose_discard".equals(kind)) {
             final int maxOut = max > 0 ? max : Math.max(min, 1);
-            input = chooseCardsInput("Discard", null, cards, true, Math.min(min, maxOut), maxOut);
+            input = chooseCardsInput(playerId, "Discard", null, cards, true, Math.min(min, maxOut), maxOut);
         } else {
-            input = chooseCardsInput("Choose cards", null, cards, true, min, max);
+            input = chooseCardsInput(playerId, "Choose cards", null, cards, true, min, max);
         }
         publishAgentPrompt("player-" + playerId, null, input);
     }
@@ -2327,11 +2328,11 @@ public final class ManaBrewInteractiveSession {
         final ChooseCardsInput input;
         if ("choose_discard".equals(kind)) {
             final int maxOut = max > 0 ? max : Math.max(min, 1);
-            input = chooseCardsInput("Discard", description, cards, true, Math.min(min, maxOut), maxOut);
+            input = chooseCardsInput(playerId, "Discard", description, cards, true, Math.min(min, maxOut), maxOut);
         } else {
             final String title = sourceName != null ? sourceName : "Choose cards";
             input = chooseCardsInput(
-                    title, description, cards, false, optionalDecline ? 0 : min, max);
+                    playerId, title, description, cards, false, optionalDecline ? 0 : min, max);
         }
         publishAgentPrompt("player-" + playerId, sourceCardId, input);
     }
@@ -2432,8 +2433,12 @@ public final class ManaBrewInteractiveSession {
         final String ownerPlayerId = owner != null
                 ? "player-" + SnapshotExtractor.playerIndex(game, owner)
                 : "player-" + playerId;
+        final List<CardDto> revealedCards = new java.util.ArrayList<>();
+        for (final Card card : cards) {
+            revealedCards.add(InteractiveSnapshotExtractor.cardDto(game, card, false));
+        }
         publishAgentPrompt("player-" + playerId, null, revealInput(
-                zoneKind(zone), messagePrefix, ownerPlayerId, richCards(cards, false)));
+                zoneKind(zone), messagePrefix, ownerPlayerId, revealedCards));
     }
 
     private void publishRevealCardViewsPrompt(
@@ -2520,7 +2525,7 @@ public final class ManaBrewInteractiveSession {
         final String title = sourceName != null ? sourceName : "Reorder";
         final List<ReorderItem> items = new java.util.ArrayList<>();
         for (final Card card : cards) {
-            final CardDto dto = InteractiveSnapshotExtractor.cardDto(game, card, false);
+            final CardDto dto = InteractiveSnapshotExtractor.cardDto(game, card, false, playerId);
             items.add(new ReorderItem(dto.id, dto, null));
         }
         publishAgentPrompt("player-" + playerId, sourceCardId, new ReorderInput(
@@ -2541,7 +2546,7 @@ public final class ManaBrewInteractiveSession {
         final List<ScryDestination> zones = java.util.List.of(
                 ScryDestination.LIBRARY_TOP, surveil ? ScryDestination.GRAVEYARD : ScryDestination.LIBRARY_BOTTOM);
         publishAgentPrompt("player-" + playerId, null, new ScryInput(
-                presentation(title, description), richCards(cards, false), zones));
+                presentation(title, description), richCards(cards, false, playerId), zones));
     }
 
     private void publishCardChoicePrompt(
@@ -2560,7 +2565,7 @@ public final class ManaBrewInteractiveSession {
             publishAgentPrompt("player-" + playerId, null, new MulliganInput(handCardIds, count));
         } else {
             publishAgentPrompt("player-" + playerId, null,
-                    new MulliganPutBackInput(handCardIds, richCards(cards, false), count));
+                    new MulliganPutBackInput(handCardIds, richCards(cards, false, playerId), count));
         }
     }
 
@@ -2634,7 +2639,7 @@ public final class ManaBrewInteractiveSession {
                 attacker != null ? SnapshotExtractor.javaCardId(attacker) : null,
                 new ChooseDamageAssignmentOrderInput(
                         attacker != null ? SnapshotExtractor.javaCardId(attacker) : "",
-                        blockerIds, richCards(blockers, false)));
+                        blockerIds, richCards(blockers, false, playerId)));
     }
 
     private void publishCombatDamageAssignmentPrompt(
@@ -2939,10 +2944,10 @@ public final class ManaBrewInteractiveSession {
         return wire == null ? null : GSON.fromJson("\"" + wire + "\"", type);
     }
 
-    private List<CardDto> richCards(final List<Card> cards, final boolean castable) {
+    private List<CardDto> richCards(final List<Card> cards, final boolean castable, final int playerId) {
         final List<CardDto> out = new java.util.ArrayList<>();
         for (final Card card : cards) {
-            out.add(InteractiveSnapshotExtractor.cardDto(game, card, castable));
+            out.add(InteractiveSnapshotExtractor.cardDto(game, card, castable, playerId));
         }
         return out;
     }
@@ -2955,11 +2960,11 @@ public final class ManaBrewInteractiveSession {
             } else if (castingAbility != null) {
                 source = castingAbility.getHostCard();
             }
-            return source == null ? null : InteractiveSnapshotExtractor.cardDto(game, source, false);
+            return source == null ? null : InteractiveSnapshotExtractor.cardDto(game, source, false, promptedPlayerIndex);
         }
         for (final Card card : game.getCardsInGame()) {
             if (sourceCardId.equals(SnapshotExtractor.javaCardId(card))) {
-                return InteractiveSnapshotExtractor.cardDto(game, card, false);
+                return InteractiveSnapshotExtractor.cardDto(game, card, false, promptedPlayerIndex);
             }
         }
         return null;

@@ -488,6 +488,9 @@ public final class InteractiveSnapshotExtractor {
         dto.sagaChapters = Collections.emptyList();
         dto.choices = Collections.emptyList();
         dto.identity = new CardIdentity("", "", "", false, null);
+        dto.isDoubleFaced = false;
+        dto.isTransformed = false;
+        dto.foil = false;
         dto.text = "";
         dto.manaCost = "";
         dto.flashbackCost = null;
@@ -542,6 +545,16 @@ public final class InteractiveSnapshotExtractor {
     static CardDto cardDto(final Game game, final Card card, final boolean castable) {
         final int ownerIndex = card.getOwner() != null ? SnapshotExtractor.playerIndex(game, card.getOwner()) : 0;
         return toCard(game, card, ownerIndex, castable, null, null);
+    }
+
+    static CardDto cardDto(final Game game, final Card card, final boolean castable, final int viewer) {
+        final Player viewerPlayer = playerForIndex(game, viewer);
+        final int ownerIndex = card.getOwner() != null ? SnapshotExtractor.playerIndex(game, card.getOwner()) : 0;
+        final CardDto dto = toCard(game, card, ownerIndex, castable, viewerPlayer, null);
+        if (card.isFaceDown() && !faceShownTo(card, viewerPlayer)) {
+            redact(dto);
+        }
+        return dto;
     }
 
     private static List<String> mergedCardIds(final Card card) {
