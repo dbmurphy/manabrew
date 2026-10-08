@@ -1362,6 +1362,7 @@ export abstract class PromptModalLayer extends PromptLayerBase {
     placeSprite();
     sprite.eventMode = "passive";
     tile.addChild(sprite);
+    this.addBattlefieldState(tile, card, width, height);
     this.bindPromptCardActivation(tile, card, sprite, actionable && !disabled);
     if (disabled) {
       const unavailable = new Graphics()
@@ -1391,6 +1392,36 @@ export abstract class PromptModalLayer extends PromptLayerBase {
       onPress?.();
     });
     return tile;
+  }
+
+  private addBattlefieldState(tile: Container, card: CardDto, width: number, height: number): void {
+    const current = this.spec?.gameView.battlefield.find((entry) => entry.id === card.id);
+    if (!current) return;
+    const labels = [current.tapped ? "Tapped" : "Untapped"];
+    if (current.power != null && current.toughness != null) {
+      labels.push(`${current.power}/${current.toughness}`);
+    }
+    if (current.damage > 0) labels.push(`${current.damage} damage`);
+    for (const [type, count] of Object.entries(current.counters)) {
+      if (count > 0) labels.push(`${type === "P1P1" ? "+1/+1" : type}: ${count}`);
+    }
+    if (current.summoningSick) labels.push("Summoning sick");
+    if (current.exerted) labels.push("Exerted");
+    if (current.phasedOut) labels.push("Phased out");
+    tile.accessibleTitle += `, ${labels.join(", ")}`;
+    const visible = labels.slice(0, 4);
+    if (labels.length > visible.length) visible.push(`+${labels.length - visible.length} more`);
+    const text = promptText(visible.join(" · "), 11, this.theme.appTheme.foreground, {
+      weight: "600",
+      width: width - 16,
+    });
+    const background = new Graphics()
+      .roundRect(4, height - text.height - 12, width - 8, text.height + 8, 4)
+      .fill({ color: hexToNum(this.theme.appTheme.card), alpha: 0.95 });
+    text.position.set(8, height - text.height - 8);
+    background.eventMode = "none";
+    text.eventMode = "none";
+    tile.addChild(background, text);
   }
 
   protected createScryDestinationTile(
