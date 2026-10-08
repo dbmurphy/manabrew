@@ -14,7 +14,7 @@
 import type { ScryfallCard, ScryfallRulingsResponse, ScryfallSet } from "@/types/scryfall";
 import { cardDataCached } from "@/api/cardArtCache";
 import { lanCacheUrl } from "@/lib/lanCache";
-import { localCardArtRouteAvailable } from "@/lib/scryfallImageSource";
+import { localCardArtBaseUrl } from "@/lib/scryfallImageSource";
 import { getPlatformType } from "@/platform";
 
 let cachedCount: Promise<number> | null = null;
@@ -27,8 +27,9 @@ function localCardCount(): Promise<number> {
 
 /** Whether this machine holds records of its own to read. */
 async function localRoute(path: string): Promise<string | null> {
-  if (!(await localCardArtRouteAvailable()) || (await localCardCount()) === 0) return null;
-  return path;
+  const base = await localCardArtBaseUrl();
+  if (base === null || (await localCardCount()) === 0) return null;
+  return `${base}${path}`;
 }
 
 async function readNearest<T>(path: string): Promise<T | null> {

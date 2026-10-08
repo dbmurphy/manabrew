@@ -16,6 +16,7 @@ commands.allow = [
   "stop_local_relay",
   "discover_lan_rooms",
   "card_art_route_available",
+  "card_art_base_url",
   "preseed_card_art",
   "download_all_card_art",
   "cancel_card_art_download",

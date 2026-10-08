@@ -4,7 +4,7 @@
 //! Deliberately not `asset_server` with its loopback check relaxed: that one
 //! serves the app's assets and answers its commands. This has one route, never
 //! fetches upstream, and is world-readable to the subnet, which is why it only
-//! starts on a deliberate act.
+//! starts on a deliberate act. The separate loopback listener can fill cache misses.
 
 use std::sync::Arc;
 
@@ -37,6 +37,35 @@ impl ArtServer {
         port: u16,
         cache: Arc<ImageCache>,
     ) -> Option<ArtServer> {
+        Self::spawn_inner(bind_ip, port, cache, false)
+    }
+
+    pub fn spawn_local(cache: Arc<ImageCache>) -> Option<ArtServer> {
+        Self::spawn_inner(
+            std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+            0,
+            cache,
+            true,
+        )
+    }
+
+    fn spawn_inner(
+        bind_ip: std::net::IpAddr,
+        port: u16,
+        cache: Arc<ImageCache>,
+        local: bool,
+    ) -> Option<ArtServer> {
+        let runtime = if local {
+            Some(
+                tokio::runtime::Builder::new_multi_thread()
+                    .worker_threads(2)
+                    .enable_all()
+                    .build()
+                    .ok()?,
+            )
+        } else {
+            None
+        };
         let server = Arc::new(tiny_http::Server::http((bind_ip, port)).ok()?);
         let port = server.server_addr().to_ip()?.port();
         let accept = server.clone();
@@ -44,10 +73,23 @@ impl ArtServer {
         // both and the two can never be paired wrong.
         let cards = CardStore::new(cache.root());
 
+        let loopback_host = format!("127.0.0.1:{port}");
+        let localhost_host = format!("localhost:{port}");
         std::thread::spawn(move || {
             // `unblock` ends this iterator, closing the listener.
             for request in accept.incoming_requests() {
-                serve(request, &cache, &cards);
+                if local {
+                    let host_ok = request.headers().iter().any(|header| {
+                        header.field.equiv("Host")
+                            && (header.value.as_str() == loopback_host
+                                || header.value.as_str() == localhost_host)
+                    });
+                    if !host_ok {
+                        let _ = request.respond(tiny_http::Response::empty(403));
+                        continue;
+                    }
+                }
+                serve(request, &cache, &cards, runtime.as_ref());
             }
         });
 
@@ -55,7 +97,12 @@ impl ArtServer {
     }
 }
 
-fn serve(request: tiny_http::Request, cache: &ImageCache, cards: &CardStore) {
+fn serve(
+    request: tiny_http::Request,
+    cache: &Arc<ImageCache>,
+    cards: &CardStore,
+    runtime: Option<&tokio::runtime::Runtime>,
+) {
     let raw = request.url().to_string();
     if let Some(asked) = parse_request(&raw) {
         serve_json(
@@ -74,11 +121,29 @@ fn serve(request: tiny_http::Request, cache: &ImageCache, cards: &CardStore) {
         let _ = request.respond(tiny_http::Response::empty(404));
         return;
     };
-    // Read-only: a host with internet must not become a proxy for the subnet.
-    let Some(bytes) = cache.read(key) else {
+    if let Some(bytes) = cache.read(key) {
+        serve_image(request, key, bytes);
+    } else if let Some(runtime) = runtime {
+        let cache = cache.clone();
+        let key = key.to_owned();
+        runtime.spawn(async move {
+            let bytes =
+                tokio::time::timeout(std::time::Duration::from_secs(10), cache.get_or_fetch(&key))
+                    .await
+                    .ok()
+                    .flatten();
+            if let Some(bytes) = bytes {
+                serve_image(request, &key, bytes);
+            } else {
+                let _ = request.respond(tiny_http::Response::empty(404));
+            }
+        });
+    } else {
         let _ = request.respond(tiny_http::Response::empty(404));
-        return;
-    };
+    }
+}
+
+fn serve_image(request: tiny_http::Request, key: &str, bytes: Vec<u8>) {
     let mut response = tiny_http::Response::from_data(bytes);
     for (name, value) in [
         ("Content-Type", mime_for(key)),
