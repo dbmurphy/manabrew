@@ -1,3 +1,4 @@
+import { Checkbox } from "@/components/ui/checkbox";
 import { useState } from "react";
 import { Bot, Check, ChevronDown, Copy, LockKeyhole, LogOut, Shield, UserPlus } from "lucide-react";
 import { toast } from "sonner";
@@ -29,6 +30,7 @@ const HOST_SELECTABLE_FORMATS: GameFormat[] = [
 const PLAYER_COUNT_OPTIONS = [2, 3, 4];
 const MULTIPLAYER_FORMATS: GameFormat[] = ["Commander", "Brawl", "Oathbreaker"];
 interface TableRoomSidebarProps {
+  soundAlerts: { enabled: boolean; setEnabled: (enabled: boolean) => void };
   room: RoomInfo;
   roomPassword?: string | null;
   modeLabel: string;
@@ -46,6 +48,7 @@ interface TableRoomSidebarProps {
   onAddBot?: () => void;
 }
 export function TableRoomSidebar({
+  soundAlerts,
   room,
   roomPassword,
   modeLabel,
@@ -82,6 +85,16 @@ export function TableRoomSidebar({
     <aside className="grid content-start gap-4 sm:grid-cols-2 xl:grid-cols-1">
       <section className="rounded-xl border bg-card/85 p-4 backdrop-blur-md">
         <h2 className="truncate font-serif text-xl font-light">{room.room_name}</h2>
+        <label className="mt-3 flex items-center gap-2 text-sm">
+          <Checkbox
+            checked={soundAlerts.enabled}
+            onCheckedChange={(checked) => soundAlerts.setEnabled(checked === true)}
+          />
+          Lobby sound alerts
+        </label>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Play a sound when someone joins or becomes ready.
+        </p>
         <dl className="mt-3 space-y-3 text-sm">
           <div className="flex items-center justify-between gap-3">
             <dt className="text-muted-foreground">Format</dt>

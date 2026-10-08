@@ -41,6 +41,9 @@ export interface PreferencesState {
   appLanguage: AppLanguagePreference;
   setAppLanguage: (language: AppLanguagePreference) => void;
 
+  lobbySoundAlerts: boolean;
+  setLobbySoundAlerts: (enabled: boolean) => void;
+
   flashDurationMs: number;
   setFlashDurationMs: (ms: number) => void;
 
@@ -176,6 +179,7 @@ const PERSISTED_PREFERENCE_KEYS = [
   "appThemePreset",
   "personalThemeName",
   "appLanguage",
+  "lobbySoundAlerts",
   "flashDurationMs",
   "serverHost",
   "serverPort",
@@ -287,6 +291,8 @@ export const usePreferencesStore = create<PreferencesState>()(
           appLanguage: "system",
           setAppLanguage: (appLanguage) => set({ appLanguage }),
 
+          lobbySoundAlerts: false,
+          setLobbySoundAlerts: (enabled) => set({ lobbySoundAlerts: enabled }),
           flashDurationMs: 1000,
           setFlashDurationMs: (ms) => set({ flashDurationMs: ms }),
 
