@@ -227,17 +227,18 @@ public final class ManaBrewEngineAdapter {
         for (PaperCard card : main.toFlatList()) {
             mainByName.putIfAbsent(card.getName().toLowerCase(Locale.ROOT), card);
         }
-        List<String> uniqueCommanders = new ArrayList<>();
+        final CardNameIndex names = staticDataNames();
+        for (CardIdentity card : playerConfig.getDeck()) {
+            final PaperCard resolved = mainByName.get(resolveCardName(card, names).toLowerCase(Locale.ROOT));
+            if (resolved != null) {
+                mainByName.putIfAbsent(card.getName().toLowerCase(Locale.ROOT), resolved);
+            }
+        }
         Set<String> seenCommanders = new HashSet<>();
         for (String commanderName : playerConfig.getCommanderNames()) {
             if (commanderName == null || commanderName.isBlank()) {
                 continue;
             }
-            if (seenCommanders.add(commanderName.toLowerCase(Locale.ROOT))) {
-                uniqueCommanders.add(commanderName);
-            }
-        }
-        for (String commanderName : uniqueCommanders) {
             PaperCard commander = mainByName.get(commanderName.toLowerCase(Locale.ROOT));
             if (commander == null && commanderName.contains(" // ")) {
                 // Forge keys DFCs by front face; mirrors CardDatabase::get_by_card_name.
@@ -247,6 +248,9 @@ public final class ManaBrewEngineAdapter {
             if (commander == null) {
                 throw new IllegalArgumentException("commander was not found in main deck: "
                         + commanderName);
+            }
+            if (!seenCommanders.add(commander.getName().toLowerCase(Locale.ROOT))) {
+                continue;
             }
             main.remove(commander, 1);
             deck.getOrCreate(DeckSection.Commander).add(commander, 1);
@@ -278,7 +282,8 @@ public final class ManaBrewEngineAdapter {
             return requested;
         }
         if (names.knowsCard(requested)) {
-            return requested;
+            final String canonical = names.cardNameForFlavorName(requested);
+            return canonical == null || canonical.isBlank() ? requested : canonical;
         }
         final String printed = names.cardNamePrintedAs(
                 card.getSetCode(), card.getCollectorNumber(), requested);
