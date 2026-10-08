@@ -1,14 +1,9 @@
-use std::sync::Arc;
-
 use forge_foundation::sealed_product::{
     IUnOpenedProduct, PaperCard, SealedTemplate, UnOpenedProduct,
 };
-use forge_foundation::ColorSet;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 
-use crate::booster_draft_ai::BoosterDraftAI;
-use crate::card_ranker::CardRanker;
 use crate::draft_pack::DraftPack;
 use crate::i_booster_draft::IBoosterDraft;
 use crate::i_draft_log::{IDraftLog, VecDraftLog};
@@ -68,59 +63,17 @@ struct SeatSnapshot {
 }
 
 impl BoosterDraft {
-    pub fn new(
+    pub fn with_seats(
         pod_size: usize,
         rounds: u32,
         template: SealedTemplate,
         pool: Vec<PaperCard>,
-        ranker: Arc<CardRanker>,
-        color_of: Arc<dyn Fn(&PaperCard) -> ColorSet + Send + Sync>,
-    ) -> Self {
-        Self::with_human_seats(
-            pod_size,
-            rounds,
-            template,
-            pool,
-            ranker,
-            color_of,
-            &[(0, "You".to_string())],
-        )
-    }
-
-    pub fn with_human_seats(
-        pod_size: usize,
-        rounds: u32,
-        template: SealedTemplate,
-        pool: Vec<PaperCard>,
-        ranker: Arc<CardRanker>,
-        color_of: Arc<dyn Fn(&PaperCard) -> ColorSet + Send + Sync>,
-        humans: &[(usize, String)],
+        seats: Vec<LimitedPlayer>,
     ) -> Self {
         assert!(pod_size >= 2, "draft needs at least 2 seats");
-        for (idx, _) in humans {
-            assert!(
-                *idx < pod_size,
-                "human seat {idx} outside pod of {pod_size}"
-            );
-        }
-        let human_lookup: std::collections::HashMap<usize, &str> = humans
-            .iter()
-            .map(|(idx, name)| (*idx, name.as_str()))
-            .collect();
-        let mut seats = Vec::with_capacity(pod_size);
-        let mut ai_iter =
-            BoosterDraftAI::build_ai_seats(pod_size - humans.len(), 0, ranker, color_of)
-                .into_iter();
-        for seat_idx in 0..pod_size {
-            if let Some(name) = human_lookup.get(&seat_idx) {
-                let agent: Box<dyn LimitedAgent> = Box::new(HumanLimitedAgent::new());
-                seats.push(LimitedPlayer::new(seat_idx, *name, true, agent));
-            } else {
-                let mut ai = ai_iter.next().expect("AI seat for non-human slot");
-                ai.seat = seat_idx;
-                ai.name = format!("AI {seat_idx}");
-                seats.push(ai);
-            }
+        assert_eq!(seats.len(), pod_size, "one player per draft seat");
+        for (idx, seat) in seats.iter().enumerate() {
+            assert_eq!(seat.seat, idx, "draft players must be in seat order");
         }
         Self {
             pod_size,
@@ -441,6 +394,8 @@ mod tests {
     use crate::card_ranker::CardRanker;
     use crate::draft_rank_cache::DraftRankCache;
     use forge_foundation::sealed_product::Rarity;
+    use forge_foundation::ColorSet;
+    use std::sync::Arc;
 
     fn pool() -> Vec<PaperCard> {
         let mut v = Vec::new();
@@ -486,18 +441,9 @@ mod tests {
         let color_of: Arc<dyn Fn(&PaperCard) -> ColorSet + Send + Sync> =
             Arc::new(|_| ColorSet::COLORLESS);
 
-        let mut draft = BoosterDraft::new(
-            2,
-            3,
-            SealedTemplate::generic_draft_booster(),
-            pool(),
-            ranker.clone(),
-            color_of.clone(),
-        );
-        draft.seats[0].agent = Box::new(crate::limited_player_ai::LimitedPlayerAI::new(
-            ranker, color_of,
-        ));
-        draft.seats[0].is_human = false;
+        let seats = crate::BoosterDraftAI::build_ai_seats(2, 0, ranker, color_of);
+        let mut draft =
+            BoosterDraft::with_seats(2, 3, SealedTemplate::generic_draft_booster(), pool(), seats);
 
         for _ in 0..3 {
             assert!(draft.start_round());
