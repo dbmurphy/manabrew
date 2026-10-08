@@ -1554,6 +1554,18 @@ pub fn resolve_count_svar_for_sa(
         return game.player(controller).speed;
     }
 
+    if let Some(operators) = expr.strip_prefix("Count$YourStartingLife") {
+        let operators = operators.strip_prefix('/').unwrap_or(operators);
+        return do_x_math(
+            game.player(controller).starting_life,
+            operators,
+            game,
+            source_id,
+            controller,
+            sa,
+        );
+    }
+
     if let Some(operators) = expr.strip_prefix("Count$YourLifeTotal") {
         let operators = operators.strip_prefix('/').unwrap_or(operators);
         return do_x_math(
